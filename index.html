@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Co-Exhibitor Module · Evenuefy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ================= Sidebar ================= -->
+  <aside class="sidebar">
+    <div class="logo">e<span>venuefy</span></div>
+
+    <a class="nav-item" href="#/co-exhibitors" style="pointer-events:none;opacity:0.5">
+      <span class="material-symbols-outlined">home</span>Dashboard
+    </a>
+    <a class="nav-item" style="pointer-events:none;opacity:0.5">
+      <span class="material-symbols-outlined">storefront</span>Manage Booth
+    </a>
+    <a class="nav-item" style="pointer-events:none;opacity:0.5">
+      <span class="material-symbols-outlined">event_seat</span>Manage Exhibition
+    </a>
+    <a class="nav-item" style="pointer-events:none;opacity:0.5">
+      <span class="material-symbols-outlined">shopping_cart</span>My Orders
+    </a>
+    <a class="nav-item" style="pointer-events:none;opacity:0.5">
+      <span class="material-symbols-outlined">view_comfy_alt</span>Space Booking
+    </a>
+    <a class="nav-item" data-route="space-requirement" href="#/space-requirement">
+      <span class="material-symbols-outlined">design_services</span>Space Requirement
+    </a>
+    <a class="nav-item" data-route="aircraft" href="#/aircraft">
+      <span class="material-symbols-outlined">flight</span>Aircraft Registration
+    </a>
+
+    <div class="nav-group-label">Co-Exhibitors</div>
+    <div class="nav-sub" style="margin-left:0;border:none;padding-left:0">
+      <a class="nav-item" data-route="co-exhibitors" href="#/co-exhibitors">
+        <span class="material-symbols-outlined">group_add</span>Add Co-Exhibitor
+      </a>
+      <a class="nav-item" data-route="allocate-stall" href="#/allocate-stall">
+        <span class="material-symbols-outlined">dashboard_customize</span>Allocate Stall
+      </a>
+    </div>
+
+    <div class="nav-group-label">Passes</div>
+    <div class="nav-sub" style="margin-left:0;border:none;padding-left:0">
+      <a class="nav-item" data-route="passes/badges" href="#/passes/badges">
+        <span class="material-symbols-outlined">badge</span>Badge Details
+      </a>
+      <a class="nav-item" data-route="passes/invitee" href="#/passes/invitee">
+        <span class="material-symbols-outlined">mail</span>Exhibitor Invitee Details
+      </a>
+      <a class="nav-item" data-route="passes/vehicle" href="#/passes/vehicle">
+        <span class="material-symbols-outlined">directions_car</span>Vehicle Pass Details
+      </a>
+    </div>
+
+    <a class="nav-item" style="pointer-events:none;opacity:0.5;margin-top:8px">
+      <span class="material-symbols-outlined">meeting_room</span>Meeting Rooms
+    </a>
+    <a class="nav-item" style="pointer-events:none;opacity:0.5">
+      <span class="material-symbols-outlined">inventory_2</span>Products
+    </a>
+  </aside>
+
+  <!-- ================= Main ================= -->
+  <main class="content">
+    <div class="topbar">
+      <div class="event">Aero India 2027<small>10th to 15th Feb 2027 (Asia/Kolkata)</small></div>
+      <div class="spacer"></div>
+      <span class="chip-user">Hindustan Aeronautics Limited (HAL)</span>
+      <button class="cart-btn" onclick="openCart()" aria-label="Cart">
+        <span class="material-symbols-outlined">shopping_cart</span>
+        <span class="cart-count" id="cartCount" style="display:none">0</span>
+      </button>
+    </div>
+
+    <div class="view" id="view"><!-- rendered by app.js --></div>
+  </main>
+</div>
+
+<div id="toasts"></div>
+<script src="app.js"></script>
+<script src="aircraft.js"></script>
+</body>
+</html>

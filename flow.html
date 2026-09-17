@@ -1,0 +1,569 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evenuefy Co-Exhibitor Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --paper: #FAFBFD;
+    --card: #FFFFFF;
+    --ink: #1C2333;
+    --muted: #5B6478;
+    --line: #E3E8F1;
+    --accent: #2F62D8;
+    --accent-soft: #EAF0FC;
+    --good: #1E8E5A;
+    --good-soft: #E6F4EC;
+    --warn: #B97A0F;
+    --warn-soft: #FBF1DC;
+    --crit: #C6432E;
+    --crit-soft: #FBEAE6;
+    --code-bg: #F1F4F9;
+  }
+  :root:not([data-theme="light"]) { }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #12161F;
+      --card: #1A2029;
+      --ink: #E8ECF4;
+      --muted: #99A3B5;
+      --line: #2A3342;
+      --accent: #6D96EC;
+      --accent-soft: #1E2A42;
+      --good: #4CC08A;
+      --good-soft: #14301F;
+      --warn: #E0A93E;
+      --warn-soft: #33270E;
+      --crit: #E9705B;
+      --crit-soft: #391711;
+      --code-bg: #232B38;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #12161F;
+    --card: #1A2029;
+    --ink: #E8ECF4;
+    --muted: #99A3B5;
+    --line: #2A3342;
+    --accent: #6D96EC;
+    --accent-soft: #1E2A42;
+    --good: #4CC08A;
+    --good-soft: #14301F;
+    --warn: #E0A93E;
+    --warn-soft: #33270E;
+    --crit: #E9705B;
+    --crit-soft: #391711;
+    --code-bg: #232B38;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Public Sans", "Segoe UI", system-ui, sans-serif;
+    font-size: 15.5px;
+    line-height: 1.65;
+    margin: 0;
+    padding: 0 20px 96px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+
+  h1, h2, h3 {
+    font-family: "Bricolage Grotesque", "Public Sans", sans-serif;
+    text-wrap: balance;
+    line-height: 1.15;
+  }
+  h1 { font-size: 2.6rem; font-weight: 800; margin: 0 0 10px; letter-spacing: -0.02em; }
+  h2 { font-size: 1.55rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  h3 { font-size: 1.08rem; font-weight: 700; margin: 28px 0 8px; }
+  p { margin: 10px 0; max-width: 72ch; }
+  code, .mono {
+    font-family: "IBM Plex Mono", Consolas, monospace;
+    font-size: 0.86em;
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  .eyebrow {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 600;
+    color: var(--accent);
+    margin: 48px 0 6px;
+  }
+  header.masthead { padding: 64px 0 28px; border-bottom: 2px solid var(--ink); margin-bottom: 8px; }
+  .masthead .meta {
+    display: flex; flex-wrap: wrap; gap: 8px 22px;
+    font-size: 0.82rem; color: var(--muted); margin-top: 14px;
+  }
+  .masthead .meta span b { color: var(--ink); font-weight: 600; }
+
+  section.num {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 0 22px;
+    margin-top: 56px;
+  }
+  section.num > .n {
+    font-family: "Bricolage Grotesque", sans-serif;
+    font-weight: 800;
+    font-size: 1.5rem;
+    color: var(--accent);
+    line-height: 1.25;
+  }
+  section.num > .body { min-width: 0; }
+  @media (max-width: 640px) {
+    section.num { grid-template-columns: 1fr; gap: 4px; }
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    margin: 14px 0 6px;
+  }
+  .tablewrap { overflow-x: auto; }
+  th {
+    text-align: left;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-weight: 600;
+    padding: 8px 12px 6px;
+    border-bottom: 1.5px solid var(--ink);
+  }
+  td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  td:first-child, th:first-child { padding-left: 0; }
+  tr:last-child td { border-bottom: none; }
+  .num-col { font-variant-numeric: tabular-nums; }
+
+  .finding {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px 14px;
+    margin: 14px 0;
+  }
+  .finding .head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .finding h3 { margin: 0; }
+  .pill {
+    display: inline-block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    padding: 2px 9px;
+    border-radius: 99px;
+    white-space: nowrap;
+  }
+  .pill.crit { background: var(--crit-soft); color: var(--crit); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.info { background: var(--accent-soft); color: var(--accent); }
+  .pill.good { background: var(--good-soft); color: var(--good); }
+
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    border-radius: 0 8px 8px 0;
+    padding: 12px 16px;
+    margin: 16px 0;
+    font-size: 0.92rem;
+  }
+  .note.warn { border-color: var(--warn); background: var(--warn-soft); }
+
+  ul, ol { padding-left: 22px; margin: 8px 0; }
+  li { margin: 4px 0; }
+  li::marker { color: var(--muted); }
+
+  .menu-tree {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.84rem;
+    background: var(--code-bg);
+    border-radius: 10px;
+    padding: 18px 22px;
+    line-height: 1.9;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .menu-tree .new { color: var(--good); font-weight: 500; }
+  .menu-tree .chg { color: var(--warn); }
+
+  .kv { display: grid; grid-template-columns: 190px 1fr; gap: 6px 18px; font-size: 0.92rem; margin: 12px 0; }
+  .kv dt { color: var(--muted); font-weight: 600; }
+  .kv dd { margin: 0; }
+  @media (max-width: 560px) { .kv { grid-template-columns: 1fr; gap: 0 0; } .kv dt { margin-top: 8px; } }
+
+  .money { font-family: "IBM Plex Mono", monospace; font-weight: 500; white-space: nowrap; }
+
+  pre.mermaid {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px;
+    overflow-x: auto;
+    margin: 18px 0;
+  }
+  footer {
+    margin-top: 72px; padding-top: 18px;
+    border-top: 1px solid var(--line);
+    font-size: 0.8rem; color: var(--muted);
+  }
+  a { color: var(--accent); }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head><body>
+
+<div class="wrap">
+
+<header class="masthead">
+  <div class="eyebrow" style="margin-top:0">Evenuefy · Exhibitor Portal · Aero India 2027</div>
+  <h1>Co-Exhibitor Flow</h1>
+  <p style="font-size:1.05rem; color:var(--muted); max-width:64ch">UI/UX review of the current exhibitor dashboard and the complete functional specification for the new Co-Exhibitor module — companies, stall allocation, and pass-quota distribution.</p>
+  <div class="meta">
+    <span><b>Environment</b> dev.evenuefy.com</span>
+    <span><b>Reviewed as</b> Exhibitor (HAL, Hall 2 · C-25 · 36 sqm)</span>
+    <span><b>Date</b> 29 Aug 2026</span>
+    <span><b>Status</b> Ready for development</span>
+  </div>
+</header>
+
+<!-- ============ 1. CURRENT STATE ============ -->
+<section class="num">
+  <div class="n">01</div>
+  <div class="body">
+    <h2>What exists today</h2>
+    <p>The exhibitor portal is an Angular SPA. After login the exhibitor lands on a profile-setup dashboard; the left sidebar (collapsed to icons by default) carries the full navigation:</p>
+
+    <div class="menu-tree">Dashboard
+Manage Booth        › Document · Video
+Manage Exhibition   › Exhibition Forms
+My Orders
+Space Booking       › My Spaces · Book Space
+Meeting Rooms
+B2B Meetings
+Vehicle Pass          /app/vehical-pass
+Exhibitor Badges      /app/manage-exhibitor
+Products</div>
+
+    <h3>Screens that the Co-Exhibitor module builds on</h3>
+    <div class="tablewrap"><table>
+      <tr><th style="width:220px">Screen</th><th>What it does now</th></tr>
+      <tr><td><b>My Spaces</b><br><code>/app/space-booking/dashboard</code></td><td>Lists space applications with status chips (Waiting for Approval, Approved, Confirmed), slab-based payment tracking (outstanding <span class="money">₹10,83,587</span> of <span class="money">₹43,34,347</span>), and per-stall detail: name, area, scheme (Raw/Shell), open sides. One confirmed stall: A8.5, Hall A, 110 m².</td></tr>
+      <tr><td><b>Badge Quota Management</b><br><code>/app/manage-exhibitor</code></td><td>Summary tiles (Total 114 / Used 1 / Available 113), a category carousel — Exhibitor Badges 1/6 free, Exhibitor Support Staff 0/3 free, Additional Exhibitor Badges 0/5 paid, Exhibitor-Contractor Badges 0/100 free — each with Invite Via Email, Registration Team, View Listing, Bulk Upload. Below: a searchable registrant table (profile, contact, reg. no., ticket, payments, registration, e-badge).</td></tr>
+      <tr><td><b>Vehicle Parking Management</b><br><code>/app/vehical-pass</code></td><td>Quota header ("1 COMP + 1 PAID"), an Activate flow per complimentary pass (vehicle no. + secure zone locked until activation), purchase of additional passes gated behind activating free ones, and a separate section for vehicles above 12-seater with a Paid Pass CTA.</td></tr>
+    </table></div>
+
+    <p>There is <b>no Co-Exhibitor concept anywhere</b> in the current portal — no menu, no data captured, no quota sub-allocation. Everything in section 03 onward is net-new.</p>
+  </div>
+</section>
+
+<!-- ============ 2. UI/UX REVIEW ============ -->
+<section class="num">
+  <div class="n">02</div>
+  <div class="body">
+    <h2>UI/UX review findings</h2>
+
+    <div class="finding">
+      <div class="head"><span class="pill crit">Blocker</span><h3>The given dashboard URL serves a blank page</h3></div>
+      <p><code>https://dev.evenuefy.com/dashboard/</code> renders solid white. The old build deployed under <code>/dashboard/</code> ships an <code>index.html</code> with <code>&lt;base href="/"&gt;</code>, so the browser requests its bundles (<code>main.ba5d7a45…js</code>, <code>styles.4c0a4b…css</code>) from the site <b>root</b> — where they don't exist. The SPA fallback returns HTML for those requests and the browser blocks them as MIME-type errors. The bundles do exist under <code>/dashboard/</code>.</p>
+      <p><b>Fix:</b> either rebuild that app with <code>--base-href /dashboard/</code>, or 301-redirect <code>/dashboard/</code> to the root app (which works and appears to be the current build). Anyone following the shared login URL today sees a dead page.</p>
+    </div>
+
+    <div class="finding">
+      <div class="head"><span class="pill warn">High</span><h3>Login "Continue" stays disabled after typing a valid email</h3></div>
+      <p>On step 1 of login, typing a full valid email leaves the Continue button disabled; the control only enables after an extra Enter keypress re-triggers validation. The input showed <code>ng-valid ng-dirty</code> while the surrounding form stayed <code>ng-pristine ng-invalid</code> — the button's disabled binding is watching a form group the visible control doesn't update on <code>input</code>. Users who type and click (the majority) will believe login is broken.</p>
+    </div>
+
+    <div class="finding">
+      <div class="head"><span class="pill warn">High</span><h3>Icon-only sidebar hides the product</h3></div>
+      <p>The sidebar loads collapsed with unlabeled icons and no tooltips surfaced on the collapsed state. First-time exhibitors cannot find Badges or Vehicle Pass without expanding — and the expand affordance is a small chevron. Recommend labels-on by default for first session, or persistent tooltips. This matters more once Co-Exhibitors is added: a brand-new menu nobody has seen must be findable.</p>
+    </div>
+
+    <div class="finding">
+      <div class="head"><span class="pill info">Medium</span><h3>Naming and copy inconsistencies</h3></div>
+      <ul>
+        <li>Route typo: <code>/app/vehical-pass</code> ("vehical" → "vehicle"). Cosmetic in the URL bar, but it leaks into analytics and support docs.</li>
+        <li>Badges page route is <code>/app/manage-exhibitor</code> — after this project adds real co-exhibitor management, that name will collide. Consider <code>/app/badges</code>.</li>
+        <li>The quota modal is titled "Ticket / Parent User Selection" — internal jargon. Exhibitors think in "badge categories", not parent users.</li>
+        <li>Company name renders with broken casing in tables: "Hindustan Aeronautics Limited (Hal)" — a <code>titlecase</code> pipe is mangling the stored acronym "(HAL)".</li>
+        <li>Two-digit years in tables ("24 Jul, 26") read ambiguously; use "24 Jul 2026".</li>
+      </ul>
+    </div>
+
+    <div class="finding">
+      <div class="head"><span class="pill info">Medium</span><h3>Passes are scattered across the menu</h3></div>
+      <p>"Exhibitor Badges" and "Vehicle Pass" sit as unrelated top-level items, and the planned Exhibitor Invitee passes would make a third. The requirement already groups them: introduce a single <b>Passes</b> menu with three sub-items (section 03). This shortens the sidebar and matches the exhibitor's mental model — "everything that gets a person or vehicle through the gate".</p>
+    </div>
+
+    <div class="finding">
+      <div class="head"><span class="pill good">Works well</span><h3>Patterns worth reusing for Co-Exhibitors</h3></div>
+      <p>The quota card pattern (allocated / used / available with a usage progress bar), status chips on My Spaces, and the searchable registrant table are clear and already familiar to exhibitors. The Co-Exhibitor screens below deliberately reuse all three rather than inventing new patterns.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 3. IA ============ -->
+<section class="num">
+  <div class="n">03</div>
+  <div class="body">
+    <h2>New information architecture</h2>
+    <p>Two changes to the exhibitor sidebar: a new <b>Co-Exhibitors</b> main menu, and the pass-related items consolidated under one <b>Passes</b> menu.</p>
+
+    <div class="menu-tree">Dashboard
+Manage Booth        › Document · Video
+Manage Exhibition   › Exhibition Forms
+My Orders
+Space Booking       › My Spaces · Book Space
+<span class="new">Co-Exhibitors       › Add Co-Exhibitor · Allocate Stall      ← NEW</span>
+<span class="chg">Passes              › Badge Details                          ← regrouped</span>
+<span class="chg">                    › Exhibitor Invitee Details              ← NEW</span>
+<span class="chg">                    › Vehicle Pass Details</span>
+Meeting Rooms
+B2B Meetings
+Products</div>
+
+    <p><b>Gating rule:</b> the Co-Exhibitors menu is enabled only when the exhibitor has at least one <i>confirmed</i> (booked &amp; paid) space. Before that, show the menu disabled with a tooltip: "Available after your space booking is confirmed." This enforces requirement #1 — book first, then distribute.</p>
+  </div>
+</section>
+
+<!-- ============ 4. ADD CO-EXHIBITOR ============ -->
+<section class="num">
+  <div class="n">04</div>
+  <div class="body">
+    <h2>Add Co-Exhibitor</h2>
+
+    <h3>4.1 · Listing behaviour</h3>
+    <ul>
+      <li><b>Empty state:</b> if the exhibitor has no co-exhibitors yet, skip the list and open the Add New Co-Exhibitor form directly (with a small "back to list" breadcrumb once at least one exists).</li>
+      <li><b>List state:</b> table of co-exhibitors with an <b>+ Add New</b> primary CTA, reusing the registrant-table pattern from Badge Quota Management.</li>
+    </ul>
+    <div class="tablewrap"><table>
+      <tr><th>#</th><th>Company</th><th>Type</th><th>Nodal officer / Email</th><th>Reg. no.</th><th>Registration</th><th>Space allocated</th><th>Actions</th></tr>
+      <tr><td class="num-col">1</td><td>ABC Avionics Pvt Ltd</td><td><span class="pill info">Separate</span></td><td>R. Sharma · rs@abc.com</td><td class="mono">COEX-2027-0001</td><td><span class="pill good">Paid</span></td><td class="num-col">12 sqm</td><td>View · Edit</td></tr>
+      <tr><td class="num-col">2</td><td>HAL Rotary Division</td><td><span class="pill warn">Subsidiary</span></td><td>— · rotary@hal.in</td><td class="mono">—</td><td>N/A (free)</td><td class="num-col">8 sqm</td><td>View · Edit</td></tr>
+    </table></div>
+
+    <h3>4.2 · Add New Co-Exhibitor form</h3>
+    <p>First field is the type selector; it switches the form and the rules that follow.</p>
+
+    <pre class="mermaid">
+flowchart TD
+  A[Add New Co-Exhibitor] --> B{Exhibitor type?}
+  B -->|Subsidiary| C[Company name + email]
+  C --> D[Save record]
+  D --> E[No login · no charges<br>no passes or services<br>counted as part of principal exhibitor]
+  B -->|Separate| F[Nodal officer first/last name<br>company name + email]
+  F --> G[Generate unique reg. number]
+  G --> H[Add ₹40,000 incl. GST<br>to main exhibitor's cart]
+  H --> I{Payment complete?}
+  I -->|Yes| J[Create login · send welcome email<br>with credentials]
+  I -->|No| K[Status: Payment pending<br>no login yet]
+  J --> L[Co-exhibitor active:<br>eligible for space + pass quotas]
+    </pre>
+
+    <h3>Subsidiary type</h3>
+    <div class="kv">
+      <dt>Fields</dt><dd>Subsidiary Company Name · Subsidiary Company Email</dd>
+      <dt>Login</dt><dd>None — and no services of any kind</dd>
+      <dt>Charges</dt><dd>None</dd>
+      <dt>Passes</dt><dd>Not entitled to complimentary passes or services</dd>
+      <dt>Identity</dt><dd>Treated as part of the principal exhibitor everywhere (directory, signage, reports)</dd>
+    </div>
+    <p>Show these rules as a static note on the form itself, so the exhibitor chooses the type knowingly.</p>
+
+    <h3>Separate type</h3>
+    <div class="kv">
+      <dt>Fields</dt><dd>Nodal Officer First Name · Last Name · Company Name · Email</dd>
+      <dt>Registration fee</dt><dd><span class="money">₹40,000</span> including GST — paid by the <b>main exhibitor</b> (goes to the exhibitor's cart/orders, not to the co-exhibitor)</dd>
+      <dt>On submission</dt><dd>Unique reference/registration number generated (e.g. <code>COEX-2027-0001</code>)</dd>
+      <dt>On payment</dt><dd>Separate login is created; the co-exhibitor company receives a welcome email with credentials</dd>
+    </div>
+
+    <div class="note warn"><b>Decision needed:</b> should the login + welcome email fire on form submission or only after the ₹40,000 payment clears? The flow above assumes <b>after payment</b> (safer — no active co-exhibitor accounts with unpaid registration). Confirm with the organiser team.</div>
+
+    <h3>4.3 · Validation</h3>
+    <ul>
+      <li>Email must be unique across exhibitors and co-exhibitors for the event.</li>
+      <li>Duplicate company-name warning (non-blocking) within the same exhibitor.</li>
+      <li>Type cannot be changed after creation if stall space or quotas are already allocated; require de-allocation first.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ 5. ALLOCATE STALL ============ -->
+<section class="num">
+  <div class="n">05</div>
+  <div class="body">
+    <h2>Allocate Stall</h2>
+    <p>Same empty-state rule as the co-exhibitor list: no allocations yet → open the Allocate Space form directly; otherwise show the allocation list with an <b>Allocate Area</b> CTA.</p>
+
+    <h3>Allocate Space form</h3>
+    <div class="tablewrap"><table>
+      <tr><th style="width:200px">Field</th><th>Control</th><th>Source / rule</th></tr>
+      <tr><td>Co-Exhibitor</td><td>Dropdown</td><td>Active co-exhibitors of this exhibitor (Separate must be payment-complete)</td></tr>
+      <tr><td>Hall</td><td>Dropdown</td><td>Only halls where this exhibitor holds a <b>confirmed</b> booking; single option pre-selected</td></tr>
+      <tr><td>Stall</td><td>Dropdown</td><td>Confirmed stalls within the chosen hall; single option pre-selected</td></tr>
+      <tr><td>Allocate Space (sqm)</td><td>Number input</td><td><b>Validation:</b> ≤ stall's booked area minus the sum already allocated to other co-exhibitors on that stall. Show remaining live: "Available: 92 of 110 sqm"</td></tr>
+    </table></div>
+
+    <h3>Allocation list columns</h3>
+    <p>Sr. no · Co-exhibitor · Hall · Stall · Allocated sqm · Allocated on · Actions (Edit sqm · Remove).</p>
+
+    <h3>Rules</h3>
+    <ul>
+      <li>Editing an allocation re-runs the same remaining-area validation.</li>
+      <li>Removing an allocation returns the sqm to the stall's available pool. Block removal if the co-exhibitor still holds pass quotas tied to that space (or cascade with a confirm dialog — recommend block, with a message naming the quotas to release first).</li>
+      <li>The exhibitor's own effective area (booked − allocated out) should be visible on this screen and on My Spaces.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ 6. BADGE QUOTA ============ -->
+<section class="num">
+  <div class="n">06</div>
+  <div class="body">
+    <h2>Passes › Badge Details — quota allocation to co-exhibitors</h2>
+    <p>The existing Badge Quota Management screen gains one action per category: <b>Co-Exhibitors</b>, alongside View Listing / Add New / Send Link. The category list itself becomes a table:</p>
+
+    <div class="tablewrap"><table>
+      <tr><th>Category</th><th>Area-wise (free)</th><th>Paid</th><th>Total</th><th>Balance</th><th>Actions</th></tr>
+      <tr><td>Exhibitor</td><td class="num-col">6</td><td class="num-col">0</td><td class="num-col">6</td><td class="num-col">5</td><td rowspan="2">View Passes · <b>Co-Exhibitors</b> · Add New · Send Link</td></tr>
+      <tr><td>Exhibitor Support Staff</td><td class="num-col">3</td><td class="num-col">0</td><td class="num-col">3</td><td class="num-col">3</td></tr>
+    </table></div>
+    <p style="font-size:0.85rem;color:var(--muted)">"Area-wise" = free passes granted per booked area, as configured by the organiser. Current dev data shown.</p>
+
+    <h3>6.1 · Co-Exhibitors page (per category)</h3>
+    <p><b>Assign Quota form:</b></p>
+    <ul>
+      <li>Co-Exhibitor — dropdown (Separate co-exhibitors only; Subsidiaries are not entitled)</li>
+      <li>Allocate Quota — number input</li>
+      <li>Available Quota Balance — read-only, the exhibitor's unassigned balance in this category</li>
+      <li>Remaining Quota — live preview: balance − entered value; block submit when negative</li>
+      <li><b>Assign Quota</b> button</li>
+    </ul>
+
+    <p><b>Assigned-quota list:</b></p>
+    <div class="tablewrap"><table>
+      <tr><th>Sr.</th><th>Category</th><th>Co-exhibitor email</th><th>Quota</th><th>Balance</th><th>Actions</th></tr>
+      <tr><td class="num-col">1</td><td>Exhibitor</td><td>rs@abc.com</td><td class="num-col">3</td><td class="num-col">2</td><td>View Passes · Add New · Send Link</td></tr>
+    </table></div>
+
+    <div class="kv">
+      <dt>View Passes</dt><dd>List of badges the co-exhibitor has filled against this quota</dd>
+      <dt>Add New</dt><dd>Exhibitor fills a badge on the co-exhibitor's behalf (consumes the co-exhibitor's quota)</dd>
+      <dt>Send Link</dt><dd>E-invitee form — First Name, Last Name, Email, Category of Passes — sends a self-registration link by email</dd>
+    </div>
+
+    <h3>6.2 · Quota accounting rules</h3>
+    <ul>
+      <li>Assigning quota moves badges from the exhibitor's balance into a reserved co-exhibitor pool; the exhibitor's own "Available" figure drops immediately.</li>
+      <li>Quota can be increased any time (within balance) and decreased only down to the number already consumed.</li>
+      <li>The same Assign Quota pattern is reused verbatim for Invitee passes (07) and Vehicle passes (08) — build it once as a shared component.</li>
+    </ul>
+
+    <h3>6.3 · Co-exhibitor's own login (Separate type)</h3>
+    <p>The co-exhibitor sees a reduced portal: Dashboard, Badge Details (only categories where quota was assigned, capped at that quota), and Vehicle Pass Details if assigned. No space booking, no co-exhibitor menu of their own, no ability to re-delegate quota.</p>
+  </div>
+</section>
+
+<!-- ============ 7. INVITEE ============ -->
+<section class="num">
+  <div class="n">07</div>
+  <div class="body">
+    <h2>Passes › Exhibitor Invitee Details</h2>
+    <ul>
+      <li>On space-booking confirmation, the Exhibitor Invitee category is <b>auto-allocated</b> to the exhibitor (area-wise count set by organiser rules).</li>
+      <li><b>Date-wise registration:</b> every invitee pass is bound to selected event date(s) — 11th, 12th, 13th. Balances are tracked per date.</li>
+    </ul>
+
+    <h3>Listing view</h3>
+    <p>No. · Category Name (Exhibitor Invitee) · Area-wise total · Total badges · Balance · Actions: View Passes · Co-Exhibitors (same quota component as 6.1) · Add New · Invitee Link.</p>
+
+    <h3>Add New Invitee</h3>
+    <ul>
+      <li>Standard person details (name, email, mobile, designation, company)</li>
+      <li><b>Event date selection</b> — multi-select of 11 / 12 / 13 Feb</li>
+      <li><b>Car pass add-on</b> — optionally attach a vehicle pass in the same form (routes into the section 08 form and cart)</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ 8. VEHICLE PASS ============ -->
+<section class="num">
+  <div class="n">08</div>
+  <div class="body">
+    <h2>Passes › Vehicle Pass Details</h2>
+
+    <h3>Listing view</h3>
+    <p>No. · Category Name (vehicle pass category) · Area-wise allocated · Total passes · Balance · Actions: View Passes · <b>Co-Exhibitor</b> · Add New Pass.</p>
+
+    <h3>Co-Exhibitor quota</h3>
+    <p>Identical Assign Quota component as 6.1 (dropdown, quota input, available balance, remaining, assign button) and an assigned list: No. · Category (vehicle pass) · Co-exhibitor email · Quota.</p>
+
+    <h3>Add New Vehicle Pass — application form</h3>
+    <div class="tablewrap"><table>
+      <tr><th style="width:220px">Field</th><th>Type / rule</th></tr>
+      <tr><td>Driver Name</td><td>Text, required</td></tr>
+      <tr><td>Driver Mobile</td><td>Phone, required</td></tr>
+      <tr><td>Vehicle No.</td><td>Text, required — validate Indian registration format</td></tr>
+      <tr><td>Email</td><td>Email, required</td></tr>
+      <tr><td>Driving Licence Number</td><td>Text, required</td></tr>
+      <tr><td>Upload Driving Licence</td><td>File upload (image/PDF)</td></tr>
+      <tr><td>Upload Delivery Challan Photo</td><td>File upload (image/PDF)</td></tr>
+      <tr><td>Company Name</td><td>Pre-filled from account, read-only</td></tr>
+      <tr><td>Seater Type</td><td>Radio: 6-seater <span class="money">₹3,500</span> · 12-seater <span class="money">₹5,000</span></td></tr>
+    </table></div>
+    <p>Submit adds the pass to the <b>cart</b>; the pass is issued only after payment. When a co-exhibitor (or the exhibitor on their behalf) applies against assigned quota, payment still lands in the main exhibitor's cart, consistent with "payment added by main exhibitor".</p>
+  </div>
+</section>
+
+<!-- ============ 9. DATA MODEL ============ -->
+<section class="num">
+  <div class="n">09</div>
+  <div class="body">
+    <h2>Entities &amp; permissions (developer summary)</h2>
+
+    <h3>New entities</h3>
+    <div class="tablewrap"><table>
+      <tr><th style="width:230px">Entity</th><th>Key fields</th></tr>
+      <tr><td><code>co_exhibitor</code></td><td>id · exhibitor_id · type (subsidiary | separate) · company_name · email · nodal_first_name · nodal_last_name · reg_number (separate only) · payment_status · user_id (nullable, separate only) · status</td></tr>
+      <tr><td><code>co_exhibitor_space</code></td><td>id · co_exhibitor_id · stall_id · allocated_sqm — with a DB-level check that Σ allocated_sqm per stall ≤ stall booked area</td></tr>
+      <tr><td><code>pass_quota_allocation</code></td><td>id · co_exhibitor_id · pass_category_id · quota · consumed — one row per (co-exhibitor × category); reuse for badge, invitee, and vehicle categories</td></tr>
+    </table></div>
+
+    <h3>Permission matrix</h3>
+    <div class="tablewrap"><table>
+      <tr><th>Capability</th><th>Main exhibitor</th><th>Separate co-exhibitor</th><th>Subsidiary</th></tr>
+      <tr><td>Login</td><td>Yes</td><td>Yes (after payment)</td><td>No</td></tr>
+      <tr><td>Registration charge</td><td>Space cost</td><td class="money">₹40,000 (paid by exhibitor)</td><td>Free</td></tr>
+      <tr><td>Receive stall space</td><td>Books it</td><td>Yes, allocated</td><td>Yes, allocated</td></tr>
+      <tr><td>Pass quotas</td><td>Full</td><td>As assigned</td><td>None</td></tr>
+      <tr><td>Fill / invite badges</td><td>Yes</td><td>Within quota</td><td>No</td></tr>
+      <tr><td>Payments</td><td>All carts</td><td>None (routes to exhibitor)</td><td>None</td></tr>
+    </table></div>
+
+    <h3>Build order suggestion</h3>
+    <ol>
+      <li>Co-exhibitor entity + Add flow (04) with payment hook for Separate type</li>
+      <li>Allocate Stall (05) with area validation</li>
+      <li>Shared Assign Quota component + badge integration (06)</li>
+      <li>Co-exhibitor login &amp; reduced portal (6.3)</li>
+      <li>Invitee passes with date binding (07)</li>
+      <li>Vehicle pass form + cart (08)</li>
+    </ol>
+  </div>
+</section>
+
+<footer>
+  Prepared from a live review of dev.evenuefy.com (exhibitor login, Aero India 2027) · 29 August 2026.<br>
+  Open decisions flagged inline: credential timing for Separate co-exhibitors (04) · de-allocation cascade rule (05).
+</footer>
+
+</div>
+<script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs"; mermaid.initialize({startOnLoad: true});</script></body></html>
