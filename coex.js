@@ -83,9 +83,15 @@ function currentCoex() {
   } catch (e) { return null; }
 }
 
+/* LOGIN RULE: only Separate co-exhibitors whose registration payment is
+   complete get a working login. Subsidiary companies have no login. */
+function loginEligible(ex) {
+  return (ex && ex.coexhibitors || []).filter((c) => c.type === 'separate' && c.status === 'active');
+}
+
 function fillLoginOptions() {
   const ex = loadExState();
-  const list = ex ? (ex.coexhibitors || []) : [];
+  const list = loginEligible(ex);
   const sel = $('lgCoex');
   if (!sel) return;
   if (!list.length) {
@@ -96,7 +102,7 @@ function fillLoginOptions() {
   $('noCoexNote').style.display = 'none';
   $('loginForm').style.display = '';
   sel.innerHTML = list.map((c) =>
-    '<option value="' + c.id + '">' + esc(c.company) + ' (' + (c.type === 'separate' ? 'Separate' : 'Subsidiary') + ')</option>').join('');
+    '<option value="' + c.id + '">' + esc(c.company) + '</option>').join('');
   syncLoginEmail();
 }
 function syncLoginEmail() {
@@ -111,6 +117,11 @@ function coexLogin(e) {
   if (!$('lgPassword').value) { setErr('lgPassword', 'Password is required'); return false; }
   const id = $('lgCoex').value;
   if (!id) return false;
+  // Guard: login works only for paid Separate co-exhibitors
+  if (!loginEligible(loadExState()).some((c) => c.id === id)) {
+    toast('Login is enabled only after the registration payment is completed by the main exhibitor.', 'error');
+    return false;
+  }
   try { sessionStorage.setItem(SESSION_KEY, id); } catch (err) { /* ignore */ }
   enterApp();
   const c = currentCoex();
@@ -133,7 +144,7 @@ const entitled = (c) => c.type === 'separate' && c.status === 'active';
 
 function enterApp() {
   const c = currentCoex();
-  if (!c) { coexLogout(); return; }
+  if (!c || !entitled(c)) { coexLogout(); return; }
   $('loginScreen').style.display = 'none';
   $('appShell').style.display = 'flex';
   $('chipCoex').textContent = c.company;
