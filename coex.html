@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Co-Exhibitor · Evenuefy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ================= Co-Exhibitor Login ================= -->
+<div id="loginScreen" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:20px">
+  <div class="card" style="width:100%;max-width:440px">
+    <div class="logo" style="text-align:center;padding-bottom:4px">e<span>venuefy</span></div>
+    <p style="text-align:center;color:var(--muted);font-size:0.85rem;margin:0 0 18px">
+      Aero India 2027 · <b>Co-Exhibitor Login</b>
+    </p>
+    <div id="noCoexNote" style="display:none">
+      <div class="note amber"><b class="title">No co-exhibitor registered yet</b>
+        Co-exhibitor logins are created when the main exhibitor (HAL) adds a company from
+        its portal. Ask your main exhibitor to register you first.</div>
+      <a class="btn btn-outline" href="index.html" style="width:100%;justify-content:center;margin-top:6px">
+        <span class="material-symbols-outlined">open_in_new</span>Open Main Exhibitor App</a>
+    </div>
+    <form id="loginForm" onsubmit="return coexLogin(event)" novalidate>
+      <div class="field" style="margin-bottom:14px">
+        <label>Co-Exhibitor Company <span class="req">*</span></label>
+        <select id="lgCoex"></select>
+        <div class="hint">Demo — companies added by the main exhibitor appear here.</div>
+      </div>
+      <div class="field" style="margin-bottom:14px">
+        <label>Email <span class="req">*</span></label>
+        <input type="email" id="lgEmail" readonly>
+        <div class="hint">Login email set at registration by the main exhibitor.</div>
+      </div>
+      <div class="field" style="margin-bottom:18px">
+        <label>Password <span class="req">*</span></label>
+        <input type="password" id="lgPassword" placeholder="Enter password">
+        <div class="hint">Demo login — any password works.</div>
+        <div class="error"></div>
+      </div>
+      <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center">
+        <span class="material-symbols-outlined">login</span>Login
+      </button>
+    </form>
+    <p style="text-align:center;font-size:0.75rem;color:var(--muted);margin:14px 0 0">
+      A co-exhibitor sees only what its main exhibitor has assigned:<br>
+      stall space &amp; pass quotas (Separate companies, after registration payment).
+    </p>
+  </div>
+</div>
+
+<!-- ================= App shell (after login) ================= -->
+<div class="shell" id="appShell" style="display:none">
+  <aside class="sidebar">
+    <div class="logo">e<span>venuefy</span> <span style="font-size:0.62rem;font-weight:800;color:var(--muted);letter-spacing:0.1em">CO-EXHIBITOR</span></div>
+
+    <div class="nav-group-label" id="navCompanyName">Co-Exhibitor</div>
+    <div class="nav-sub" style="margin-left:0;border:none;padding-left:0">
+      <a class="nav-item" data-route="dashboard" href="#/dashboard">
+        <span class="material-symbols-outlined">home</span>Dashboard
+      </a>
+      <a class="nav-item" data-route="stall" href="#/stall" id="navStall">
+        <span class="material-symbols-outlined">dashboard_customize</span>My Stall Space
+      </a>
+    </div>
+
+    <div class="nav-group-label" id="navPassLabel">Passes</div>
+    <div class="nav-sub" style="margin-left:0;border:none;padding-left:0" id="navPassGroup">
+      <a class="nav-item" data-route="badges" href="#/badges">
+        <span class="material-symbols-outlined">badge</span>Badge Details
+      </a>
+      <a class="nav-item" data-route="invitee" href="#/invitee">
+        <span class="material-symbols-outlined">mail</span>Invitee Details
+      </a>
+      <a class="nav-item" data-route="vehicle" href="#/vehicle">
+        <span class="material-symbols-outlined">directions_car</span>Vehicle Pass Details
+      </a>
+    </div>
+
+    <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:12px">
+      <button class="nav-item" onclick="coexLogout()" style="cursor:pointer">
+        <span class="material-symbols-outlined">logout</span>Logout
+      </button>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div class="topbar">
+      <div class="event">Aero India 2027<small>10th to 15th Feb 2027 (Asia/Kolkata)</small></div>
+      <div class="spacer"></div>
+      <span class="chip-user" id="chipCoex">Co-Exhibitor</span>
+    </div>
+    <div class="view" id="view"><!-- rendered by coex.js --></div>
+  </main>
+</div>
+
+<div id="toasts"></div>
+<script src="coex.js"></script>
+</body>
+</html>
