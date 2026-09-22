@@ -1302,7 +1302,6 @@ function viewExhibitorDashboard() {
           '<div class="hero-stats">' +
             '<div class="hero-stat"><b>' + S.stalls.length + '</b><span>Stalls Booked</span></div>' +
             '<div class="hero-stat"><b>' + totalSqm + ' <small style="font-size:0.75rem;font-weight:700">SQM</small></b><span>Total Area</span></div>' +
-            '<div class="hero-stat"><b>10–15 Feb</b><span>Aero India 2027</span></div>' +
           '</div>' +
         '</div>' +
         '<div class="hero-actions">' +
@@ -1349,7 +1348,7 @@ function viewExhibitorDashboard() {
     btn: '<a class="btn btn-outline btn-sm" href="#/exhibition-forms">Fill Now</a>',
   });
   const actionsCard = actions.length
-    ? '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Pending Actions</h2>' +
+    ? '<div class="card section-gap pending-card"><div class="card-head-row"><h2 class="card-title">Pending Actions</h2>' +
       '<span class="pill amber">' + actions.length + ' pending</span></div>' +
       actions.map((a) =>
         '<div class="action-row"><span class="aicon"><span class="material-symbols-outlined">' + a.icon + '</span></span>' +
@@ -1402,7 +1401,8 @@ function viewExhibitorDashboard() {
     '</div></div>' +
     spaceCard +
     actionsCard +
-    '<div class="section-gap"><h2 class="card-title">Quick Access</h2>' + grid + '</div>' +
+    '<div class="section-gap"><div class="dash-section-head"><h2 class="card-title" style="margin:0">Quick Access</h2>' +
+      '<span class="sub">Everything assigned to your participation, one tap away</span></div>' + grid + '</div>' +
     footerTools();
 }
 
