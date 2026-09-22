@@ -667,3 +667,13 @@ table.grid tr:hover td { background: #FAFBFE; }
 .dash-section-head .sub { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
 .pending-card { border-left: 3px solid var(--amber); }
 .pending-card .action-row .aicon { width: 40px; height: 40px; border-radius: 11px; }
+
+/* ============ Space Booking stall grid ============ */
+.stall-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.stall-tile { border-radius: 10px; padding: 12px 10px; text-align: center; border: 1.5px solid transparent; transition: transform .12s, box-shadow .12s; }
+.stall-tile b { display: block; font-size: 0.95rem; letter-spacing: 0.02em; }
+.stall-tile span { display: block; font-size: 0.68rem; font-weight: 600; margin-top: 2px; }
+.stall-tile.avail { background: var(--green-soft); border-color: #BCE3CC; color: var(--green); cursor: pointer; }
+.stall-tile.avail:hover { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(30, 142, 90, 0.2); }
+.stall-tile.booked { background: var(--amber-soft); border-color: #EBD3A8; color: var(--amber); opacity: 0.75; }
+.stall-tile.insel { background: var(--blue-soft); border-color: #B7CBF2; color: var(--blue); cursor: pointer; }

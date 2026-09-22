@@ -193,8 +193,10 @@ function render() {
   let view = null, arg = null;
   const mCoex = route.match(/^passes\/(badges|invitee|vehicle)\/coex\/(.+)$/);
   const mProf = route.match(/^profile(?:\/(.+))?$/);
+  const mHall = route.match(/^space-booking\/hall\/(.+)$/);
   if (mCoex) { view = viewCatCoexPage; arg = mCoex[2]; }
   else if (mProf) { view = viewProfile; arg = mProf[1] || 'company'; }
+  else if (mHall) { view = viewHallStalls; arg = mHall[1]; }
   else view = ROUTES[route] || viewExhibitorDashboard;
 
   // sidebar active state
@@ -204,7 +206,9 @@ function render() {
       (r === 'aircraft' && route.indexOf('aircraft') === 0) ||
       (r === 'profile' && route.indexOf('profile') === 0) ||
       (r === 'exhibition-forms' && route.indexOf('exhibition-forms') === 0) ||
-      (r === 'digital-showcase' && (route === 'products' || route.indexOf('booth/') === 0)));
+      (r === 'digital-showcase' && (route === 'products' || route.indexOf('booth/') === 0)) ||
+      (r === 'space-booking/book' && route.indexOf('space-booking/hall') === 0) ||
+      (r === 'space-booking/my' && route === 'space-booking/success'));
   });
 
   $('view').innerHTML = view(arg);
@@ -1382,8 +1386,8 @@ function viewExhibitorDashboard() {
     '<div class="feat-grid">' +
       feat('#/profile', 'fc-slate', 'account_circle', 'Exhibitor Profile',
         (typeof profileOverallPct === 'function' ? profileOverallPct() + '% profile complete' : '')) +
-      feat('#/space-requirement', 'fc-blue', 'view_comfy_alt', 'Space Booking',
-        S.spaceRequirements.length + ' requirement(s) · ' + S.stalls.length + ' stall(s) booked') +
+      feat('#/space-booking/my', 'fc-blue', 'view_comfy_alt', 'Space Booking',
+        ((S.spaceBooking && S.spaceBooking.applications.length) || 0) + ' application(s) · ' + S.stalls.length + ' stall(s) booked') +
       feat('#/aircraft', 'fc-cyan', 'flight', 'Aircraft Registration',
         aircraft.length + ' application(s)') +
       feat('#/orders', 'fc-orange', 'receipt_long', 'My Orders',
@@ -1422,7 +1426,7 @@ function viewExhibitorDashboard() {
 /* ============================================================
    VIEW · My Orders — the exhibitor's own payment history
    ============================================================ */
-const MY_ORDER_TYPE = { coex_reg: 'Co-Exhibitor Registration', vehicle: 'Vehicle Pass', aircraft_reg: 'Aircraft Registration', exh_form: 'Exhibition Form', booking: 'Hall / Table Booking' };
+const MY_ORDER_TYPE = { coex_reg: 'Co-Exhibitor Registration', vehicle: 'Vehicle Pass', aircraft_reg: 'Aircraft Registration', exh_form: 'Exhibition Form', booking: 'Hall / Table Booking', space: 'Space Booking' };
 
 function viewMyOrders() {
   const paidInr = S.orders.filter((o) => o.currency !== 'USD').reduce((a, o) => a + Number(o.amount || 0), 0);
