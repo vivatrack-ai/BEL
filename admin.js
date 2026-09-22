@@ -307,6 +307,7 @@ function render() {
   else if (route === 'space-requirements') html = viewSpaceRequirements();
   else if (route === 'aircraft-approvals') html = viewAircraftApprovals();
   else if (route === 'orders') html = viewOrders();
+  else if (route === 'space-approvals') html = viewSpaceApprovals();
   else if (route.indexOf('aircraft-application/') === 0) html = viewAircraftApplication(route.split('/')[1]);
   else html = viewDashboard();
 
@@ -767,6 +768,106 @@ function exportAircraftApps() {
   exportWorkbook('Aircraft-Applications-' + exportStamp(), [
     { name: 'Applications', headers: AIRCRAFT_EXPORT_HEADERS, rows: aircraftExportRows(list) },
   ].concat(aircraftFormSheets(list)));
+}
+
+/* ============================================================
+   VIEW · Space Booking Approvals — the organiser reviews stall
+   applications raised from the exhibitor app (Book Space flow).
+   Approve generates the slab payment schedule; Reject releases
+   the stalls back to inventory.
+   ============================================================ */
+const SB_SLABS_ADMIN = [
+  ['Slab 1 — 25% Advance', 0.25, '15 Oct 2026'],
+  ['Slab 2 — 50%', 0.5, '15 Dec 2026'],
+  ['Slab 3 — 25% Balance', 0.25, '15 Jan 2027'],
+];
+
+function sbAppsAdmin() {
+  const ex = loadExState();
+  return (ex && ex.spaceBooking) ? ex.spaceBooking.applications : [];
+}
+const sbSlabPaidAdmin = (ex, a, i) => (ex.orders || []).some((o) => o.refId === a.id + '#slab' + i);
+
+function viewSpaceApprovals() {
+  const ex = loadExState() || {};
+  const apps = sbAppsAdmin();
+  const counts = {
+    pending: apps.filter((a) => a.status === 'pending').length,
+    approved: apps.filter((a) => a.status === 'approved').length,
+    confirmed: apps.filter((a) => a.status === 'confirmed').length,
+    rejected: apps.filter((a) => a.status === 'rejected').length,
+  };
+  const statusPill = (a) => a.status === 'confirmed' ? '<span class="pill green">Confirmed</span>'
+    : a.status === 'approved' ? '<span class="pill blue">Approved · Payment Due</span>'
+    : a.status === 'rejected' ? '<span class="pill red">Rejected</span>'
+    : '<span class="pill amber">Waiting for Approval</span>';
+
+  const rows = apps.map((a) => {
+    const paid = a.slabs.reduce((x, sl, i) => x + (sbSlabPaidAdmin(ex, a, i) ? sl.amount : 0), 0);
+    const pct = a.total ? Math.round((paid / a.total) * 100) : 0;
+    return '<tr>' +
+      '<td><span class="regno">' + esc(a.no) + '</span><span class="td-sub">' + esc(a.createdAt) + '</span></td>' +
+      '<td><span class="td-strong">' + a.stalls.map((s) => esc(s.name)).join(', ') + '</span>' +
+        '<span class="td-sub">' + esc(EX_COMPANY) + '</span>' +
+        '<span class="td-sub">Hall ' + a.stalls.map((s) => esc(s.hall)).join(', ') + ' · ' +
+          a.stalls.map((s) => (s.scheme === 'raw' ? 'Raw' : 'Shell')).join(', ') + ' · ' +
+          a.stalls.reduce((x, s) => x + s.sqm, 0) + ' sqm</span></td>' +
+      '<td class="money">' + money(a.total) + '</td>' +
+      '<td style="min-width:130px">' + (a.status === 'pending' ? '<span style="color:var(--muted)">—</span>'
+        : a.status === 'rejected' ? '<span style="color:var(--muted)">—</span>'
+        : '<div class="prog-bar" style="margin-bottom:4px"><i style="width:' + pct + '%"></i></div>' +
+          '<span class="td-sub">' + money(paid) + ' of ' + money(a.total) + ' (' + pct + '%)</span>') + '</td>' +
+      '<td>' + statusPill(a) + (a.status === 'rejected' && a.remark ? '<span class="td-sub" style="color:var(--red)">' + esc(a.remark) + '</span>' : '') + '</td>' +
+      '<td class="td-actions">' +
+        (a.status === 'pending'
+          ? '<button class="btn-link" style="color:var(--green)" onclick="approveSpaceApp(\'' + a.id + '\')">Approve</button>' +
+            '<button class="btn-link danger" onclick="rejectSpaceApp(\'' + a.id + '\')">Reject</button>'
+          : '') +
+      '</td></tr>';
+  }).join('') ||
+    '<tr><td colspan="6" style="color:var(--muted)">No space booking applications received yet.</td></tr>';
+
+  return '<h1 class="page-title">Space Booking Approvals</h1>' +
+    '<p class="page-sub">Stall applications raised by exhibitors from Book Space. On approval, the slab payment schedule (25% · 50% · 25%) is issued to the exhibitor’s portal.</p>' +
+    '<div class="tiles">' +
+      '<div class="tile blue"><div class="t-label">Total Applications</div><div class="t-value">' + apps.length + '</div></div>' +
+      '<div class="tile"><div class="t-label">Waiting for Approval</div><div class="t-value">' + counts.pending + '</div></div>' +
+      '<div class="tile"><div class="t-label">Approved · Payment Due</div><div class="t-value">' + counts.approved + '</div></div>' +
+      '<div class="tile accent"><div class="t-label">Confirmed</div><div class="t-value">' + counts.confirmed + '</div></div>' +
+      '<div class="tile"><div class="t-label">Rejected</div><div class="t-value">' + counts.rejected + '</div></div>' +
+    '</div>' +
+    '<div class="card"><div class="card-head-row"><h2 class="card-title">Applications</h2>' +
+      '<button class="btn btn-outline btn-sm" onclick="render()"><span class="material-symbols-outlined" style="font-size:16px">refresh</span>Refresh</button></div>' +
+    '<div class="tablewrap"><table class="grid">' +
+    '<tr><th>Application No.</th><th>Stalls / Exhibitor</th><th>Total</th><th>Payment Progress</th><th>Status</th><th>Action</th></tr>' +
+    rows + '</table></div></div>' +
+    footerTools();
+}
+
+function approveSpaceApp(id) {
+  const ex = loadExState(); if (!ex || !ex.spaceBooking) return;
+  const a = ex.spaceBooking.applications.find((x) => x.id === id); if (!a || a.status !== 'pending') return;
+  if (!confirm('Approve application ' + a.no + ' (' + a.stalls.map((s) => s.name).join(', ') + ' · ' + money(a.total) + ')?\nThe slab payment schedule will be issued to the exhibitor.')) return;
+  a.status = 'approved';
+  a.approvedAt = nowStr();
+  a.approvedBy = 'Organiser Admin';
+  a.slabs = SB_SLABS_ADMIN.map(([label, p, due]) => ({ label: label, amount: Math.round(a.total * p), due: due }));
+  saveExState(ex);
+  render();
+  toast('Application ' + a.no + ' approved — slab payments issued.', 'success');
+}
+
+function rejectSpaceApp(id) {
+  const ex = loadExState(); if (!ex || !ex.spaceBooking) return;
+  const a = ex.spaceBooking.applications.find((x) => x.id === id); if (!a || a.status !== 'pending') return;
+  const remark = prompt('Reason for rejection (shown to the exhibitor):', '');
+  if (remark === null) return;
+  a.status = 'rejected';
+  a.remark = remark.trim() || 'Rejected by organiser';
+  a.rejectedBy = 'Organiser Admin';
+  saveExState(ex);
+  render();
+  toast('Application ' + a.no + ' rejected — stalls released.', 'error');
 }
 
 /* ============================================================

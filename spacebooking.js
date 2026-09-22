@@ -44,26 +44,50 @@ function sbBookedSet() {
 
 window.__sbSel = window.__sbSel || []; // transient stall selection
 
-/* ---------------- VIEW · Book Space (venue map) ---------------- */
+/* ---------------- VIEW · Book Space (venue map, like the live system:
+   halls, chalet line, outdoor & parking all on ONE layout) ---------------- */
 function viewBookSpace() {
-  const hallBlock = (h) => {
-    const avail = h.stalls.filter((st) => !st.seedBooked && !sbBookedSet()[h.id + '|' + st.name]).length;
-    return '<div class="feat-card" onclick="location.hash=\'#/space-booking/hall/' + h.id + '\'" style="min-height:120px">' +
-      '<span class="soon-pill" style="background:var(--green-soft);color:var(--green)">' + avail + ' available</span>' +
-      '<span class="ficon fc-blue"><span class="material-symbols-outlined">grid_view</span></span>' +
-      '<span class="ftitle">' + h.name + '</span>' +
-      '<span class="fsub">' + h.stalls.length + ' stalls · Shell &amp; Raw schemes</span>' +
-      '<span class="material-symbols-outlined fgo">arrow_forward</span></div>';
+  const booked = sbBookedSet();
+  const availOf = (h) => h.stalls.filter((st) => !st.seedBooked && !booked[h.id + '|' + st.name]).length;
+  const hall = (id, l, t) => {
+    const h = SB_HALLS.find((x) => x.id === id);
+    return '<div class="vm-block int" style="left:' + l + '%;top:' + t + '%;width:56px;height:42px" ' +
+      'onclick="location.hash=\'#/space-booking/hall/' + id + '\'" title="' + h.name + ' — ' + availOf(h) + ' stalls available">' +
+      id + '<span class="vm-badge">' + availOf(h) + '</span></div>';
   };
+  const deco = (txt, l, t, w, ht, cls) =>
+    '<div class="vm-block ' + (cls || 'deco') + '" style="left:' + l + '%;top:' + t + '%;width:' + w + 'px;height:' + ht + 'px">' + txt + '</div>';
+  const park = (txt, l, t, w, ht) =>
+    '<div class="vm-park" style="left:' + l + '%;top:' + t + '%;width:' + w + 'px;height:' + ht + 'px">' + txt + '</div>';
+
   return '<h1 class="page-title">Space Booking — Exhibition Hall Selection</h1>' +
-    '<p class="page-sub">Select a hall from the venue layout, then click an available stall to add it to your selection. Chargeable as per the official stall rate card.</p>' +
-    '<div class="feat-grid">' + SB_HALLS.map(hallBlock).join('') +
-      '<div class="feat-card soon" style="min-height:120px"><span class="soon-pill">Map Only</span>' +
-        '<span class="ficon fc-amber"><span class="material-symbols-outlined">deck</span></span>' +
-        '<span class="ftitle">Chalet Line</span><span class="fsub">Allotted by the organiser via Space Requirement</span></div>' +
-      '<div class="feat-card soon" style="min-height:120px"><span class="soon-pill">Map Only</span>' +
-        '<span class="ficon fc-teal"><span class="material-symbols-outlined">park</span></span>' +
-        '<span class="ftitle">Outdoor Space</span><span class="fsub">Allotted by the organiser via Space Requirement</span></div>' +
+    '<p class="page-sub">The full venue layout — tap a highlighted hall (A–E) to open its floor plan and select stalls. Chalet Line &amp; Outdoor areas are allotted by the organiser via Space Requirement.</p>' +
+    '<div class="venue-map">' +
+      '<div class="vm-chalet" style="left:12%;top:7%;width:36%;height:24px">CHALET LINE 1</div>' +
+      '<div class="vm-label" style="left:33%;top:16%">Outdoor</div>' +
+      deco('18', 8, 18, 30, 24) +
+      deco('16', 22, 30, 30, 24) +
+      hall('D', 30, 27) +
+      hall('E', 46, 15) +
+      deco('G', 63, 22, 38, 28) +
+      deco('K', 47, 31, 36, 26, 'red') +
+      deco('F', 59, 37, 42, 32) +
+      hall('C', 32, 48) +
+      hall('B', 40, 48) +
+      hall('A', 48, 48) +
+      deco('10', 60, 48, 32, 22, 'red') +
+      deco('H', 54, 63, 40, 30) +
+      deco('J', 61, 72, 36, 26, 'red') +
+      deco('12 · 11', 28, 63, 44, 26) +
+      deco('19', 78, 60, 30, 24) +
+      park('P1 PARKING', 5, 32, 52, 20) +
+      park('P5 A PARKING', 85, 20, 58, 22) +
+      park('P3 PARKING', 62, 85, 56, 22) +
+      park('P4 PARKING', 73, 79, 22, 46) +
+      '<div class="vm-legend"><span class="material-symbols-outlined" style="font-size:14px;color:var(--blue)">touch_app</span> Highlighted halls (A–E) are open for booking — tap to view the floor plan</div>' +
+    '</div>' +
+    '<div class="filter-chips" style="margin-top:14px">' +
+      SB_HALLS.map((h) => '<button class="fchip" onclick="location.hash=\'#/space-booking/hall/' + h.id + '\'">' + h.name + ' · ' + availOf(h) + ' available</button>').join('') +
     '</div>';
 }
 
@@ -73,15 +97,31 @@ function viewHallStalls(hallId) {
   if (!hall) { location.hash = '#/space-booking/book'; return ''; }
   const booked = sbBookedSet();
 
-  const tiles = hall.stalls.map((st) => {
+  /* spatial floor-plan placement: large 12X9 stalls centre, 9X6 along the
+     outdoor side, 6X6 along the roadside — like the hall drawing */
+  const AREA = ['l1', 'l2', 'l3', 'l4', 'm5', 'm6', 'm7', 'm8', 't9', 't10', 't11', 't12'];
+  const tiles = hall.stalls.map((st, idx) => {
     const isBooked = st.seedBooked || booked[hall.id + '|' + st.name];
     const inSel = window.__sbSel.some((s) => s.hall === hall.id && s.name === st.name);
     const cls = isBooked ? 'booked' : inSel ? 'insel' : 'avail';
-    return '<div class="stall-tile ' + cls + '"' +
+    return '<div class="stall-tile ' + cls + '" style="grid-area:' + AREA[idx] + '"' +
       (isBooked ? '' : ' onclick="openStallDetail(\'' + hall.id + '\',\'' + st.name + '\')"') + '>' +
       '<b>' + st.name + '</b><span>' + st.size + ' · ' + st.sqm + ' sqm</span>' +
       '<span>' + (isBooked ? 'Booked' : inSel ? 'In Selection' : 'Available') + '</span></div>';
   }).join('');
+
+  const floorplan =
+    '<div class="fp-wrap">' +
+      '<div class="fp-band"><span class="fp-exit" style="left:16px">SERVICE SPACE</span>ROADSIDE' +
+        '<span class="fp-exit" style="right:16px">SERVICE SPACE</span></div>' +
+      '<div class="fp-mid">' +
+        '<div class="fp-rail left">EMERGENCY EXIT</div>' +
+        '<div class="fp-grid">' + tiles + '</div>' +
+        '<div class="fp-rail right">EMERGENCY EXIT</div>' +
+      '</div>' +
+      '<div class="fp-band bottom"><span class="fp-exit" style="left:16px">▲ ENTRY / EXIT</span>OUTDOOR DISPLAY SIDE' +
+        '<span class="fp-exit" style="right:16px">ENTRY / EXIT ▲</span></div>' +
+    '</div>';
 
   const selRows = window.__sbSel.map((s, i) =>
     '<div class="prod-row" style="padding:10px 12px">' +
@@ -95,9 +135,7 @@ function viewHallStalls(hallId) {
     '<h1 class="page-title">' + esc(hall.name) + ' (Stall Selection)</h1>' +
     '<div class="filter-chips" style="margin-bottom:14px">' +
       '<span class="pill green">Available</span><span class="pill amber">Booked</span><span class="pill gray">In Selection</span></div>' +
-    '<div class="prof-layout"><div>' +
-      '<div class="card"><div class="stall-grid">' + tiles + '</div></div>' +
-    '</div>' +
+    '<div class="prof-layout"><div>' + floorplan + '</div>' +
     '<div class="card"><div class="pcard-head" style="margin-bottom:8px">' +
       '<span class="icon-sq" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">shopping_cart</span></span>' +
       '<h2 class="card-title">Selected Stalls</h2></div>' +
@@ -257,6 +295,7 @@ function viewMySpaces() {
 
   const statusPill = (a) => a.status === 'confirmed' ? '<span class="pill green">Confirmed</span>'
     : a.status === 'approved' ? '<span class="pill blue">Approved · Payment Due</span>'
+    : a.status === 'rejected' ? '<span class="pill red">Rejected</span>'
     : '<span class="pill amber">Waiting for Approval</span>';
 
   const appCards = apps.map((a) => {
@@ -284,8 +323,10 @@ function viewMySpaces() {
         '<div class="cell"><div class="k">Total</div><div class="v">' + money(a.total) + '</div></div>' +
       '</div>' +
       (a.status === 'pending'
-        ? '<div class="note amber" style="margin-top:12px"><b class="title">Next step</b>Your application is under review. You will be notified once it is approved. ' +
-          '<button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="sbApprove(\'' + a.id + '\')"><span class="material-symbols-outlined" style="font-size:15px">verified</span>Simulate Organiser Approval (demo)</button></div>'
+        ? '<div class="note amber" style="margin-top:12px"><b class="title">Next step</b>Your application is under review by the organiser (Admin portal → Space Booking Approvals). You will be notified once it is approved.</div>'
+        : a.status === 'rejected'
+        ? '<div class="note" style="margin-top:12px;border-left-color:var(--red)"><b class="title" style="color:var(--red)">Application rejected</b>' +
+          (a.remark ? esc(a.remark) : 'Contact the organiser for details.') + ' The stalls have been released back to inventory.</div>'
         : '<div style="margin-top:12px"><div class="pr-head" style="display:flex;justify-content:space-between;font-size:0.8rem;font-weight:700"><span>Payment Progress</span><span>' + pct + '%</span></div>' +
           '<div class="prog-bar" style="margin:4px 0 8px"><i style="width:' + pct + '%"></i></div>' + slabRows + '</div>') +
     '</div>';

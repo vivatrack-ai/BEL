@@ -677,3 +677,28 @@ table.grid tr:hover td { background: #FAFBFE; }
 .stall-tile.avail:hover { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(30, 142, 90, 0.2); }
 .stall-tile.booked { background: var(--amber-soft); border-color: #EBD3A8; color: var(--amber); opacity: 0.75; }
 .stall-tile.insel { background: var(--blue-soft); border-color: #B7CBF2; color: var(--blue); cursor: pointer; }
+
+/* ============ Venue map (Book Space) ============ */
+.venue-map { position: relative; background: linear-gradient(160deg, #F2E9D8, #EDE2CC); border: 1px solid #D8CDB4; border-radius: 14px; height: 460px; overflow: hidden; box-shadow: var(--shadow); }
+.vm-block { position: absolute; display: flex; align-items: center; justify-content: center; font-weight: 800; color: #5A4A28; background: #E3CFA0; border: 1.5px solid #CBB584; border-radius: 6px; font-size: 0.8rem; letter-spacing: 0.04em; }
+.vm-block.deco { color: #8A7648; pointer-events: none; font-size: 0.7rem; }
+.vm-block.red { background: #D65A4E; border-color: #B03E33; color: #fff; pointer-events: none; font-size: 0.7rem; }
+.vm-block.int { cursor: pointer; background: #D9B97C; border-color: #B99755; box-shadow: 0 3px 8px rgba(90, 74, 40, 0.25); transition: all 0.15s; }
+.vm-block.int:hover { background: var(--blue); border-color: var(--blue-dark); color: #fff; transform: translateY(-2px); }
+.vm-badge { position: absolute; top: -9px; right: -9px; background: var(--green); color: #fff; font-size: 0.56rem; font-weight: 800; border-radius: 99px; padding: 2px 6px; }
+.vm-park { position: absolute; background: #3E8E58; color: #fff; font-size: 0.58rem; font-weight: 800; display: flex; align-items: center; justify-content: center; border-radius: 4px; pointer-events: none; text-align: center; line-height: 1.15; }
+.vm-chalet { position: absolute; background: #2E2A25; color: #F4E7C8; font-size: 0.6rem; font-weight: 800; letter-spacing: 0.24em; display: flex; align-items: center; justify-content: center; border-radius: 4px; pointer-events: none; }
+.vm-label { position: absolute; color: #9A8A62; font-weight: 800; letter-spacing: 0.14em; font-size: 0.72rem; pointer-events: none; text-transform: uppercase; }
+.vm-legend { position: absolute; left: 12px; bottom: 12px; background: rgba(255,255,255,0.92); border: 1px solid #D8CDB4; border-radius: 8px; padding: 7px 12px; font-size: 0.7rem; font-weight: 700; color: #6B5B33; }
+
+/* ============ Hall floor plan ============ */
+.fp-wrap { background: #fff; border: 2px solid #8A93A5; border-radius: 10px; overflow: hidden; background-image: linear-gradient(#EDF1F7 1px, transparent 1px), linear-gradient(90deg, #EDF1F7 1px, transparent 1px); background-size: 22px 22px; }
+.fp-band { background: #F7F9FC; text-align: center; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.3em; color: #8A93A5; padding: 8px 0; position: relative; border-bottom: 1.5px dashed rgba(198, 67, 46, 0.4); }
+.fp-band.bottom { border-bottom: none; border-top: 1.5px dashed rgba(198, 67, 46, 0.4); }
+.fp-band .fp-exit { position: absolute; top: 6px; font-size: 0.52rem; letter-spacing: 0.08em; color: var(--red); font-weight: 800; }
+.fp-mid { display: flex; }
+.fp-rail { writing-mode: vertical-rl; font-size: 0.52rem; font-weight: 800; color: var(--red); letter-spacing: 0.22em; display: flex; align-items: center; justify-content: center; padding: 6px 4px; }
+.fp-rail.left { border-right: 1.5px dashed rgba(198, 67, 46, 0.3); }
+.fp-rail.right { border-left: 1.5px dashed rgba(198, 67, 46, 0.3); }
+.fp-grid { flex: 1; display: grid; gap: 10px; padding: 14px; grid-template-columns: repeat(4, 1fr); grid-template-rows: 62px 110px 110px 84px; grid-template-areas: "t9 t10 t11 t12" "l1 l1 l2 l2" "l3 l3 l4 l4" "m5 m6 m7 m8"; }
+.fp-grid .stall-tile { display: flex; flex-direction: column; justify-content: center; margin: 0; }
