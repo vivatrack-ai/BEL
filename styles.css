@@ -570,3 +570,33 @@ table.grid tr:hover td { background: #FAFBFE; }
 .action-row .atext { flex:1; min-width:0; }
 .action-row .atext b { display:block; font-size:0.86rem; }
 .action-row .atext span { font-size:0.76rem; color:var(--muted); }
+
+/* ============ Exhibitor Profile ============ */
+.ptabs { display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:20px; }
+.ptab { border:none; background:none; font-family:inherit; font-weight:700; font-size:0.86rem; color:var(--muted); padding:8px 16px; border-radius:99px; cursor:pointer; }
+.ptab:hover { background:#F1F4FA; }
+.ptab.on { background:var(--blue); color:#fff; }
+.prof-layout { display:grid; grid-template-columns:minmax(0,1fr) 280px; gap:20px; align-items:start; }
+@media (max-width:1080px) { .prof-layout { grid-template-columns:1fr; } }
+.pcard-head { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.pcard-head h2 { margin:0; flex:1; }
+.icon-sq { width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex:none; }
+.pkv { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px 26px; }
+.pkv .cell .k { font-size:0.74rem; color:var(--muted); font-weight:600; margin-bottom:2px; }
+.pkv .cell .v { font-weight:700; font-size:0.9rem; word-break:break-word; }
+.pkv .cell.full { grid-column:1/-1; }
+.prog-row { margin-bottom:16px; }
+.prog-row .pr-head { display:flex; justify-content:space-between; font-size:0.84rem; font-weight:700; margin-bottom:6px; }
+.prog-row .pr-head span:last-child { color:var(--ink); }
+.prog-bar { height:6px; border-radius:99px; background:#E9EDF5; overflow:hidden; }
+.prog-bar i { display:block; height:100%; background:var(--blue); border-radius:99px; transition:width .3s; }
+.tagchip { display:inline-flex; align-items:center; gap:7px; background:var(--blue-soft); color:var(--blue); font-size:0.78rem; font-weight:700; padding:4px 12px; border-radius:99px; margin:0 6px 6px 0; }
+.tagchip button { border:none; background:none; color:inherit; cursor:pointer; font-weight:800; padding:0; font-family:inherit; font-size:0.82rem; line-height:1; }
+.doc-row { display:flex; align-items:center; gap:12px; padding:13px 0; border-bottom:1px solid var(--line); }
+.doc-row:last-child { border-bottom:none; }
+.doc-row .dname { flex:1; font-weight:700; font-size:0.88rem; }
+.doc-row .dname small { display:block; color:var(--muted); font-weight:500; font-size:0.76rem; }
+.prod-row { border:1px solid var(--line); border-radius:10px; padding:12px 14px; display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+.prod-row .pinfo { flex:1; min-width:0; }
+.prod-row .pinfo b { font-size:0.9rem; }
+.prod-row .pinfo span { display:block; font-size:0.76rem; color:var(--muted); }

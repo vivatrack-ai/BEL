@@ -192,14 +192,17 @@ function render() {
   // dynamic routes: passes/badges/coex/<catId>  ·  passes/vehicle/coex/<catId>
   let view = null, arg = null;
   const mCoex = route.match(/^passes\/(badges|invitee|vehicle)\/coex\/(.+)$/);
+  const mProf = route.match(/^profile(?:\/(.+))?$/);
   if (mCoex) { view = viewCatCoexPage; arg = mCoex[2]; }
+  else if (mProf) { view = viewProfile; arg = mProf[1] || 'company'; }
   else view = ROUTES[route] || viewExhibitorDashboard;
 
   // sidebar active state
   document.querySelectorAll('.nav-item[data-route]').forEach((el) => {
     const r = el.getAttribute('data-route');
     el.classList.toggle('active', route === r || (mCoex && r === 'passes/' + mCoex[1]) ||
-      (r === 'aircraft' && route.indexOf('aircraft') === 0));
+      (r === 'aircraft' && route.indexOf('aircraft') === 0) ||
+      (r === 'profile' && route.indexOf('profile') === 0));
   });
 
   $('view').innerHTML = view(arg);
@@ -1279,12 +1282,28 @@ function viewExhibitorDashboard() {
   const acftDrafts = aircraft.filter((a) => a.status === 'draft').length;
   const acftUnpaid = aircraft.filter((a) => a.status === 'approved' && a.price != null).length;
 
-  /* --- My Space strip (booked stalls) --- */
+  /* --- My Space strip — one chip-row per BOOKED stall; when no space is
+     booked yet, the card turns into a friendly empty state instead --- */
   const spaceChips = S.stalls.map((st) =>
     '<div class="schip"><b>Hall</b><span>' + esc(st.hall) + '</span></div>' +
     '<div class="schip"><b>Stall No.</b><span>' + esc(st.stall) + '</span></div>' +
     '<div class="schip"><b>Area</b><span>' + st.area + ' SQM</span></div>' +
     '<span style="flex-basis:100%;height:0"></span>').join('');
+  const spaceCard = S.stalls.length
+    ? '<div class="card"><div class="card-head-row"><div>' +
+        '<span class="pill blue">Aero Space · ' + S.stalls.length + ' stall(s) booked</span>' +
+        '<h2 class="card-title" style="margin-top:8px">' + esc(EVENT.exhibitor) + '</h2></div>' +
+        '<a class="btn btn-outline btn-sm" href="#/space-requirement"><span class="material-symbols-outlined" style="font-size:16px">design_services</span>Space Requirement</a></div>' +
+        '<div class="space-chips">' + spaceChips + '</div></div>'
+    : '<div class="card"><div class="card-head-row"><div>' +
+        '<span class="pill amber">No Space Booked Yet</span>' +
+        '<h2 class="card-title" style="margin-top:8px">' + esc(EVENT.exhibitor) + '</h2></div></div>' +
+        '<div style="display:flex;align-items:center;gap:14px">' +
+          '<span class="aicon" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">view_comfy_alt</span></span>' +
+          '<div style="flex:1"><b style="font-size:0.9rem">Your space booking is not confirmed yet.</b>' +
+          '<div style="font-size:0.78rem;color:var(--muted)">Submit your space requirement — booked stalls will appear here once the organiser confirms your space.</div></div>' +
+          '<a class="btn btn-primary btn-sm" href="#/space-requirement">Submit Requirement</a>' +
+        '</div></div>';
 
   /* --- Pending actions (only what actually needs attention) --- */
   const actions = [];
@@ -1334,7 +1353,8 @@ function viewExhibitorDashboard() {
 
   const grid =
     '<div class="feat-grid">' +
-      soon('fc-slate', 'account_circle', 'Exhibitor Profile') +
+      feat('#/profile', 'fc-slate', 'account_circle', 'Exhibitor Profile',
+        (typeof profileOverallPct === 'function' ? profileOverallPct() + '% profile complete' : '')) +
       feat('#/space-requirement', 'fc-blue', 'view_comfy_alt', 'Space Booking',
         S.spaceRequirements.length + ' requirement(s) · ' + S.stalls.length + ' stall(s) booked') +
       feat('#/aircraft', 'fc-cyan', 'flight', 'Aircraft Registration',
@@ -1351,34 +1371,13 @@ function viewExhibitorDashboard() {
       soon('fc-red', 'inventory_2', 'Products') +
     '</div>';
 
-  /* --- Quota & badge summary --- */
-  const kindPage = { badge: '#/passes/badges', invitee: '#/passes/invitee', vehicle: '#/passes/vehicle' };
-  const quotaRows = S.categories.map((c) => {
-    const used = S.passes.filter((p) => p.catId === c.id).length;
-    return '<div class="action-row">' +
-      '<span class="aicon" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">' +
-        (c.kind === 'vehicle' ? 'directions_car' : c.kind === 'invitee' ? 'mail' : 'badge') + '</span></span>' +
-      '<div class="atext"><b>' + esc(c.name) + '</b>' +
-      '<span>Free: ' + c.free + ' · Paid: ' + c.paid + '</span></div>' +
-      '<span class="num" style="font-weight:800">' + used + ' / ' + catTotal(c) + '</span>' +
-      '<a class="btn btn-outline btn-sm" href="' + kindPage[c.kind] + '">Add now</a>' +
-    '</div>';
-  }).join('');
-
   return '<div class="dash-hello"><div>' +
       '<h1 class="page-title">Hi ' + esc(EVENT.exhibitor) + ', let’s get started 👋</h1>' +
       '<p class="page-sub" style="margin-bottom:0">This is a quick summary of your participation. You can access every key section here.</p>' +
     '</div></div>' +
-    '<div class="card"><div class="card-head-row"><div>' +
-      '<span class="pill blue">Aero Space</span>' +
-      '<h2 class="card-title" style="margin-top:8px">' + esc(EVENT.exhibitor) + '</h2></div>' +
-      '<a class="btn btn-outline btn-sm" href="#/space-requirement"><span class="material-symbols-outlined" style="font-size:16px">design_services</span>Space Requirement</a></div>' +
-      '<div class="space-chips">' + spaceChips + '</div></div>' +
+    spaceCard +
     actionsCard +
     '<div class="section-gap"><h2 class="card-title">Quick Access</h2>' + grid + '</div>' +
-    '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Manage Quota &amp; Badges</h2>' +
-      '<span class="result-count">' + passesUsed + ' of ' + quotaTotal + ' used across all categories</span></div>' +
-      quotaRows + '</div>' +
     footerTools();
 }
 
