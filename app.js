@@ -171,6 +171,8 @@ function clearErrs(scope) {
    ROUTER
    ============================================================ */
 const ROUTES = {
+  'dashboard': viewExhibitorDashboard,
+  'orders': viewMyOrders,
   'co-exhibitors': viewCoexList,
   'co-exhibitors/add': viewCoexAdd,
   'allocate-stall': viewAllocateStall,
@@ -181,7 +183,7 @@ const ROUTES = {
 };
 
 function currentRoute() {
-  const h = location.hash.replace(/^#\//, '') || 'co-exhibitors';
+  const h = location.hash.replace(/^#\//, '') || 'dashboard';
   return h;
 }
 
@@ -191,7 +193,7 @@ function render() {
   let view = null, arg = null;
   const mCoex = route.match(/^passes\/(badges|invitee|vehicle)\/coex\/(.+)$/);
   if (mCoex) { view = viewCatCoexPage; arg = mCoex[2]; }
-  else view = ROUTES[route] || viewCoexList;
+  else view = ROUTES[route] || viewExhibitorDashboard;
 
   // sidebar active state
   document.querySelectorAll('.nav-item[data-route]').forEach((el) => {
@@ -1265,7 +1267,169 @@ function footerTools() {
   return '<div class="footer-tools"><button onclick="resetDemo()">Reset demo data</button></div>';
 }
 
+/* ============================================================
+   VIEW · Exhibitor Dashboard — quick access to every module
+   ============================================================ */
+function viewExhibitorDashboard() {
+  const aircraft = S.aircraft || [];
+  const paidInr = S.orders.filter((o) => o.currency !== 'USD').reduce((a, o) => a + Number(o.amount || 0), 0);
+  const quotaTotal = S.categories.reduce((a, c) => a + catTotal(c), 0);
+  const passesUsed = S.passes.length;
+  const coexPending = S.coexhibitors.filter((c) => c.status === 'payment_pending').length;
+  const acftDrafts = aircraft.filter((a) => a.status === 'draft').length;
+  const acftUnpaid = aircraft.filter((a) => a.status === 'approved' && a.price != null).length;
+
+  /* --- My Space strip (booked stalls) --- */
+  const spaceChips = S.stalls.map((st) =>
+    '<div class="schip"><b>Hall</b><span>' + esc(st.hall) + '</span></div>' +
+    '<div class="schip"><b>Stall No.</b><span>' + esc(st.stall) + '</span></div>' +
+    '<div class="schip"><b>Area</b><span>' + st.area + ' SQM</span></div>' +
+    '<span style="flex-basis:100%;height:0"></span>').join('');
+
+  /* --- Pending actions (only what actually needs attention) --- */
+  const actions = [];
+  if (S.cart.length) actions.push({
+    icon: 'shopping_cart', title: S.cart.length + ' item(s) in cart awaiting payment',
+    sub: 'Complete the payment to activate registrations & passes.',
+    btn: '<button class="btn btn-primary btn-sm" onclick="openCart()">Pay Now</button>',
+  });
+  if (coexPending) actions.push({
+    icon: 'group_add', title: coexPending + ' co-exhibitor registration payment pending',
+    sub: 'Separate co-exhibitors unlock stall & quotas after the ' + money(EVENT.coexRegFee) + ' fee.',
+    btn: '<button class="btn btn-outline btn-sm" onclick="openCart()">Complete Payment</button>',
+  });
+  if (acftDrafts) actions.push({
+    icon: 'flight', title: acftDrafts + ' aircraft application(s) in draft',
+    sub: 'Complete all 4 forms to submit for committee approval.',
+    btn: '<a class="btn btn-outline btn-sm" href="#/aircraft">Continue</a>',
+  });
+  if (acftUnpaid) actions.push({
+    icon: 'payments', title: acftUnpaid + ' approved aircraft registration(s) unpaid',
+    sub: 'The committee approved — pay the registration fee from your cart.',
+    btn: '<button class="btn btn-outline btn-sm" onclick="openCart()">Pay Fee</button>',
+  });
+  const actionsCard = actions.length
+    ? '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Pending Actions</h2>' +
+      '<span class="pill amber">' + actions.length + ' pending</span></div>' +
+      actions.map((a) =>
+        '<div class="action-row"><span class="aicon"><span class="material-symbols-outlined">' + a.icon + '</span></span>' +
+        '<div class="atext"><b>' + a.title + '</b><span>' + a.sub + '</span></div>' + a.btn + '</div>').join('') +
+      '</div>'
+    : '';
+
+  /* --- Feature grid --- */
+  const feat = (route, color, icon, title, sub) =>
+    '<div class="feat-card" onclick="location.hash=\'' + route + '\'">' +
+      '<span class="material-symbols-outlined fgo">arrow_forward</span>' +
+      '<span class="ficon ' + color + '"><span class="material-symbols-outlined">' + icon + '</span></span>' +
+      '<span class="ftitle">' + title + '</span>' +
+      (sub ? '<span class="fsub">' + sub + '</span>' : '') +
+    '</div>';
+  const soon = (color, icon, title) =>
+    '<div class="feat-card soon">' +
+      '<span class="soon-pill">Coming Soon</span>' +
+      '<span class="ficon ' + color + '"><span class="material-symbols-outlined">' + icon + '</span></span>' +
+      '<span class="ftitle">' + title + '</span>' +
+    '</div>';
+
+  const grid =
+    '<div class="feat-grid">' +
+      soon('fc-slate', 'account_circle', 'Exhibitor Profile') +
+      feat('#/space-requirement', 'fc-blue', 'view_comfy_alt', 'Space Booking',
+        S.spaceRequirements.length + ' requirement(s) · ' + S.stalls.length + ' stall(s) booked') +
+      feat('#/aircraft', 'fc-cyan', 'flight', 'Aircraft Registration',
+        aircraft.length + ' application(s)') +
+      feat('#/orders', 'fc-orange', 'receipt_long', 'My Orders',
+        S.orders.length + ' order(s) · ' + money(paidInr) + ' paid') +
+      feat('#/passes/badges', 'fc-green', 'badge', 'Badges',
+        passesUsed + ' of ' + quotaTotal + ' passes used') +
+      feat('#/co-exhibitors', 'fc-teal', 'group_add', 'Co-Exhibitor',
+        S.coexhibitors.length + ' added' + (coexPending ? ' · ' + coexPending + ' payment pending' : '')) +
+      soon('fc-purple', 'assignment', 'Exhibition Forms') +
+      soon('fc-pink', 'meeting_room', 'Conference Halls') +
+      soon('fc-amber', 'handshake', 'B2B Table') +
+      soon('fc-red', 'inventory_2', 'Products') +
+    '</div>';
+
+  /* --- Quota & badge summary --- */
+  const kindPage = { badge: '#/passes/badges', invitee: '#/passes/invitee', vehicle: '#/passes/vehicle' };
+  const quotaRows = S.categories.map((c) => {
+    const used = S.passes.filter((p) => p.catId === c.id).length;
+    return '<div class="action-row">' +
+      '<span class="aicon" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">' +
+        (c.kind === 'vehicle' ? 'directions_car' : c.kind === 'invitee' ? 'mail' : 'badge') + '</span></span>' +
+      '<div class="atext"><b>' + esc(c.name) + '</b>' +
+      '<span>Free: ' + c.free + ' · Paid: ' + c.paid + '</span></div>' +
+      '<span class="num" style="font-weight:800">' + used + ' / ' + catTotal(c) + '</span>' +
+      '<a class="btn btn-outline btn-sm" href="' + kindPage[c.kind] + '">Add now</a>' +
+    '</div>';
+  }).join('');
+
+  return '<div class="dash-hello"><div>' +
+      '<h1 class="page-title">Hi ' + esc(EVENT.exhibitor) + ', let’s get started 👋</h1>' +
+      '<p class="page-sub" style="margin-bottom:0">This is a quick summary of your participation. You can access every key section here.</p>' +
+    '</div></div>' +
+    '<div class="card"><div class="card-head-row"><div>' +
+      '<span class="pill blue">Aero Space</span>' +
+      '<h2 class="card-title" style="margin-top:8px">' + esc(EVENT.exhibitor) + '</h2></div>' +
+      '<a class="btn btn-outline btn-sm" href="#/space-requirement"><span class="material-symbols-outlined" style="font-size:16px">design_services</span>Space Requirement</a></div>' +
+      '<div class="space-chips">' + spaceChips + '</div></div>' +
+    actionsCard +
+    '<div class="section-gap"><h2 class="card-title">Quick Access</h2>' + grid + '</div>' +
+    '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Manage Quota &amp; Badges</h2>' +
+      '<span class="result-count">' + passesUsed + ' of ' + quotaTotal + ' used across all categories</span></div>' +
+      quotaRows + '</div>' +
+    footerTools();
+}
+
+/* ============================================================
+   VIEW · My Orders — the exhibitor's own payment history
+   ============================================================ */
+const MY_ORDER_TYPE = { coex_reg: 'Co-Exhibitor Registration', vehicle: 'Vehicle Pass', aircraft_reg: 'Aircraft Registration' };
+
+function viewMyOrders() {
+  const paidInr = S.orders.filter((o) => o.currency !== 'USD').reduce((a, o) => a + Number(o.amount || 0), 0);
+  const paidUsd = S.orders.filter((o) => o.currency === 'USD').reduce((a, o) => a + Number(o.amount || 0), 0);
+  const cartTotal = S.cart.reduce((a, i) => a + Number(i.amount || 0), 0);
+
+  const pendingRows = S.cart.map((i) =>
+    '<tr><td><span style="color:var(--muted)">—</span></td>' +
+    '<td><span class="td-strong">' + esc(MY_ORDER_TYPE[i.type] || i.type) + '</span>' +
+      '<span class="td-sub">' + esc(i.label) + (i.sub ? ' · ' + esc(i.sub) : '') + '</span></td>' +
+    '<td class="money">' + (i.currency === 'USD' ? '$' + Number(i.amount).toLocaleString('en-US') : money(i.amount)) + '</td>' +
+    '<td><span class="pill amber">Pending</span></td>' +
+    '<td><button class="btn-link" onclick="openCart()">Pay Now</button></td></tr>').join('');
+
+  const paidRows = S.orders.slice().reverse().map((o) =>
+    '<tr><td><span class="regno">' + esc(o.orderNo) + '</span></td>' +
+    '<td><span class="td-strong">' + esc(MY_ORDER_TYPE[o.type] || o.type) + '</span>' +
+      '<span class="td-sub">' + esc(o.label) + (o.sub ? ' · ' + esc(o.sub) : '') + '</span></td>' +
+    '<td class="money">' + (o.currency === 'USD' ? '$' + Number(o.amount).toLocaleString('en-US') : money(o.amount)) + '</td>' +
+    '<td><span class="pill green">Success</span></td>' +
+    '<td>' + esc(o.paidAt) + '</td></tr>').join('');
+
+  const rows = (pendingRows + paidRows) ||
+    '<tr><td colspan="5" style="color:var(--muted)">No orders yet — payments you make from the cart will appear here.</td></tr>';
+
+  return '<h1 class="page-title">My Orders</h1>' +
+    '<p class="page-sub">All your payments — co-exhibitor registrations, vehicle passes and aircraft registration fees.</p>' +
+    '<div class="tiles">' +
+      '<div class="tile blue"><div class="t-label">Total Orders</div><div class="t-value">' + S.orders.length + '</div></div>' +
+      '<div class="tile accent"><div class="t-label">Total Paid</div><div class="t-value">' + money(paidInr) +
+        (paidUsd ? ' <small style="font-size:0.65em">+ $' + paidUsd.toLocaleString('en-US') + '</small>' : '') + '</div></div>' +
+      '<div class="tile"><div class="t-label">Pending in Cart</div><div class="t-value">' + S.cart.length +
+        (cartTotal ? '<span style="font-size:0.85rem;color:var(--muted);font-weight:600"> · ' + money(cartTotal) + '</span>' : '') + '</div></div>' +
+    '</div>' +
+    '<div class="card"><div class="card-head-row"><h2 class="card-title">Order History</h2>' +
+      (S.cart.length ? '<button class="btn btn-primary btn-sm" onclick="openCart()"><span class="material-symbols-outlined" style="font-size:16px">shopping_cart</span>Pay Pending (' + S.cart.length + ')</button>' : '') +
+    '</div>' +
+    '<div class="tablewrap"><table class="grid">' +
+    '<tr><th>Order No.</th><th>Order Type / Item</th><th>Amount</th><th>Payment Status</th><th>Paid At</th></tr>' +
+    rows + '</table></div></div>' +
+    footerTools();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-  if (!location.hash) location.hash = '#/co-exhibitors';
+  if (!location.hash) location.hash = '#/dashboard';
   render();
 });
