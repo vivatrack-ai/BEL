@@ -62,15 +62,19 @@
   // documents uploaded at registration time are LOCKED (no replace) —
   // only still-pending documents may be uploaded.
   if (S.profile.approved === undefined) { S.profile.approved = true; S.profile.approvedAt = '19 Sept 2026'; }
-  // Migration: matchmaking / product-profile (keywords + exhibition
-  // categories with subcategories + networking preferences)
-  if (!S.profile.matchmaking) {
+  // Migration: matchmaking fields per the registration sheet
+  // ("LookingFor & Offering.xlsx") — Exhibition Categories, I am
+  // Looking For and Offering each hold {category: [subcategories]}.
+  if (!S.profile.matchmaking || !S.profile.matchmaking.exCats) {
+    const kw = (S.profile.matchmaking && S.profile.matchmaking.keywords) || ['Fighter Aircraft', 'Avionics'];
     S.profile.matchmaking = {
-      keywords: ['Fighter Aircraft', 'Avionics'],
-      cats: { 'Aircraft & Systems': ['Fixed Wing', 'Rotary Wing', 'UAV / Drones', 'Avionics'] },
-      lookingFor: ['Buyers', 'Technology Partners'],
-      offering: ['Products', 'Technology Transfer'],
-      productInterest: ['Avionics', 'UAV / Drones'],
+      keywords: kw,
+      exCats: {
+        'Aircraft Systems (Fixed Wing)': ['Fighter Aircraft', 'Light Combat Aircraft', 'Basic Trainer Aircraft'],
+        'Helicopters & Rotary Wing': ['Utility Helicopters', 'Attack Helicopters'],
+      },
+      lookingFor: { 'Avionics': ['Mission Computers', 'Cockpit Displays / Glass Cockpits'] },
+      offering: { 'MRO & Lifecycle Support': ['Maintenance Services', 'Overhaul Services', 'Upgrades & Retrofits'] },
     };
     save();
   }
@@ -94,7 +98,8 @@ function profileSectionPct(section) {
     const a = countFilled(P.company, ['businessType', 'email', 'phone', 'website']);
     const b = countFilled(P.compliance, ['msme', 'udyam', 'selfCert', 'pan', 'gst']);
     const c = countFilled(P.regAddress, ['building', 'landmark', 'city', 'state', 'postal', 'country']);
-    return pctOf(a + b + c, 15);
+    const d = (P.business.overview ? 1 : 0) + (P.business.capabilities.length ? 1 : 0); // Company Positioning
+    return pctOf(a + b + c + d, 17);
   }
   if (section === 'contacts') {
     const d = countFilled(P.contacts.director, ['fullName', 'email', 'phone', 'designation']);
@@ -111,32 +116,25 @@ function profileSectionPct(section) {
   if (section === 'documents') {
     return pctOf(P.documents.filter((d) => d.file).length, P.documents.length);
   }
-  if (section === 'business') {
-    const B = P.business;
-    const checks = [B.primary, B.secondary.length, B.types.length, B.targets.length,
-      B.overview, B.capabilities.length];
-    return pctOf(checks.filter(Boolean).length, checks.length);
-  }
   if (section === 'matchmaking') {
     const M = P.matchmaking;
-    const checks = [M.keywords.length, Object.keys(M.cats).some((k) => M.cats[k].length),
-      M.lookingFor.length, M.offering.length, M.productInterest.length];
+    const any = (m) => Object.keys(m).some((k) => m[k].length);
+    const checks = [M.keywords.length, any(M.exCats), any(M.lookingFor), any(M.offering)];
     return pctOf(checks.filter(Boolean).length, checks.length);
   }
   return 0;
 }
 function profileOverallPct() {
-  const secs = ['company', 'contacts', 'billing', 'documents', 'business', 'matchmaking'];
+  const secs = ['company', 'contacts', 'billing', 'documents', 'matchmaking'];
   return Math.round(secs.reduce((a, s) => a + profileSectionPct(s), 0) / secs.length);
 }
 
 /* ---------------- shared pieces ---------------- */
 const PROFILE_TABS = [
   ['company', 'Company Info'], ['contacts', 'Authorized Contacts'],
-  ['billing', 'Billing & Bank Info'], ['documents', 'Documents'],
-  ['business', 'Business Profile'], ['matchmaking', 'Matchmaking'],
+  ['billing', 'Billing & Bank Info'], ['documents', 'Documents'], ['matchmaking', 'Matchmaking'],
 ];
-const PROG_LABELS = { company: 'Company Info', contacts: 'Authorized Contacts', billing: 'Billing & Bank Info', documents: 'Documents', business: 'Business Profile', matchmaking: 'Matchmaking' };
+const PROG_LABELS = { company: 'Company Info', contacts: 'Authorized Contacts', billing: 'Billing & Bank Info', documents: 'Documents', matchmaking: 'Matchmaking' };
 
 function profileProgressRail() {
   return '<div class="card"><h2 class="card-title" style="margin-bottom:16px">Setup Progress</h2>' +
@@ -174,7 +172,6 @@ function viewProfile(tab) {
   if (tab === 'contacts') body = profTabContacts();
   else if (tab === 'billing') body = profTabBilling();
   else if (tab === 'documents') body = profTabDocuments();
-  else if (tab === 'business') body = profTabBusiness();
   else if (tab === 'matchmaking') body = profTabMatchmaking();
   else body = profTabCompany();
 
@@ -205,7 +202,8 @@ function profTabCompany() {
         ['Office No/Floor/Building', P.regAddress.building], ['Near By/Area/Landmark', P.regAddress.landmark],
         ['City', P.regAddress.city], ['State', P.regAddress.state],
         ['Postal Code', P.regAddress.postal], ['Country', P.regAddress.country],
-      ]));
+      ])) +
+    positioningCard();
 }
 
 /* ---------------- tab: Authorized Contacts ---------------- */
@@ -388,34 +386,16 @@ function uploadProfileDoc(id, input) {
 }
 
 /* ---------------- tab: Business Profile ---------------- */
-const INDUSTRY_OPTS = ['Aerospace & Defence', 'Artificial Intelligence', 'Avionics', 'Cybersecurity', 'Drones & UAV', 'Electronics', 'MRO Services', 'Space Technology'];
-const BIZ_TYPES = ['Manufacturer', 'Service Provider', 'Distributor', 'Consultancy'];
-const MARKETS = ['Global', 'South Asia', 'Middle East', 'Europe', 'Africa', 'Americas'];
-
 function chips(list, removeFn) {
   return list.map((t, i) =>
     '<span class="tagchip">' + esc(t) + '<button onclick="' + removeFn + '(' + i + ')" title="Remove">✕</button></span>').join('') ||
     '<span style="color:var(--muted);font-size:0.8rem">None added</span>';
 }
-function toggleChips(opts, selected, fn) {
-  return '<div class="filter-chips" style="margin-top:6px">' + opts.map((o) =>
-    '<button class="fchip' + (selected.includes(o) ? ' on' : '') + '" onclick="' + fn + '(\'' + o.replace(/'/g, "\\'") + '\')">' + o + '</button>').join('') + '</div>';
-}
 
-function profTabBusiness() {
+/* Company Positioning — lives on the Company Info tab (the old
+   Business Profile tab was removed; only this section was kept). */
+function positioningCard() {
   const B = S.profile.business;
-  const classification =
-    '<div class="field" style="margin-bottom:14px"><label>Primary Industry</label>' +
-      '<select onchange="S.profile.business.primary=this.value;save();render()">' +
-      INDUSTRY_OPTS.map((o) => '<option' + (B.primary === o ? ' selected' : '') + '>' + o + '</option>').join('') + '</select></div>' +
-    '<div style="margin-bottom:14px"><label style="font-size:0.8rem;font-weight:700">Secondary Industries</label><div style="margin-top:6px">' +
-      chips(B.secondary, 'rmSecondary') + '</div>' +
-      toggleChips(INDUSTRY_OPTS.filter((o) => o !== B.primary && !B.secondary.includes(o)), [], 'addSecondary') + '</div>' +
-    '<div style="margin-bottom:14px"><label style="font-size:0.8rem;font-weight:700">Business Type</label>' +
-      toggleChips(BIZ_TYPES, B.types, 'toggleBizType') + '</div>' +
-    '<div><label style="font-size:0.8rem;font-weight:700">Target Market</label>' +
-      toggleChips(MARKETS, B.targets, 'toggleMarket') + '</div>';
-
   const positioning =
     '<div class="field" style="margin-bottom:14px"><label>Company Overview <span style="float:right;color:var(--muted);font-weight:500">' + B.overview.length + ' / 500 characters</span></label>' +
       '<textarea id="bizOverview" rows="4" maxlength="500" style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:9px 12px;font-family:inherit;font-size:0.88rem">' + esc(B.overview) + '</textarea></div>' +
@@ -423,26 +403,9 @@ function profTabBusiness() {
       '<div style="display:flex;gap:8px;margin-top:8px"><input type="text" id="capInput" placeholder="Add capability" style="border:1px solid #CFD7E4;border-radius:8px;padding:7px 12px;font-family:inherit;font-size:0.84rem">' +
       '<button class="btn btn-outline btn-sm" onclick="addCapability()">+ Add Tag</button></div></div>' +
     '<div style="display:flex;justify-content:flex-end"><button class="btn btn-primary btn-sm" onclick="saveOverview()"><span class="material-symbols-outlined" style="font-size:16px">save</span>Save</button></div>';
-
-  return '<div style="margin-bottom:16px"><h2 class="card-title" style="margin:0">Industry &amp; Classification</h2>' +
-    '<p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0">Define how your company appears in the networking platform. Products are managed from the separate <a class="btn-link" style="padding:0" href="#/products">Products</a> menu.</p></div>' +
-    pcard('category', 'var(--blue-soft)', 'var(--blue)', 'Business Classification', null, classification) +
-    pcard('campaign', '#FBEAE6', 'var(--red)', 'Company Positioning', null, positioning);
+  return pcard('campaign', '#FBEAE6', 'var(--red)', 'Company Positioning', null, positioning);
 }
 
-/* --- business tab actions --- */
-function addSecondary(v) { S.profile.business.secondary.push(v); save(); render(); }
-function rmSecondary(i) { S.profile.business.secondary.splice(i, 1); save(); render(); }
-function toggleBizType(v) {
-  const a = S.profile.business.types;
-  a.includes(v) ? a.splice(a.indexOf(v), 1) : a.push(v);
-  save(); render();
-}
-function toggleMarket(v) {
-  const a = S.profile.business.targets;
-  a.includes(v) ? a.splice(a.indexOf(v), 1) : a.push(v);
-  save(); render();
-}
 function addCapability() {
   const v = $('capInput').value.trim();
   if (!v) return;
@@ -523,71 +486,110 @@ function editCompliance() {
 function editRegAddress() { profileEditModal('Edit — Registered Address', ADDR_FIELDS, () => S.profile.regAddress); }
 function editBilling() { profileEditModal('Edit — Billing Address', ADDR_FIELDS, () => S.profile.billing); }
 /* ============================================================
-   TAB · Matchmaking — product profile (keywords + exhibition
-   categories with SUBCATEGORIES) + networking preferences
+   TAB · Matchmaking — real category/subcategory master from the
+   "LookingFor & Offering.xlsx" registration sheet (window.MM_CATS,
+   53 categories · 567 subcategories, loaded via matchmaking-data.js).
+   Four separate sections: Keywords · Exhibition Categories ·
+   I am Looking For · Offering — each with multi-select subs.
    ============================================================ */
-const EXPO_CATS = [
-  { name: 'Portable Weapons', subs: ['Firearms', 'Non-Firearm Weapons', 'Melee Weapons', 'Electroshock Weapons'] },
-  { name: 'Ammunition', subs: ['Small Calibre', 'Medium & Large Calibre', 'Fuzes & Propellants'] },
-  { name: 'Pyrotechnics', subs: ['Signal Flares', 'Smoke & Illumination', 'Countermeasure Flares'] },
-  { name: 'Aircraft & Systems', subs: ['Fixed Wing', 'Rotary Wing', 'UAV / Drones', 'Avionics'] },
-  { name: 'Naval Systems', subs: ['Shipborne Weapons', 'Sonar & Sensors', 'Naval Communication'] },
-  { name: 'Land Systems', subs: ['Armoured Vehicles', 'Artillery', 'Soldier Systems'] },
-];
-const LOOKING_FOR_OPTS = ['Buyers', 'Distributors', 'Suppliers', 'JV Partners', 'Technology Partners', 'Investors', 'Government Agencies'];
-const OFFERING_OPTS = ['Products', 'Services', 'Technology Transfer', 'Training', 'MRO Support', 'Consultancy'];
-const ALL_SUBCATS = EXPO_CATS.reduce((a, c) => a.concat(c.subs), []);
-window.__catOpen = window.__catOpen || { [EXPO_CATS[0].name]: true };
+const MM_FIELDS = { ex: 'exCats', lf: 'lookingFor', of: 'offering' };
+window.__mmOpen = window.__mmOpen || { ex: {}, lf: {}, of: {} };
+window.__mmQ = window.__mmQ || { ex: '', lf: '', of: '' };
+
+function mmField(f) { return S.profile.matchmaking[MM_FIELDS[f]]; }
+function mmCount(f) { return Object.values(mmField(f)).reduce((a, x) => a + x.length, 0); }
+
+/* Searchable, collapsible category → subcategory multi-select tree */
+function mmTree(f) {
+  const map = mmField(f);
+  const q = (window.__mmQ[f] || '').toLowerCase();
+  let list = MM_CATS.map((c, ci) => ({ c: c, ci: ci }));
+  if (q) list = list.filter((x) => x.c.name.toLowerCase().includes(q) || x.c.subs.some((s) => s.toLowerCase().includes(q)));
+
+  const blocks = list.map((x) => {
+    const c = x.c, ci = x.ci;
+    const sel = map[c.name] || [];
+    const allOn = c.subs.length > 0 && sel.length === c.subs.length;
+    const open = q ? true : !!window.__mmOpen[f][c.name];
+    const catMatches = c.name.toLowerCase().includes(q);
+    const subRows = c.subs.map((sub, si) => {
+      if (q && !catMatches && !sub.toLowerCase().includes(q)) return '';
+      return '<label class="check-item' + (sel.includes(sub) ? ' selected' : '') + '" style="display:flex;margin:6px 0 6px 34px" ' +
+        'onclick="event.preventDefault();mmToggleSub(\'' + f + '\',' + ci + ',' + si + ')">' +
+        '<input type="checkbox"' + (sel.includes(sub) ? ' checked' : '') + '>' + esc(sub) + '</label>';
+    }).join('');
+    return '<div style="border:1px solid var(--line);border-radius:10px;padding:8px 14px;margin-bottom:8px">' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<label class="check-item' + (allOn ? ' selected' : '') + '" style="display:flex;flex:1;border:none;padding:4px 0" ' +
+          'onclick="event.preventDefault();mmToggleParent(\'' + f + '\',' + ci + ')">' +
+          '<input type="checkbox"' + (allOn ? ' checked' : '') + '><b>' + esc(c.name) + '</b>' +
+          (sel.length && !allOn ? ' <span class="pill blue" style="margin-left:8px">' + sel.length + ' selected</span>' : '') +
+          (allOn ? ' <span class="pill green" style="margin-left:8px">All</span>' : '') + '</label>' +
+        '<button class="btn-link" onclick="mmToggleOpen(\'' + f + '\',' + ci + ')">' +
+          '<span class="material-symbols-outlined">' + (open ? 'keyboard_arrow_up' : 'keyboard_arrow_down') + '</span></button>' +
+      '</div>' +
+      (open ? subRows : '') +
+    '</div>';
+  }).join('') || '<p style="color:var(--muted);font-size:0.84rem">No category matches your search.</p>';
+
+  return '<input type="text" id="mmq_' + f + '" value="' + esc(window.__mmQ[f]) + '" placeholder="Search category or subcategory.." ' +
+      'oninput="mmSetQ(\'' + f + '\', this.value)" ' +
+      'style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.86rem;margin-bottom:10px">' +
+    '<div style="max-height:420px;overflow-y:auto;padding-right:4px">' + blocks + '</div>';
+}
+
+function mmSetQ(f, v) {
+  window.__mmQ[f] = v;
+  render();
+  const el = $('mmq_' + f);
+  if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
+function mmToggleOpen(f, ci) {
+  const name = MM_CATS[ci].name;
+  window.__mmOpen[f][name] = !window.__mmOpen[f][name];
+  render();
+}
+function mmToggleSub(f, ci, si) {
+  const cat = MM_CATS[ci].name, sub = MM_CATS[ci].subs[si];
+  const map = mmField(f);
+  if (!map[cat]) map[cat] = [];
+  const a = map[cat];
+  a.includes(sub) ? a.splice(a.indexOf(sub), 1) : a.push(sub);
+  if (!a.length) delete map[cat];
+  window.__mmOpen[f][cat] = true;
+  save(); render();
+}
+function mmToggleParent(f, ci) {
+  const c = MM_CATS[ci];
+  const map = mmField(f);
+  const allOn = (map[c.name] || []).length === c.subs.length && c.subs.length > 0;
+  if (allOn) delete map[c.name];
+  else map[c.name] = c.subs.slice();
+  window.__mmOpen[f][c.name] = true;
+  save(); render();
+}
 
 function profTabMatchmaking() {
   const M = S.profile.matchmaking;
 
   const keywordsBlock =
-    '<label style="font-size:0.8rem;font-weight:700">Keywords <span class="req">*</span></label>' +
     '<div style="margin:6px 0">' + chips(M.keywords, 'rmKeyword') + '</div>' +
     '<div style="display:flex;gap:8px"><input type="text" id="kwInput" placeholder="Enter Keywords.." ' +
       'onkeydown="if(event.key===\'Enter\'){event.preventDefault();addKeyword();}" ' +
       'style="flex:1;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.86rem">' +
       '<button class="btn btn-outline btn-sm" onclick="addKeyword()">+ Add</button></div>';
 
-  const catBlocks = EXPO_CATS.map((c) => {
-    const sel = M.cats[c.name] || [];
-    const allOn = sel.length === c.subs.length;
-    const open = !!window.__catOpen[c.name];
-    const subRows = c.subs.map((sub) =>
-      '<label class="check-item' + (sel.includes(sub) ? ' selected' : '') + '" style="display:flex;margin:6px 0 6px 34px" ' +
-        'onclick="event.preventDefault();toggleSubCat(\'' + c.name.replace(/'/g, "\\'") + '\',\'' + sub.replace(/'/g, "\\'") + '\')">' +
-        '<input type="checkbox"' + (sel.includes(sub) ? ' checked' : '') + '>' + sub + '</label>').join('');
-    return '<div style="border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:10px">' +
-      '<div style="display:flex;align-items:center;gap:10px">' +
-        '<label class="check-item' + (allOn ? ' selected' : '') + '" style="display:flex;flex:1;border:none;padding:4px 0" ' +
-          'onclick="event.preventDefault();toggleParentCat(\'' + c.name.replace(/'/g, "\\'") + '\')">' +
-          '<input type="checkbox"' + (allOn ? ' checked' : '') + (!allOn && sel.length ? ' data-part="1"' : '') + '><b>' + c.name + '</b>' +
-          (sel.length && !allOn ? ' <span class="pill blue" style="margin-left:8px">' + sel.length + ' selected</span>' : '') + '</label>' +
-        '<button class="btn-link" onclick="window.__catOpen[\'' + c.name.replace(/'/g, "\\'") + '\']=' + (open ? 'false' : 'true') + ';render()">' +
-          '<span class="material-symbols-outlined">' + (open ? 'keyboard_arrow_up' : 'keyboard_arrow_down') + '</span></button>' +
-      '</div>' +
-      (open ? subRows : '') +
-    '</div>';
-  }).join('');
-
-  const prefBlock =
-    '<div style="margin-bottom:16px"><label style="font-size:0.8rem;font-weight:700">I am Looking For <span class="req">*</span></label>' +
-      toggleChips(LOOKING_FOR_OPTS, M.lookingFor, 'toggleLookingFor') + '</div>' +
-    '<div style="margin-bottom:16px"><label style="font-size:0.8rem;font-weight:700">Offering <span class="req">*</span></label>' +
-      toggleChips(OFFERING_OPTS, M.offering, 'toggleOffering') + '</div>' +
-    '<div><label style="font-size:0.8rem;font-weight:700">Product Interest</label>' +
-      '<div class="hint" style="margin-top:2px">Subcategories you want to discover / meet exhibitors for.</div>' +
-      toggleChips(ALL_SUBCATS, M.productInterest, 'toggleProductInterest') + '</div>';
+  const secTitle = (t, f) => t + (f && mmCount(f) ? ' <span class="pill blue" style="margin-left:6px">' + mmCount(f) + ' selected</span>' : '');
 
   return '<div style="margin-bottom:16px"><h2 class="card-title" style="margin:0">Matchmaking</h2>' +
-    '<p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0">Powers B2B recommendations in the networking platform — who you meet is driven by these selections. <span class="req">*</span> indicates mandatory fields.</p></div>' +
-    pcard('sell', 'var(--blue-soft)', 'var(--blue)', 'Product Profile', null,
-      keywordsBlock +
-      '<div style="margin-top:18px"><label style="font-size:0.8rem;font-weight:700">Exhibition Categories <span class="req">*</span></label>' +
-      '<div class="hint" style="margin:2px 0 8px">Select the categories you exhibit under — subcategories select individually, or tick the category to select all.</div>' +
-      catBlocks + '</div>') +
-    pcard('hub', '#E6F4EC', 'var(--green)', 'Matchmaking Preferences', null, prefBlock);
+    '<p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0">Powers B2B recommendations in the networking platform. Category &amp; subcategory selections are multi-select — tick a category to select all its subcategories, or pick subcategories individually. <span class="req">*</span> indicates mandatory fields.</p></div>' +
+    pcard('sell', 'var(--blue-soft)', 'var(--blue)', 'Keywords <span class="req">*</span>', null, keywordsBlock) +
+    pcard('category', '#F3ECFB', '#6C47C9', secTitle('Exhibition Categories <span class="req">*</span>', 'ex'), null,
+      '<div class="hint" style="margin:0 0 8px">The categories you exhibit under.</div>' + mmTree('ex')) +
+    pcard('travel_explore', '#FFF4E0', 'var(--amber)', secTitle('I am Looking For <span class="req">*</span>', 'lf'), null,
+      '<div class="hint" style="margin:0 0 8px">Products &amp; capabilities you want to source / discover at the show.</div>' + mmTree('lf')) +
+    pcard('volunteer_activism', '#E6F4EC', 'var(--green)', secTitle('Offering <span class="req">*</span>', 'of'), null,
+      '<div class="hint" style="margin:0 0 8px">Products &amp; capabilities you offer to visitors and partners.</div>' + mmTree('of'));
 }
 
 function addKeyword() {
@@ -597,27 +599,6 @@ function addKeyword() {
   save(); render();
 }
 function rmKeyword(i) { S.profile.matchmaking.keywords.splice(i, 1); save(); render(); }
-function toggleSubCat(cat, sub) {
-  const M = S.profile.matchmaking;
-  if (!M.cats[cat]) M.cats[cat] = [];
-  const a = M.cats[cat];
-  a.includes(sub) ? a.splice(a.indexOf(sub), 1) : a.push(sub);
-  if (!a.length) delete M.cats[cat];
-  window.__catOpen[cat] = true;
-  save(); render();
-}
-function toggleParentCat(cat) {
-  const M = S.profile.matchmaking;
-  const def = EXPO_CATS.find((c) => c.name === cat);
-  const allOn = (M.cats[cat] || []).length === def.subs.length;
-  if (allOn) delete M.cats[cat];
-  else M.cats[cat] = def.subs.slice();
-  window.__catOpen[cat] = true;
-  save(); render();
-}
-function toggleLookingFor(v) { const a = S.profile.matchmaking.lookingFor; a.includes(v) ? a.splice(a.indexOf(v), 1) : a.push(v); save(); render(); }
-function toggleOffering(v) { const a = S.profile.matchmaking.offering; a.includes(v) ? a.splice(a.indexOf(v), 1) : a.push(v); save(); render(); }
-function toggleProductInterest(v) { const a = S.profile.matchmaking.productInterest; a.includes(v) ? a.splice(a.indexOf(v), 1) : a.push(v); save(); render(); }
 
 /* ============================================================
    VIEW · Products — SEPARATE menu (not inside company profile),
@@ -678,7 +659,7 @@ function openProductModal() {
     '<div class="form-grid">' +
       '<div class="field"><label>Product Name <span class="req">*</span></label><input type="text" id="prName" placeholder="Enter product name"><div class="error"></div></div>' +
       '<div class="field"><label>Product Category <span class="req">*</span></label><select id="prCat"><option value="">Select a category</option>' +
-        ALL_SUBCATS.concat(['Fighter Aircraft', 'Helicopters', 'Aero Engines', 'Security System', 'Simulation & Training', 'Other']).map((c) => '<option>' + c + '</option>').join('') + '</select><div class="error"></div></div>' +
+        MM_CATS.map((c) => '<option>' + esc(c.name) + '</option>').join('') + '</select><div class="error"></div></div>' +
       '<div class="field full"><label>Short Description</label><textarea id="prDesc" rows="2" maxlength="200" placeholder="Provide a brief overview of the product (max 200 characters)" style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:9px 12px;font-family:inherit;font-size:0.88rem"></textarea></div>' +
       '<div class="field"><label>Application Areas</label><input type="text" id="prAreas" placeholder="e.g. Defence, Civil (comma separated)"></div>' +
       '<div class="field"><label>Product Images</label><input type="file" id="prImages" accept="image/*" multiple></div>' +
