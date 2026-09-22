@@ -62,6 +62,26 @@
   // documents uploaded at registration time are LOCKED (no replace) —
   // only still-pending documents may be uploaded.
   if (S.profile.approved === undefined) { S.profile.approved = true; S.profile.approvedAt = '19 Sept 2026'; }
+  // Migration: matchmaking / product-profile (keywords + exhibition
+  // categories with subcategories + networking preferences)
+  if (!S.profile.matchmaking) {
+    S.profile.matchmaking = {
+      keywords: ['Fighter Aircraft', 'Avionics'],
+      cats: { 'Aircraft & Systems': ['Fixed Wing', 'Rotary Wing', 'UAV / Drones', 'Avionics'] },
+      lookingFor: ['Buyers', 'Technology Partners'],
+      offering: ['Products', 'Technology Transfer'],
+      productInterest: ['Avionics', 'UAV / Drones'],
+    };
+    save();
+  }
+  // Migration: booth brand material (videos & documents per booth)
+  if (!S.booth) {
+    S.booth = {
+      videos: [{ id: 'vid_1', booth: 'Hall A · A8.5', title: 'HAL Corporate Film 2027', kind: 'link', url: 'https://youtube.com/watch?v=hal2027', file: '', createdAt: '20 Sept 2026, 11:00 am' }],
+      documents: [{ id: 'bdoc_1', booth: 'Hall A · A8.5', title: 'HAL Product Brochure', file: 'HAL-Brochure-2027.pdf', createdAt: '20 Sept 2026, 11:05 am' }],
+    };
+    save();
+  }
 })();
 
 /* ---------------- progress math ---------------- */
@@ -94,22 +114,29 @@ function profileSectionPct(section) {
   if (section === 'business') {
     const B = P.business;
     const checks = [B.primary, B.secondary.length, B.types.length, B.targets.length,
-      B.overview, B.capabilities.length, B.products.length];
+      B.overview, B.capabilities.length];
+    return pctOf(checks.filter(Boolean).length, checks.length);
+  }
+  if (section === 'matchmaking') {
+    const M = P.matchmaking;
+    const checks = [M.keywords.length, Object.keys(M.cats).some((k) => M.cats[k].length),
+      M.lookingFor.length, M.offering.length, M.productInterest.length];
     return pctOf(checks.filter(Boolean).length, checks.length);
   }
   return 0;
 }
 function profileOverallPct() {
-  const secs = ['company', 'contacts', 'billing', 'documents', 'business'];
+  const secs = ['company', 'contacts', 'billing', 'documents', 'business', 'matchmaking'];
   return Math.round(secs.reduce((a, s) => a + profileSectionPct(s), 0) / secs.length);
 }
 
 /* ---------------- shared pieces ---------------- */
 const PROFILE_TABS = [
   ['company', 'Company Info'], ['contacts', 'Authorized Contacts'],
-  ['billing', 'Billing & Bank Info'], ['documents', 'Documents'], ['business', 'Business Profile'],
+  ['billing', 'Billing & Bank Info'], ['documents', 'Documents'],
+  ['business', 'Business Profile'], ['matchmaking', 'Matchmaking'],
 ];
-const PROG_LABELS = { company: 'Company Info', contacts: 'Authorized Contacts', billing: 'Billing & Bank Info', documents: 'Documents', business: 'Business Profile' };
+const PROG_LABELS = { company: 'Company Info', contacts: 'Authorized Contacts', billing: 'Billing & Bank Info', documents: 'Documents', business: 'Business Profile', matchmaking: 'Matchmaking' };
 
 function profileProgressRail() {
   return '<div class="card"><h2 class="card-title" style="margin-bottom:16px">Setup Progress</h2>' +
@@ -148,6 +175,7 @@ function viewProfile(tab) {
   else if (tab === 'billing') body = profTabBilling();
   else if (tab === 'documents') body = profTabDocuments();
   else if (tab === 'business') body = profTabBusiness();
+  else if (tab === 'matchmaking') body = profTabMatchmaking();
   else body = profTabCompany();
 
   return '<h1 class="page-title">' + esc(EVENT.exhibitor) +
@@ -396,35 +424,10 @@ function profTabBusiness() {
       '<button class="btn btn-outline btn-sm" onclick="addCapability()">+ Add Tag</button></div></div>' +
     '<div style="display:flex;justify-content:flex-end"><button class="btn btn-primary btn-sm" onclick="saveOverview()"><span class="material-symbols-outlined" style="font-size:16px">save</span>Save</button></div>';
 
-  const prodRows = B.products.map((p) =>
-    '<div class="prod-row">' +
-      '<span class="icon-sq" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">image</span></span>' +
-      '<div class="pinfo"><b>' + esc(p.name) + '</b>' +
-      '<span>Category: ' + esc(p.category) + ' · ' + esc(p.desc.slice(0, 60)) + (p.desc.length > 60 ? '…' : '') + '</span>' +
-      (p.images.length || p.brochure ? '<span>' + (p.images.length ? p.images.length + ' image(s)' : '') + (p.brochure ? ' · Brochure: ' + esc(p.brochure) : '') + '</span>' : '') + '</div>' +
-      '<button class="btn-link danger" onclick="rmProduct(\'' + p.id + '\')" title="Delete"><span class="material-symbols-outlined" style="font-size:18px">delete</span></button>' +
-    '</div>').join('') || '<p style="color:var(--muted);font-size:0.85rem">No products added yet.</p>';
-
-  const addForm =
-    '<div style="border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:12px">' +
-      '<b style="font-size:0.92rem;display:block;margin-bottom:12px">Add Product</b>' +
-      '<div class="form-grid">' +
-        '<div class="field"><label>Product Name <span class="req">*</span></label><input type="text" id="prName"><div class="error"></div></div>' +
-        '<div class="field"><label>Product Category <span class="req">*</span></label><select id="prCat"><option value="">Select a category</option>' +
-          ['Fighter Aircraft', 'Helicopters', 'Aero Engines', 'Avionics', 'Security System', 'UAV / Drones', 'Simulation & Training', 'Other'].map((c) => '<option>' + c + '</option>').join('') + '</select><div class="error"></div></div>' +
-        '<div class="field full"><label>Short Description</label><textarea id="prDesc" rows="2" maxlength="200" placeholder="Provide a brief overview of the product (max 200 characters)" style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:9px 12px;font-family:inherit;font-size:0.88rem"></textarea></div>' +
-        '<div class="field"><label>Application Areas</label><input type="text" id="prAreas" placeholder="e.g. Defence, Civil (comma separated)"></div>' +
-        '<div class="field"><label>Product Images</label><input type="file" id="prImages" accept="image/*" multiple></div>' +
-        '<div class="field full"><label>Product Brochure</label><input type="file" id="prBrochure" accept=".pdf,.jpg,.jpeg,.png,.docx"><div class="hint">Supported formats: PDF, JPG, PNG, DOCX</div></div>' +
-      '</div>' +
-      '<button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="addProduct()"><span class="material-symbols-outlined" style="font-size:16px">add</span>Add Product</button>' +
-    '</div>';
-
-  return '<div style="margin-bottom:16px"><h2 class="card-title" style="margin:0">Industry &amp; Products</h2>' +
-    '<p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0">Define how your company and offerings appear in the networking platform.</p></div>' +
+  return '<div style="margin-bottom:16px"><h2 class="card-title" style="margin:0">Industry &amp; Classification</h2>' +
+    '<p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0">Define how your company appears in the networking platform. Products are managed from the separate <a class="btn-link" style="padding:0" href="#/products">Products</a> menu.</p></div>' +
     pcard('category', 'var(--blue-soft)', 'var(--blue)', 'Business Classification', null, classification) +
-    pcard('campaign', '#FBEAE6', 'var(--red)', 'Company Positioning', null, positioning) +
-    pcard('inventory_2', '#E6F4EC', 'var(--green)', 'Products & Solutions', null, prodRows + addForm);
+    pcard('campaign', '#FBEAE6', 'var(--red)', 'Company Positioning', null, positioning);
 }
 
 /* --- business tab actions --- */
@@ -466,8 +469,9 @@ function addProduct() {
     areas: $('prAreas').value.split(',').map((s) => s.trim()).filter(Boolean),
     images: [...$('prImages').files].map((f) => f.name),
     brochure: $('prBrochure').files[0] ? $('prBrochure').files[0].name : '',
+    createdAt: nowStr(),
   });
-  save(); render();
+  save(); closeModal(); render();
   toast('Product "' + name + '" added', 'success');
 }
 function rmProduct(id) {
@@ -518,6 +522,323 @@ function editCompliance() {
 }
 function editRegAddress() { profileEditModal('Edit — Registered Address', ADDR_FIELDS, () => S.profile.regAddress); }
 function editBilling() { profileEditModal('Edit — Billing Address', ADDR_FIELDS, () => S.profile.billing); }
+/* ============================================================
+   TAB · Matchmaking — product profile (keywords + exhibition
+   categories with SUBCATEGORIES) + networking preferences
+   ============================================================ */
+const EXPO_CATS = [
+  { name: 'Portable Weapons', subs: ['Firearms', 'Non-Firearm Weapons', 'Melee Weapons', 'Electroshock Weapons'] },
+  { name: 'Ammunition', subs: ['Small Calibre', 'Medium & Large Calibre', 'Fuzes & Propellants'] },
+  { name: 'Pyrotechnics', subs: ['Signal Flares', 'Smoke & Illumination', 'Countermeasure Flares'] },
+  { name: 'Aircraft & Systems', subs: ['Fixed Wing', 'Rotary Wing', 'UAV / Drones', 'Avionics'] },
+  { name: 'Naval Systems', subs: ['Shipborne Weapons', 'Sonar & Sensors', 'Naval Communication'] },
+  { name: 'Land Systems', subs: ['Armoured Vehicles', 'Artillery', 'Soldier Systems'] },
+];
+const LOOKING_FOR_OPTS = ['Buyers', 'Distributors', 'Suppliers', 'JV Partners', 'Technology Partners', 'Investors', 'Government Agencies'];
+const OFFERING_OPTS = ['Products', 'Services', 'Technology Transfer', 'Training', 'MRO Support', 'Consultancy'];
+const ALL_SUBCATS = EXPO_CATS.reduce((a, c) => a.concat(c.subs), []);
+window.__catOpen = window.__catOpen || { [EXPO_CATS[0].name]: true };
+
+function profTabMatchmaking() {
+  const M = S.profile.matchmaking;
+
+  const keywordsBlock =
+    '<label style="font-size:0.8rem;font-weight:700">Keywords <span class="req">*</span></label>' +
+    '<div style="margin:6px 0">' + chips(M.keywords, 'rmKeyword') + '</div>' +
+    '<div style="display:flex;gap:8px"><input type="text" id="kwInput" placeholder="Enter Keywords.." ' +
+      'onkeydown="if(event.key===\'Enter\'){event.preventDefault();addKeyword();}" ' +
+      'style="flex:1;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.86rem">' +
+      '<button class="btn btn-outline btn-sm" onclick="addKeyword()">+ Add</button></div>';
+
+  const catBlocks = EXPO_CATS.map((c) => {
+    const sel = M.cats[c.name] || [];
+    const allOn = sel.length === c.subs.length;
+    const open = !!window.__catOpen[c.name];
+    const subRows = c.subs.map((sub) =>
+      '<label class="check-item' + (sel.includes(sub) ? ' selected' : '') + '" style="display:flex;margin:6px 0 6px 34px" ' +
+        'onclick="event.preventDefault();toggleSubCat(\'' + c.name.replace(/'/g, "\\'") + '\',\'' + sub.replace(/'/g, "\\'") + '\')">' +
+        '<input type="checkbox"' + (sel.includes(sub) ? ' checked' : '') + '>' + sub + '</label>').join('');
+    return '<div style="border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:10px">' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<label class="check-item' + (allOn ? ' selected' : '') + '" style="display:flex;flex:1;border:none;padding:4px 0" ' +
+          'onclick="event.preventDefault();toggleParentCat(\'' + c.name.replace(/'/g, "\\'") + '\')">' +
+          '<input type="checkbox"' + (allOn ? ' checked' : '') + (!allOn && sel.length ? ' data-part="1"' : '') + '><b>' + c.name + '</b>' +
+          (sel.length && !allOn ? ' <span class="pill blue" style="margin-left:8px">' + sel.length + ' selected</span>' : '') + '</label>' +
+        '<button class="btn-link" onclick="window.__catOpen[\'' + c.name.replace(/'/g, "\\'") + '\']=' + (open ? 'false' : 'true') + ';render()">' +
+          '<span class="material-symbols-outlined">' + (open ? 'keyboard_arrow_up' : 'keyboard_arrow_down') + '</span></button>' +
+      '</div>' +
+      (open ? subRows : '') +
+    '</div>';
+  }).join('');
+
+  const prefBlock =
+    '<div style="margin-bottom:16px"><label style="font-size:0.8rem;font-weight:700">I am Looking For <span class="req">*</span></label>' +
+      toggleChips(LOOKING_FOR_OPTS, M.lookingFor, 'toggleLookingFor') + '</div>' +
+    '<div style="margin-bottom:16px"><label style="font-size:0.8rem;font-weight:700">Offering <span class="req">*</span></label>' +
+      toggleChips(OFFERING_OPTS, M.offering, 'toggleOffering') + '</div>' +
+    '<div><label style="font-size:0.8rem;font-weight:700">Product Interest</label>' +
+      '<div class="hint" style="margin-top:2px">Subcategories you want to discover / meet exhibitors for.</div>' +
+      toggleChips(ALL_SUBCATS, M.productInterest, 'toggleProductInterest') + '</div>';
+
+  return '<div style="margin-bottom:16px"><h2 class="card-title" style="margin:0">Matchmaking</h2>' +
+    '<p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0">Powers B2B recommendations in the networking platform — who you meet is driven by these selections. <span class="req">*</span> indicates mandatory fields.</p></div>' +
+    pcard('sell', 'var(--blue-soft)', 'var(--blue)', 'Product Profile', null,
+      keywordsBlock +
+      '<div style="margin-top:18px"><label style="font-size:0.8rem;font-weight:700">Exhibition Categories <span class="req">*</span></label>' +
+      '<div class="hint" style="margin:2px 0 8px">Select the categories you exhibit under — subcategories select individually, or tick the category to select all.</div>' +
+      catBlocks + '</div>') +
+    pcard('hub', '#E6F4EC', 'var(--green)', 'Matchmaking Preferences', null, prefBlock);
+}
+
+function addKeyword() {
+  const v = $('kwInput').value.trim();
+  if (!v) return;
+  if (!S.profile.matchmaking.keywords.includes(v)) S.profile.matchmaking.keywords.push(v);
+  save(); render();
+}
+function rmKeyword(i) { S.profile.matchmaking.keywords.splice(i, 1); save(); render(); }
+function toggleSubCat(cat, sub) {
+  const M = S.profile.matchmaking;
+  if (!M.cats[cat]) M.cats[cat] = [];
+  const a = M.cats[cat];
+  a.includes(sub) ? a.splice(a.indexOf(sub), 1) : a.push(sub);
+  if (!a.length) delete M.cats[cat];
+  window.__catOpen[cat] = true;
+  save(); render();
+}
+function toggleParentCat(cat) {
+  const M = S.profile.matchmaking;
+  const def = EXPO_CATS.find((c) => c.name === cat);
+  const allOn = (M.cats[cat] || []).length === def.subs.length;
+  if (allOn) delete M.cats[cat];
+  else M.cats[cat] = def.subs.slice();
+  window.__catOpen[cat] = true;
+  save(); render();
+}
+function toggleLookingFor(v) { const a = S.profile.matchmaking.lookingFor; a.includes(v) ? a.splice(a.indexOf(v), 1) : a.push(v); save(); render(); }
+function toggleOffering(v) { const a = S.profile.matchmaking.offering; a.includes(v) ? a.splice(a.indexOf(v), 1) : a.push(v); save(); render(); }
+function toggleProductInterest(v) { const a = S.profile.matchmaking.productInterest; a.includes(v) ? a.splice(a.indexOf(v), 1) : a.push(v); save(); render(); }
+
+/* ============================================================
+   VIEW · Products — SEPARATE menu (not inside company profile),
+   mirroring the platform: Product Gallery + placeholder tabs
+   ============================================================ */
+const PRODUCT_TABS = [['gallery', 'Product Gallery'], ['orders-by', 'Order By Product'], ['access', 'Request For Access'], ['orders', 'Product Orders']];
+window.__prodTab = window.__prodTab || 'gallery';
+window.__prodQ = window.__prodQ || '';
+
+function viewProducts() {
+  const tab = window.__prodTab;
+  const tabsHtml = '<div class="ptabs" style="border-bottom:none;padding-bottom:0;margin-bottom:16px">' +
+    PRODUCT_TABS.map(([id, l]) =>
+      '<button class="ptab' + (tab === id ? ' on' : '') + '" onclick="window.__prodTab=\'' + id + '\';render()">' + l + '</button>').join('') + '</div>';
+
+  let body;
+  if (tab !== 'gallery') {
+    const labels = { 'orders-by': 'orders placed by product', 'access': 'access requests', 'orders': 'product orders' };
+    body = '<div class="card"><div class="empty"><span class="material-symbols-outlined">inventory_2</span>' +
+      '<h3>Nothing here yet</h3><p>Visitor ' + labels[tab] + ' will appear here once the networking platform goes live.</p></div></div>';
+  } else {
+    const q = window.__prodQ.toLowerCase();
+    const all = S.profile.business.products;
+    const list = q ? all.filter((p) => (p.name + ' ' + p.category).toLowerCase().includes(q)) : all;
+    const rows = list.map((p) =>
+      '<div class="prod-row">' +
+        '<span class="icon-sq" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">image</span></span>' +
+        '<div class="pinfo"><b>' + esc(p.name) + '</b>' +
+        '<span>Category: ' + esc(p.category) + (p.desc ? ' · ' + esc(p.desc.slice(0, 70)) + (p.desc.length > 70 ? '…' : '') : '') + '</span>' +
+        ((p.areas || []).length || p.images.length || p.brochure
+          ? '<span>' + [(p.areas || []).length ? 'Areas: ' + p.areas.join(', ') : '', p.images.length ? p.images.length + ' image(s)' : '', p.brochure ? 'Brochure: ' + esc(p.brochure) : ''].filter(Boolean).join(' · ') + '</span>' : '') + '</div>' +
+        '<button class="btn-link danger" onclick="rmProduct(\'' + p.id + '\')" title="Delete"><span class="material-symbols-outlined" style="font-size:18px">delete</span></button>' +
+      '</div>').join('');
+    const empty =
+      '<div class="empty"><span class="material-symbols-outlined">wallpaper</span>' +
+      '<h3>No Product yet</h3><p>' + (all.length ? 'No products match your search.' : 'Products will show up here once they are added.') + '</p>' +
+      '<button class="btn btn-primary" onclick="openProductModal()"><span class="material-symbols-outlined">add</span>Product</button></div>';
+    body =
+      '<div class="card">' +
+        '<div class="card-head-row" style="flex-wrap:wrap;gap:10px">' +
+          '<input type="text" value="' + esc(window.__prodQ) + '" placeholder="Search Products" ' +
+            'oninput="window.__prodQ=this.value;render()" ' +
+            'style="flex:1;min-width:220px;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.86rem">' +
+          '<span class="result-count">' + list.length + ' product(s)</span>' +
+          '<button class="btn btn-primary btn-sm" onclick="openProductModal()"><span class="material-symbols-outlined" style="font-size:16px">add</span>Product</button>' +
+        '</div>' +
+        (rows || empty) +
+      '</div>';
+  }
+
+  return '<h1 class="page-title">Product</h1>' +
+    '<p class="page-sub">Your product gallery for the event app &amp; networking platform.</p>' +
+    tabsHtml + body;
+}
+
+function openProductModal() {
+  openModal('Add Product',
+    '<div class="form-grid">' +
+      '<div class="field"><label>Product Name <span class="req">*</span></label><input type="text" id="prName" placeholder="Enter product name"><div class="error"></div></div>' +
+      '<div class="field"><label>Product Category <span class="req">*</span></label><select id="prCat"><option value="">Select a category</option>' +
+        ALL_SUBCATS.concat(['Fighter Aircraft', 'Helicopters', 'Aero Engines', 'Security System', 'Simulation & Training', 'Other']).map((c) => '<option>' + c + '</option>').join('') + '</select><div class="error"></div></div>' +
+      '<div class="field full"><label>Short Description</label><textarea id="prDesc" rows="2" maxlength="200" placeholder="Provide a brief overview of the product (max 200 characters)" style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:9px 12px;font-family:inherit;font-size:0.88rem"></textarea></div>' +
+      '<div class="field"><label>Application Areas</label><input type="text" id="prAreas" placeholder="e.g. Defence, Civil (comma separated)"></div>' +
+      '<div class="field"><label>Product Images</label><input type="file" id="prImages" accept="image/*" multiple></div>' +
+      '<div class="field full"><label>Product Brochure</label><input type="file" id="prBrochure" accept=".pdf,.jpg,.jpeg,.png,.docx"><div class="hint">Supported formats: PDF, JPG, PNG, DOCX</div></div>' +
+    '</div>',
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="addProduct()"><span class="material-symbols-outlined">add</span>Add Product</button>', true);
+}
+
+/* ============================================================
+   VIEW · Manage Booth — Brand Material: Videos & Documents.
+   Exhibitor can upload a file OR paste a link (videos), with a
+   listing view; same pattern for booth documents.
+   ============================================================ */
+const boothOpts = (sel) => S.stalls.map((st) => {
+  const label = st.hall + ' · ' + st.stall;
+  return '<option' + (label === sel ? ' selected' : '') + '>' + esc(label) + '</option>';
+}).join('');
+window.__vidQ = window.__vidQ || '';
+window.__bdocQ = window.__bdocQ || '';
+
+function viewBoothVideo() {
+  const q = window.__vidQ.toLowerCase();
+  const all = S.booth.videos;
+  const list = q ? all.filter((v) => v.title.toLowerCase().includes(q)) : all;
+  const rows = list.map((v) =>
+    '<div class="prod-row">' +
+      '<span class="icon-sq" style="background:' + (v.kind === 'link' ? '#FFF4E0' : 'var(--blue-soft)') + ';color:' + (v.kind === 'link' ? 'var(--amber)' : 'var(--blue)') + '">' +
+        '<span class="material-symbols-outlined">' + (v.kind === 'link' ? 'link' : 'movie') + '</span></span>' +
+      '<div class="pinfo"><b>' + esc(v.title) + '</b>' +
+      '<span>' + esc(v.booth) + ' · ' + (v.kind === 'link' ? 'Video Link: ' + esc(v.url) : 'File: ' + esc(v.file)) + '</span>' +
+      '<span>Added ' + esc(v.createdAt) + '</span></div>' +
+      (v.kind === 'link' ? '<a class="btn-link" href="' + esc(v.url) + '" target="_blank" rel="noopener">Open</a>' : '') +
+      '<button class="btn-link danger" onclick="rmBoothVideo(\'' + v.id + '\')" title="Delete"><span class="material-symbols-outlined" style="font-size:18px">delete</span></button>' +
+    '</div>').join('');
+  const empty = '<div class="empty"><span class="material-symbols-outlined">movie</span>' +
+    '<h3>No Videos yet</h3><p>' + (all.length ? 'No videos match your search.' : 'Videos will show up here once they are added.') + '</p>' +
+    '<button class="btn btn-primary" onclick="openVideoModal()"><span class="material-symbols-outlined">add</span>Video</button></div>';
+
+  return '<h1 class="page-title">Video</h1>' +
+    '<p class="page-sub">Brand material — upload videos or add video links for important updates, schedules and announcements to attendees.</p>' +
+    '<div class="card"><div class="card-head-row" style="flex-wrap:wrap;gap:10px">' +
+      '<input type="text" value="' + esc(window.__vidQ) + '" placeholder="Search Video By Name" oninput="window.__vidQ=this.value;render()" ' +
+        'style="flex:1;min-width:220px;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.86rem">' +
+      '<span class="result-count">' + list.length + ' video(s)</span>' +
+      '<button class="btn btn-primary btn-sm" onclick="openVideoModal()"><span class="material-symbols-outlined" style="font-size:16px">add</span>Video</button>' +
+    '</div>' + (rows || empty) + '</div>';
+}
+
+window.__vidKind = 'file';
+function openVideoModal() {
+  window.__vidKind = 'file';
+  openModal('Create Video',
+    '<div class="form-grid">' +
+      '<div class="field full"><label>Select Booth</label><select id="bvBooth">' + boothOpts('') + '</select></div>' +
+      '<div class="field full"><label>Title <span class="req">*</span></label><input type="text" id="bvTitle"><div class="error"></div></div>' +
+      '<div class="field full"><div class="ptabs" style="border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:12px">' +
+        '<button class="ptab on" id="bvTabFile" onclick="setVidKind(\'file\')">Video</button>' +
+        '<button class="ptab" id="bvTabLink" onclick="setVidKind(\'link\')">Link</button></div>' +
+        '<div id="bvFileWrap"><label style="font-size:0.8rem;font-weight:700">Upload Video <span class="req">*</span></label>' +
+          '<div class="hint" style="margin:2px 0 8px">Recommended size 5MB</div>' +
+          '<input type="file" id="bvFile" accept="video/*"><div class="error"></div></div>' +
+        '<div id="bvLinkWrap" style="display:none"><div class="field"><label>Video Link <span class="req">*</span></label>' +
+          '<input type="url" id="bvUrl" placeholder="https://youtube.com/watch?v=..."><div class="error"></div></div></div>' +
+      '</div>' +
+    '</div>',
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="createBoothVideo()">Create</button>', true);
+}
+function setVidKind(k) {
+  window.__vidKind = k;
+  $('bvTabFile').classList.toggle('on', k === 'file');
+  $('bvTabLink').classList.toggle('on', k === 'link');
+  $('bvFileWrap').style.display = k === 'file' ? '' : 'none';
+  $('bvLinkWrap').style.display = k === 'link' ? '' : 'none';
+}
+function createBoothVideo() {
+  clearErrs();
+  const title = $('bvTitle').value.trim();
+  if (!title) { setErr('bvTitle', 'Title is required'); return; }
+  const kind = window.__vidKind;
+  let file = '', url = '';
+  if (kind === 'file') {
+    const f = $('bvFile').files[0];
+    if (!f) { setErr('bvFile', 'Upload the video file'); return; }
+    if (f.size > 5 * 1024 * 1024) { toast('Video is larger than 5 MB — upload a smaller file.', 'error'); return; }
+    file = f.name;
+  } else {
+    url = $('bvUrl').value.trim();
+    if (!url) { setErr('bvUrl', 'Enter the video link'); return; }
+  }
+  S.booth.videos.unshift({ id: 'vid_' + Date.now(), booth: $('bvBooth').value, title: title, kind: kind, file: file, url: url, createdAt: nowStr() });
+  save(); closeModal(); render();
+  toast('Video "' + title + '" added', 'success');
+}
+function rmBoothVideo(id) {
+  if (!confirm('Delete this video?')) return;
+  S.booth.videos = S.booth.videos.filter((v) => v.id !== id);
+  save(); render();
+}
+
+function viewBoothDocument() {
+  const q = window.__bdocQ.toLowerCase();
+  const all = S.booth.documents;
+  const list = q ? all.filter((d) => d.title.toLowerCase().includes(q)) : all;
+  const rows = list.map((d) =>
+    '<div class="prod-row">' +
+      '<span class="icon-sq" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">description</span></span>' +
+      '<div class="pinfo"><b>' + esc(d.title) + '</b>' +
+      '<span>' + esc(d.booth) + ' · File: ' + esc(d.file) + '</span>' +
+      '<span>Added ' + esc(d.createdAt) + '</span></div>' +
+      '<button class="btn-link danger" onclick="rmBoothDoc(\'' + d.id + '\')" title="Delete"><span class="material-symbols-outlined" style="font-size:18px">delete</span></button>' +
+    '</div>').join('');
+  const empty = '<div class="empty"><span class="material-symbols-outlined">folder_open</span>' +
+    '<h3>No Documents yet</h3><p>' + (all.length ? 'No documents match your search.' : 'Documents will show up here once they are added.') + '</p>' +
+    '<button class="btn btn-primary" onclick="openBoothDocModal()"><span class="material-symbols-outlined">add</span>Document</button></div>';
+
+  return '<h1 class="page-title">Document</h1>' +
+    '<p class="page-sub">Brand material — upload all of your documents related to the event for your vendors, volunteers, sponsors, etc.</p>' +
+    '<div class="card"><div class="card-head-row" style="flex-wrap:wrap;gap:10px">' +
+      '<input type="text" value="' + esc(window.__bdocQ) + '" placeholder="Search Document By Name" oninput="window.__bdocQ=this.value;render()" ' +
+        'style="flex:1;min-width:220px;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.86rem">' +
+      '<span class="result-count">' + list.length + ' document(s)</span>' +
+      '<button class="btn btn-primary btn-sm" onclick="openBoothDocModal()"><span class="material-symbols-outlined" style="font-size:16px">add</span>Document</button>' +
+    '</div>' + (rows || empty) + '</div>';
+}
+function openBoothDocModal() {
+  openModal('Create Document',
+    '<div class="form-grid">' +
+      '<div class="field full"><label>Select Booth</label><select id="bdBooth">' + boothOpts('') + '</select></div>' +
+      '<div class="field full"><label>Title <span class="req">*</span></label><input type="text" id="bdTitle"><div class="error"></div></div>' +
+      '<div class="field full"><label>Upload Document <span class="req">*</span></label>' +
+        '<div class="hint" style="margin:2px 0 8px">Recommended size 5MB</div>' +
+        '<input type="file" id="bdFile" accept=".pdf,.doc,.docx,.ppt,.pptx,image/*"><div class="error"></div></div>' +
+    '</div>',
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="createBoothDoc()">Create</button>', true);
+}
+function createBoothDoc() {
+  clearErrs();
+  const title = $('bdTitle').value.trim();
+  if (!title) { setErr('bdTitle', 'Title is required'); return; }
+  const f = $('bdFile').files[0];
+  if (!f) { setErr('bdFile', 'Upload the document'); return; }
+  if (f.size > 5 * 1024 * 1024) { toast('Document is larger than 5 MB — upload a smaller file.', 'error'); return; }
+  S.booth.documents.unshift({ id: 'bdoc_' + Date.now(), booth: $('bdBooth').value, title: title, file: f.name, createdAt: nowStr() });
+  save(); closeModal(); render();
+  toast('Document "' + title + '" added', 'success');
+}
+function rmBoothDoc(id) {
+  if (!confirm('Delete this document?')) return;
+  S.booth.documents = S.booth.documents.filter((d) => d.id !== id);
+  save(); render();
+}
+
+/* Register the new routes on the shared router */
+ROUTES['products'] = viewProducts;
+ROUTES['booth/video'] = viewBoothVideo;
+ROUTES['booth/document'] = viewBoothDocument;
+
 function editPerson(key) {
   if (key === 'director') {
     profileEditModal('Edit — Director/Partner Detail', [

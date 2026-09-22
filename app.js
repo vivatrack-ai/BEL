@@ -1368,7 +1368,8 @@ function viewExhibitorDashboard() {
       soon('fc-purple', 'assignment', 'Exhibition Forms') +
       soon('fc-pink', 'meeting_room', 'Conference Halls') +
       soon('fc-amber', 'handshake', 'B2B Table') +
-      soon('fc-red', 'inventory_2', 'Products') +
+      feat('#/products', 'fc-red', 'inventory_2', 'Products',
+        ((S.profile && S.profile.business.products.length) || 0) + ' product(s) in gallery') +
     '</div>';
 
   return '<div class="dash-hello"><div>' +
