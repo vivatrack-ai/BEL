@@ -415,16 +415,28 @@ function addProduct() {
   if (!name) { setErr('prName', 'Product name is required'); ok = false; }
   if (!cat) { setErr('prCat', 'Select a category'); ok = false; }
   if (!ok) return;
-  S.profile.business.products.push({
-    id: 'prod_' + Date.now(),
-    name: name, category: cat, desc: $('prDesc').value.trim(),
-    areas: $('prAreas').value.split(',').map((s) => s.trim()).filter(Boolean),
-    images: [...$('prImages').files].map((f) => f.name),
-    brochure: $('prBrochure').files[0] ? $('prBrochure').files[0].name : '',
-    createdAt: nowStr(),
-  });
+  const newImages = [...$('prImages').files].map((f) => f.name);
+  const newBrochure = $('prBrochure').files[0] ? $('prBrochure').files[0].name : '';
+  const existing = window.__editProdId
+    ? S.profile.business.products.find((x) => x.id === window.__editProdId) : null;
+  if (existing) {
+    existing.name = name; existing.category = cat;
+    existing.desc = $('prDesc').value.trim();
+    existing.areas = $('prAreas').value.split(',').map((s) => s.trim()).filter(Boolean);
+    if (newImages.length) existing.images = newImages; // keep old files unless replaced
+    if (newBrochure) existing.brochure = newBrochure;
+    existing.updatedAt = nowStr();
+  } else {
+    S.profile.business.products.push({
+      id: 'prod_' + Date.now(),
+      name: name, category: cat, desc: $('prDesc').value.trim(),
+      areas: $('prAreas').value.split(',').map((s) => s.trim()).filter(Boolean),
+      images: newImages, brochure: newBrochure, createdAt: nowStr(),
+    });
+  }
+  window.__editProdId = null;
   save(); closeModal(); render();
-  toast('Product "' + name + '" added', 'success');
+  toast('Product "' + name + '" ' + (existing ? 'updated' : 'added'), 'success');
 }
 function rmProduct(id) {
   if (!confirm('Remove this product?')) return;
@@ -573,7 +585,7 @@ function kwBlock() {
    Products page under the "Product Profile" tab. */
 function profTabMatchmaking() {
   return '<div style="margin-bottom:16px"><h2 class="card-title" style="margin:0">Matchmaking</h2>' +
-    '<p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0">Powers B2B recommendations in the networking platform. Multi-select — tick a category to select all its subcategories, or pick subcategories individually. Keywords &amp; exhibition categories are managed under <a class="btn-link" style="padding:0" href="#/products" onclick="window.__prodTab=\'pprofile\'">Products → Product Profile</a>.</p></div>' +
+    '<p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0">Powers B2B recommendations in the networking platform. Multi-select — tick a category to select all its subcategories, or pick subcategories individually. Keywords &amp; exhibition categories are managed under <a class="btn-link" style="padding:0" href="#/digital-showcase" onclick="window.__prodTab=\'pprofile\'">Digital Showcase → Product Profile</a>.</p></div>' +
     pcard('volunteer_activism', '#E6F4EC', 'var(--green)', mmSecTitle('Offering <span class="req">*</span>', 'of'), null,
       '<div class="hint" style="margin:0 0 8px">Products &amp; capabilities you offer. Visitors pick "I am Looking For" on their side — matchmaking pairs their demand with your offering.</div>' + mmTree('of'));
 }
@@ -590,9 +602,16 @@ function rmKeyword(i) { S.profile.matchmaking.keywords.splice(i, 1); save(); ren
    VIEW · Products — SEPARATE menu (not inside company profile),
    mirroring the platform: Product Gallery + placeholder tabs
    ============================================================ */
-const PRODUCT_TABS = [['pprofile', 'Product Profile'], ['gallery', 'Product Gallery'], ['orders-by', 'Order By Product'], ['access', 'Request For Access'], ['orders', 'Product Orders']];
+const PRODUCT_TABS = [['pprofile', 'Product Profile'], ['gallery', 'Product Gallery'], ['videos', 'Videos'], ['documents', 'Documents'], ['analytics', 'Analytics']];
 window.__prodTab = window.__prodTab || 'pprofile';
 window.__prodQ = window.__prodQ || '';
+
+/* Deterministic demo analytics — stable pseudo numbers per item id */
+function anaNum(seed, base, spread) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return base + (h % spread);
+}
 
 function viewProducts() {
   const tab = window.__prodTab;
@@ -608,10 +627,12 @@ function viewProducts() {
       pcard('sell', 'var(--blue-soft)', 'var(--blue)', 'Keywords <span class="req">*</span>', null, kwBlock()) +
       pcard('category', '#F3ECFB', '#6C47C9', mmSecTitle('Exhibition Categories <span class="req">*</span>', 'ex'), null,
         '<div class="hint" style="margin:0 0 8px">The categories you exhibit under — tick a category to select all its subcategories, or pick individually.</div>' + mmTree('ex'));
-  } else if (tab !== 'gallery') {
-    const labels = { 'orders-by': 'orders placed by product', 'access': 'access requests', 'orders': 'product orders' };
-    body = '<div class="card"><div class="empty"><span class="material-symbols-outlined">inventory_2</span>' +
-      '<h3>Nothing here yet</h3><p>Visitor ' + labels[tab] + ' will appear here once the networking platform goes live.</p></div></div>';
+  } else if (tab === 'videos') {
+    body = boothVideoBody();
+  } else if (tab === 'documents') {
+    body = boothDocBody();
+  } else if (tab === 'analytics') {
+    body = showcaseAnalyticsBody();
   } else {
     const q = window.__prodQ.toLowerCase();
     const all = S.profile.business.products;
@@ -623,6 +644,7 @@ function viewProducts() {
         '<span>Category: ' + esc(p.category) + (p.desc ? ' · ' + esc(p.desc.slice(0, 70)) + (p.desc.length > 70 ? '…' : '') : '') + '</span>' +
         ((p.areas || []).length || p.images.length || p.brochure
           ? '<span>' + [(p.areas || []).length ? 'Areas: ' + p.areas.join(', ') : '', p.images.length ? p.images.length + ' image(s)' : '', p.brochure ? 'Brochure: ' + esc(p.brochure) : ''].filter(Boolean).join(' · ') + '</span>' : '') + '</div>' +
+        '<button class="btn-link" onclick="openProductModal(\'' + p.id + '\')" title="Edit"><span class="material-symbols-outlined" style="font-size:18px">edit</span></button>' +
         '<button class="btn-link danger" onclick="rmProduct(\'' + p.id + '\')" title="Delete"><span class="material-symbols-outlined" style="font-size:18px">delete</span></button>' +
       '</div>').join('');
     const empty =
@@ -642,24 +664,30 @@ function viewProducts() {
       '</div>';
   }
 
-  return '<h1 class="page-title">Product</h1>' +
-    '<p class="page-sub">Your product gallery for the event app &amp; networking platform.</p>' +
+  return '<h1 class="page-title">Digital Showcase</h1>' +
+    '<p class="page-sub">Build your company’s digital presence for the Event App &amp; Networking Platform — products, brand videos and documents, with analytics on how visitors engage.</p>' +
     tabsHtml + body;
 }
 
-function openProductModal() {
-  openModal('Add Product',
+function openProductModal(editId) {
+  const p = editId ? S.profile.business.products.find((x) => x.id === editId) : null;
+  window.__editProdId = editId || null;
+  openModal(p ? 'Edit Product — ' + esc(p.name) : 'Add Product',
     '<div class="form-grid">' +
-      '<div class="field"><label>Product Name <span class="req">*</span></label><input type="text" id="prName" placeholder="Enter product name"><div class="error"></div></div>' +
+      '<div class="field"><label>Product Name <span class="req">*</span></label><input type="text" id="prName" placeholder="Enter product name" value="' + esc(p ? p.name : '') + '"><div class="error"></div></div>' +
       '<div class="field"><label>Product Category <span class="req">*</span></label><select id="prCat"><option value="">Select a category</option>' +
-        MM_CATS.map((c) => '<option>' + esc(c.name) + '</option>').join('') + '</select><div class="error"></div></div>' +
-      '<div class="field full"><label>Short Description</label><textarea id="prDesc" rows="2" maxlength="200" placeholder="Provide a brief overview of the product (max 200 characters)" style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:9px 12px;font-family:inherit;font-size:0.88rem"></textarea></div>' +
-      '<div class="field"><label>Application Areas</label><input type="text" id="prAreas" placeholder="e.g. Defence, Civil (comma separated)"></div>' +
-      '<div class="field"><label>Product Images</label><input type="file" id="prImages" accept="image/*" multiple></div>' +
-      '<div class="field full"><label>Product Brochure</label><input type="file" id="prBrochure" accept=".pdf,.jpg,.jpeg,.png,.docx"><div class="hint">Supported formats: PDF, JPG, PNG, DOCX</div></div>' +
+        (p && p.category && !MM_CATS.some((c) => c.name === p.category)
+          ? '<option selected>' + esc(p.category) + '</option>' : '') +
+        MM_CATS.map((c) => '<option' + (p && p.category === c.name ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</select><div class="error"></div></div>' +
+      '<div class="field full"><label>Short Description</label><textarea id="prDesc" rows="2" maxlength="200" placeholder="Provide a brief overview of the product (max 200 characters)" style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:9px 12px;font-family:inherit;font-size:0.88rem">' + esc(p ? p.desc : '') + '</textarea></div>' +
+      '<div class="field"><label>Application Areas</label><input type="text" id="prAreas" placeholder="e.g. Defence, Civil (comma separated)" value="' + esc(p ? (p.areas || []).join(', ') : '') + '"></div>' +
+      '<div class="field"><label>Product Images</label><input type="file" id="prImages" accept="image/*" multiple>' +
+        (p && p.images.length ? '<div class="hint">Current: ' + esc(p.images.join(', ')) + ' — choose files to replace</div>' : '') + '</div>' +
+      '<div class="field full"><label>Product Brochure</label><input type="file" id="prBrochure" accept=".pdf,.jpg,.jpeg,.png,.docx">' +
+        '<div class="hint">' + (p && p.brochure ? 'Current: ' + esc(p.brochure) + ' — choose a file to replace. ' : '') + 'Supported formats: PDF, JPG, PNG, DOCX</div></div>' +
     '</div>',
     '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
-    '<button class="btn btn-primary" onclick="addProduct()"><span class="material-symbols-outlined">add</span>Add Product</button>', true);
+    '<button class="btn btn-primary" onclick="addProduct()"><span class="material-symbols-outlined">' + (p ? 'save' : 'add') + '</span>' + (p ? 'Save Changes' : 'Add Product') + '</button>', true);
 }
 
 /* ============================================================
@@ -674,7 +702,7 @@ const boothOpts = (sel) => S.stalls.map((st) => {
 window.__vidQ = window.__vidQ || '';
 window.__bdocQ = window.__bdocQ || '';
 
-function viewBoothVideo() {
+function boothVideoBody() {
   const q = window.__vidQ.toLowerCase();
   const all = S.booth.videos;
   const list = q ? all.filter((v) => v.title.toLowerCase().includes(q)) : all;
@@ -692,8 +720,7 @@ function viewBoothVideo() {
     '<h3>No Videos yet</h3><p>' + (all.length ? 'No videos match your search.' : 'Videos will show up here once they are added.') + '</p>' +
     '<button class="btn btn-primary" onclick="openVideoModal()"><span class="material-symbols-outlined">add</span>Video</button></div>';
 
-  return '<h1 class="page-title">Video</h1>' +
-    '<p class="page-sub">Brand material — upload videos or add video links for important updates, schedules and announcements to attendees.</p>' +
+  return '<p style="font-size:0.8rem;color:var(--muted);margin:0 0 14px">Brand material — upload videos or add video links for important updates, schedules and announcements to attendees.</p>' +
     '<div class="card"><div class="card-head-row" style="flex-wrap:wrap;gap:10px">' +
       '<input type="text" value="' + esc(window.__vidQ) + '" placeholder="Search Video By Name" oninput="window.__vidQ=this.value;render()" ' +
         'style="flex:1;min-width:220px;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.86rem">' +
@@ -754,7 +781,7 @@ function rmBoothVideo(id) {
   save(); render();
 }
 
-function viewBoothDocument() {
+function boothDocBody() {
   const q = window.__bdocQ.toLowerCase();
   const all = S.booth.documents;
   const list = q ? all.filter((d) => d.title.toLowerCase().includes(q)) : all;
@@ -770,8 +797,7 @@ function viewBoothDocument() {
     '<h3>No Documents yet</h3><p>' + (all.length ? 'No documents match your search.' : 'Documents will show up here once they are added.') + '</p>' +
     '<button class="btn btn-primary" onclick="openBoothDocModal()"><span class="material-symbols-outlined">add</span>Document</button></div>';
 
-  return '<h1 class="page-title">Document</h1>' +
-    '<p class="page-sub">Brand material — upload all of your documents related to the event for your vendors, volunteers, sponsors, etc.</p>' +
+  return '<p style="font-size:0.8rem;color:var(--muted);margin:0 0 14px">Brand material — upload all of your documents related to the event for your vendors, volunteers, sponsors, etc.</p>' +
     '<div class="card"><div class="card-head-row" style="flex-wrap:wrap;gap:10px">' +
       '<input type="text" value="' + esc(window.__bdocQ) + '" placeholder="Search Document By Name" oninput="window.__bdocQ=this.value;render()" ' +
         'style="flex:1;min-width:220px;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.86rem">' +
@@ -808,10 +834,48 @@ function rmBoothDoc(id) {
   save(); render();
 }
 
-/* Register the new routes on the shared router */
+/* ---------------- Digital Showcase · Analytics ----------------
+   Demo engagement numbers (deterministic per item) showing how the
+   event-app analytics will look: views, leads, plays & downloads. */
+function showcaseAnalyticsBody() {
+  const prods = S.profile.business.products;
+  const vids = S.booth.videos;
+  const docs = S.booth.documents;
+  const pStats = prods.map((p) => ({ name: p.name, views: anaNum(p.id + 'v', 120, 900), leads: anaNum(p.id + 'l', 8, 60) }));
+  const vStats = vids.map((v) => ({ name: v.title, plays: anaNum(v.id + 'p', 60, 500) }));
+  const dStats = docs.map((d) => ({ name: d.title, dls: anaNum(d.id + 'd', 25, 300) }));
+  const sum = (a, k) => a.reduce((x, y) => x + y[k], 0);
+
+  const barRows = (rows, key, label) => {
+    const max = Math.max(...rows.map((r) => r[key]), 1);
+    return rows.map((r) =>
+      '<div class="prog-row"><div class="pr-head"><span>' + esc(r.name) + '</span><span>' + r[key].toLocaleString('en-IN') + ' ' + label + '</span></div>' +
+      '<div class="prog-bar"><i style="width:' + Math.round((r[key] / max) * 100) + '%"></i></div></div>').join('') ||
+      '<p style="color:var(--muted);font-size:0.84rem">Nothing added yet — add items to see their engagement here.</p>';
+  };
+
+  return '<p style="font-size:0.8rem;color:var(--muted);margin:0 0 14px">How visitors engage with your showcase in the event app &amp; networking platform. <i>(Demo numbers — live analytics will stream from the app.)</i></p>' +
+    '<div class="tiles">' +
+      '<div class="tile blue"><div class="t-label">Product Views</div><div class="t-value">' + sum(pStats, 'views').toLocaleString('en-IN') + '</div></div>' +
+      '<div class="tile accent"><div class="t-label">Leads / Enquiries</div><div class="t-value">' + sum(pStats, 'leads').toLocaleString('en-IN') + '</div></div>' +
+      '<div class="tile"><div class="t-label">Video Plays</div><div class="t-value">' + sum(vStats, 'plays').toLocaleString('en-IN') + '</div></div>' +
+      '<div class="tile"><div class="t-label">Document Downloads</div><div class="t-value">' + sum(dStats, 'dls').toLocaleString('en-IN') + '</div></div>' +
+    '</div>' +
+    pcard('inventory_2', 'var(--blue-soft)', 'var(--blue)', 'Products — Views', null, barRows(pStats, 'views', 'views')) +
+    pcard('contact_mail', '#E6F4EC', 'var(--green)', 'Products — Leads', null, barRows(pStats, 'leads', 'leads')) +
+    pcard('movie', '#FFF4E0', 'var(--amber)', 'Videos — Plays', null, barRows(vStats, 'plays', 'plays')) +
+    pcard('description', '#F3ECFB', '#6C47C9', 'Documents — Downloads', null, barRows(dStats, 'dls', 'downloads'));
+}
+
+/* Register the new routes on the shared router.
+   Old bookmarks (products / booth pages) land on the right tab. */
+function showcaseRoute(tab) {
+  return function () { window.__prodTab = tab; return viewProducts(); };
+}
+ROUTES['digital-showcase'] = viewProducts;
 ROUTES['products'] = viewProducts;
-ROUTES['booth/video'] = viewBoothVideo;
-ROUTES['booth/document'] = viewBoothDocument;
+ROUTES['booth/video'] = showcaseRoute('videos');
+ROUTES['booth/document'] = showcaseRoute('documents');
 
 function editPerson(key) {
   if (key === 'director') {

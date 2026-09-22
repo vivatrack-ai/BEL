@@ -203,7 +203,8 @@ function render() {
     el.classList.toggle('active', route === r || (mCoex && r === 'passes/' + mCoex[1]) ||
       (r === 'aircraft' && route.indexOf('aircraft') === 0) ||
       (r === 'profile' && route.indexOf('profile') === 0) ||
-      (r === 'exhibition-forms' && route.indexOf('exhibition-forms') === 0));
+      (r === 'exhibition-forms' && route.indexOf('exhibition-forms') === 0) ||
+      (r === 'digital-showcase' && (route === 'products' || route.indexOf('booth/') === 0)));
   });
 
   $('view').innerHTML = view(arg);
@@ -1391,8 +1392,10 @@ function viewExhibitorDashboard() {
         (S.bookings ? S.bookings.filter((b) => b.kind === 'conference').length : 0) + ' booking(s)') +
       feat('#/meeting-room', 'fc-amber', 'handshake', 'B2B Table',
         (S.bookings ? S.bookings.filter((b) => b.kind === 'b2b').length : 0) + ' booking(s)') +
-      feat('#/products', 'fc-red', 'inventory_2', 'Products',
-        ((S.profile && S.profile.business.products.length) || 0) + ' product(s) in gallery') +
+      feat('#/digital-showcase', 'fc-red', 'storefront', 'Digital Showcase',
+        ((S.profile && S.profile.business.products.length) || 0) + ' product(s) · ' +
+        (S.booth ? S.booth.videos.length : 0) + ' video(s) · ' +
+        (S.booth ? S.booth.documents.length : 0) + ' doc(s)') +
     '</div>';
 
   return '<div class="dash-hello"><div>' +
