@@ -202,7 +202,8 @@ function render() {
     const r = el.getAttribute('data-route');
     el.classList.toggle('active', route === r || (mCoex && r === 'passes/' + mCoex[1]) ||
       (r === 'aircraft' && route.indexOf('aircraft') === 0) ||
-      (r === 'profile' && route.indexOf('profile') === 0));
+      (r === 'profile' && route.indexOf('profile') === 0) ||
+      (r === 'exhibition-forms' && route.indexOf('exhibition-forms') === 0));
   });
 
   $('view').innerHTML = view(arg);
@@ -1327,6 +1328,12 @@ function viewExhibitorDashboard() {
     sub: 'The committee approved — pay the registration fee from your cart.',
     btn: '<button class="btn btn-outline btn-sm" onclick="openCart()">Pay Fee</button>',
   });
+  const formsPending = (typeof exFormsSubmitted === 'function') ? 5 - exFormsSubmitted() : 0;
+  if (formsPending > 0) actions.push({
+    icon: 'assignment', title: formsPending + ' exhibition form(s) pending',
+    sub: 'Catalogue, sponsorship, contractor, furniture & electrical forms — deadline 31 Dec 2026.',
+    btn: '<a class="btn btn-outline btn-sm" href="#/exhibition-forms">Fill Now</a>',
+  });
   const actionsCard = actions.length
     ? '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Pending Actions</h2>' +
       '<span class="pill amber">' + actions.length + ' pending</span></div>' +
@@ -1365,9 +1372,12 @@ function viewExhibitorDashboard() {
         passesUsed + ' of ' + quotaTotal + ' passes used') +
       feat('#/co-exhibitors', 'fc-teal', 'group_add', 'Co-Exhibitor',
         S.coexhibitors.length + ' added' + (coexPending ? ' · ' + coexPending + ' payment pending' : '')) +
-      soon('fc-purple', 'assignment', 'Exhibition Forms') +
-      soon('fc-pink', 'meeting_room', 'Conference Halls') +
-      soon('fc-amber', 'handshake', 'B2B Table') +
+      feat('#/exhibition-forms', 'fc-purple', 'assignment', 'Exhibition Forms',
+        (typeof exFormsSubmitted === 'function' ? exFormsSubmitted() + ' of 5 forms submitted' : '')) +
+      feat('#/conference-hall', 'fc-pink', 'meeting_room', 'Conference Halls',
+        (S.bookings ? S.bookings.filter((b) => b.kind === 'conference').length : 0) + ' booking(s)') +
+      feat('#/meeting-room', 'fc-amber', 'handshake', 'B2B Table',
+        (S.bookings ? S.bookings.filter((b) => b.kind === 'b2b').length : 0) + ' booking(s)') +
       feat('#/products', 'fc-red', 'inventory_2', 'Products',
         ((S.profile && S.profile.business.products.length) || 0) + ' product(s) in gallery') +
     '</div>';
@@ -1385,7 +1395,7 @@ function viewExhibitorDashboard() {
 /* ============================================================
    VIEW · My Orders — the exhibitor's own payment history
    ============================================================ */
-const MY_ORDER_TYPE = { coex_reg: 'Co-Exhibitor Registration', vehicle: 'Vehicle Pass', aircraft_reg: 'Aircraft Registration' };
+const MY_ORDER_TYPE = { coex_reg: 'Co-Exhibitor Registration', vehicle: 'Vehicle Pass', aircraft_reg: 'Aircraft Registration', exh_form: 'Exhibition Form', booking: 'Hall / Table Booking' };
 
 function viewMyOrders() {
   const paidInr = S.orders.filter((o) => o.currency !== 'USD').reduce((a, o) => a + Number(o.amount || 0), 0);
