@@ -33,7 +33,7 @@
         building: '15/1, Cubbon Road', landmark: 'Near Minsk Square',
         city: 'Bengaluru', state: 'Karnataka', postal: '560001', country: 'India',
       },
-      bank: { acNo: '', bankName: '', branch: '', ifsc: '', accountType: '' },
+      bank: { acNo: '', bankName: '', branch: '', ifsc: '', beneficiary: '', address: '', chequeFile: '', chequeAt: '' },
       documents: [
         { id: 'doc_pan', name: 'PAN Card', file: 'HAL-PAN.pdf', at: '18 Sept 2026' },
         { id: 'doc_gst', name: 'GST Certificate', file: 'HAL-GST-Certificate.pdf', at: '18 Sept 2026' },
@@ -55,6 +55,9 @@
     };
     save();
   }
+  // Migration: bank detail form fields added later (per revised design)
+  const bk = S.profile.bank;
+  ['beneficiary', 'address', 'chequeFile', 'chequeAt'].forEach((k) => { if (bk[k] === undefined) bk[k] = ''; });
 })();
 
 /* ---------------- progress math ---------------- */
@@ -78,8 +81,8 @@ function profileSectionPct(section) {
   }
   if (section === 'billing') {
     const b = countFilled(P.billing, ['building', 'landmark', 'city', 'state', 'postal', 'country']);
-    const k = countFilled(P.bank, ['acNo', 'bankName', 'branch', 'ifsc', 'accountType']);
-    return pctOf(b + k, 11);
+    const k = countFilled(P.bank, ['acNo', 'bankName', 'branch', 'ifsc', 'beneficiary', 'address', 'chequeFile']);
+    return pctOf(b + k, 13);
   }
   if (section === 'documents') {
     return pctOf(P.documents.filter((d) => d.file).length, P.documents.length);
@@ -194,6 +197,63 @@ function profTabContacts() {
 /* ---------------- tab: Billing & Bank ---------------- */
 function profTabBilling() {
   const P = S.profile;
+  const B = P.bank;
+  const bf = (id, label, value, placeholder) =>
+    '<div class="field"><label>' + label + ' <span class="req">*</span></label>' +
+    '<input type="text" id="' + id + '" value="' + esc(value) + '" placeholder="' + placeholder + '"><div class="error"></div></div>';
+
+  const bankForm =
+    '<div style="margin-bottom:18px"><h2 class="card-title" style="margin:0">Bank Detail</h2>' +
+      '<p style="font-size:0.82rem;color:var(--muted);margin:2px 0 0;max-width:640px">Share the bank account where your refunds and settlements should be credited. Please make sure the details match your cancelled cheque.</p></div>' +
+
+    '<div class="pcard-head" style="margin-bottom:4px">' +
+      '<span class="icon-sq" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">account_balance</span></span>' +
+      '<h2 class="card-title">Account Information</h2></div>' +
+    '<p style="font-size:0.78rem;color:var(--muted);margin:0 0 14px">All fields are mandatory and must exactly match your bank records.</p>' +
+    '<div class="bank-grid">' +
+      bf('bkName', 'Bank Name', B.bankName, 'e.g. State Bank of India') +
+      bf('bkBranch', 'Branch Name', B.branch, 'e.g. Bandra Kurla Complex') +
+      bf('bkBenef', 'Beneficiary Name', B.beneficiary, 'Name as per bank account') +
+      bf('bkAcNo', 'Account Number', B.acNo, '9 to 18 digits') +
+      bf('bkIfsc', 'IFSC Code', B.ifsc, 'e.g. SBIN0001234') +
+    '</div>' +
+    '<div class="field" style="margin-top:14px"><label>Bank Address <span class="req">*</span></label>' +
+      '<textarea id="bkAddr" rows="3" maxlength="250" placeholder="Branch address as printed on the cheque" ' +
+        'oninput="document.getElementById(\'bkAddrCount\').textContent=this.value.length+\'/250\'" ' +
+        'style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:9px 12px;font-family:inherit;font-size:0.88rem">' + esc(B.address) + '</textarea>' +
+      '<div style="text-align:right;font-size:0.72rem;color:var(--muted)" id="bkAddrCount">' + B.address.length + '/250</div>' +
+      '<div class="error"></div></div>' +
+
+    '<div class="pcard-head" style="margin:18px 0 4px">' +
+      '<span class="icon-sq" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">receipt</span></span>' +
+      '<h2 class="card-title">Cancelled Cheque <span class="req">*</span></h2></div>' +
+    '<p style="font-size:0.78rem;color:var(--muted);margin:0 0 14px">Upload a clear photo or scan of a cancelled cheque of the same account.</p>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">' +
+      '<label class="dropzone">' +
+        '<span class="material-symbols-outlined">upload</span>' +
+        (B.chequeFile
+          ? '<span>' + esc(B.chequeFile) + '</span><span style="font-weight:500;font-size:0.75rem;color:var(--muted)">Uploaded ' + esc(B.chequeAt) + ' · click to replace</span>'
+          : '<span>Upload Cancelled Cheque</span>') +
+        '<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="uploadCheque(this)">' +
+      '</label>' +
+      '<div class="info-panel">' +
+        '<div class="ip-title"><span class="material-symbols-outlined" style="color:var(--blue)">info</span>Before you save</div>' +
+        ['Ensure account details are correct and active.',
+         'Cancelled cheque must be clear and legible.',
+         'Name on cheque should match beneficiary name.',
+         'Upload in PDF, JPG or PNG format (Max 2MB).'].map((t) =>
+          '<div class="ip-row"><span class="material-symbols-outlined">check_circle</span>' + t + '</div>').join('') +
+        '<div class="ip-note">Incorrect bank details can delay your refund. The organiser verifies these details against the cancelled cheque before processing any payout.</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="bank-savebar">' +
+      '<b>Save Your Bank Details</b>' +
+      '<div style="display:flex;gap:10px">' +
+        '<button class="btn btn-outline" onclick="resetBankForm()"><span class="material-symbols-outlined">restart_alt</span>Reset</button>' +
+        '<button class="btn btn-primary" onclick="saveBankDetail()"><span class="material-symbols-outlined">save</span>Save</button>' +
+      '</div></div>';
+
   return pcard('receipt_long', '#FBEAE6', 'var(--red)', 'Billing Address', 'editBilling()',
       '<b style="font-size:0.92rem;display:block;margin-bottom:12px">Billing Address 1</b>' +
       kvCells([
@@ -201,12 +261,52 @@ function profTabBilling() {
         ['City', P.billing.city], ['State', P.billing.state],
         ['Postal Code', P.billing.postal], ['Country', P.billing.country],
       ])) +
-    pcard('account_balance', '#E6F7F9', '#1592A8', 'RTGS / Bank Details for Refund of Security Deposit', 'editBank()',
-      kvCells([
-        ['Bank A/C No.', P.bank.acNo], ['Bank Name', P.bank.bankName],
-        ['Branch', P.bank.branch], ['IFSC Code', P.bank.ifsc],
-        ['Type Of Account', P.bank.accountType],
-      ]));
+    '<div class="card section-gap" style="margin-top:0;margin-bottom:18px">' + bankForm + '</div>';
+}
+
+const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+
+function uploadCheque(input) {
+  const f = input.files[0];
+  if (!f) return;
+  if (f.size > 2 * 1024 * 1024) { toast('File is larger than 2 MB — upload a smaller scan.', 'error'); return; }
+  S.profile.bank.chequeFile = f.name;
+  S.profile.bank.chequeAt = nowStr();
+  save(); render();
+  toast('Cancelled cheque uploaded', 'success');
+}
+
+function saveBankDetail() {
+  clearErrs();
+  const B = S.profile.bank;
+  const val = (id) => $(id).value.trim();
+  let ok = true;
+  if (!val('bkName')) { setErr('bkName', 'Bank name is required'); ok = false; }
+  if (!val('bkBranch')) { setErr('bkBranch', 'Branch name is required'); ok = false; }
+  if (!val('bkBenef')) { setErr('bkBenef', 'Beneficiary name is required'); ok = false; }
+  const ac = val('bkAcNo');
+  if (!/^\d{9,18}$/.test(ac)) { setErr('bkAcNo', 'Account number must be 9 to 18 digits'); ok = false; }
+  const ifsc = val('bkIfsc').toUpperCase();
+  if (!IFSC_RE.test(ifsc)) { setErr('bkIfsc', 'Enter a valid IFSC code (e.g. SBIN0001234)'); ok = false; }
+  if (!val('bkAddr')) { setErr('bkAddr', 'Bank address is required'); ok = false; }
+  if (!ok) { scrollToFirstErrField(); return; }
+  if (!B.chequeFile) { toast('Upload the cancelled cheque before saving.', 'error'); return; }
+  B.bankName = val('bkName'); B.branch = val('bkBranch'); B.beneficiary = val('bkBenef');
+  B.acNo = ac; B.ifsc = ifsc; B.address = val('bkAddr');
+  save(); render();
+  toast('Bank details saved', 'success');
+}
+
+function resetBankForm() {
+  if (!confirm('Clear the saved bank details?')) return;
+  S.profile.bank = { acNo: '', bankName: '', branch: '', ifsc: '', beneficiary: '', address: '', chequeFile: '', chequeAt: '' };
+  save(); render();
+  toast('Bank details cleared', 'success');
+}
+
+function scrollToFirstErrField() {
+  const f = document.querySelector('.field.invalid');
+  if (f) f.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 /* ---------------- tab: Documents ---------------- */
@@ -395,12 +495,6 @@ function editCompliance() {
 }
 function editRegAddress() { profileEditModal('Edit — Registered Address', ADDR_FIELDS, () => S.profile.regAddress); }
 function editBilling() { profileEditModal('Edit — Billing Address', ADDR_FIELDS, () => S.profile.billing); }
-function editBank() {
-  profileEditModal('Edit — RTGS / Bank Details', [
-    ['acNo', 'Bank A/C No.'], ['bankName', 'Bank Name'], ['branch', 'Branch'],
-    ['ifsc', 'IFSC Code'], ['accountType', 'Type Of Account'],
-  ], () => S.profile.bank);
-}
 function editPerson(key) {
   if (key === 'director') {
     profileEditModal('Edit — Director/Partner Detail', [

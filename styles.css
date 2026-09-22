@@ -600,3 +600,16 @@ table.grid tr:hover td { background: #FAFBFE; }
 .prod-row .pinfo { flex:1; min-width:0; }
 .prod-row .pinfo b { font-size:0.9rem; }
 .prod-row .pinfo span { display:block; font-size:0.76rem; color:var(--muted); }
+
+/* ============ Bank Detail form ============ */
+.bank-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px 18px; }
+.dropzone { border:1.5px dashed #B9C8E4; border-radius:10px; background:#F8FAFD; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:34px 16px; cursor:pointer; color:var(--blue); font-weight:700; font-size:0.86rem; text-align:center; }
+.dropzone:hover { background:var(--blue-soft); }
+.dropzone .material-symbols-outlined { font-size:26px; }
+.info-panel { background:#F0F6FF; border-radius:12px; padding:16px 18px; font-size:0.82rem; }
+.info-panel .ip-title { display:flex; align-items:center; gap:8px; font-weight:800; font-size:0.9rem; margin-bottom:8px; }
+.info-panel .ip-row { display:flex; gap:8px; margin:7px 0; align-items:flex-start; color:var(--ink); }
+.info-panel .ip-row .material-symbols-outlined { font-size:17px; color:var(--blue); flex:none; margin-top:1px; }
+.info-panel .ip-note { color:var(--muted); margin-top:10px; font-size:0.78rem; }
+.bank-savebar { display:flex; align-items:center; justify-content:space-between; gap:12px; border-top:1px solid var(--line); margin-top:18px; padding-top:14px; flex-wrap:wrap; }
+.bank-savebar b { font-size:0.94rem; }
