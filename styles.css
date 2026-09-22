@@ -85,20 +85,26 @@ aside.sidebar {
 .nav-item.active .material-symbols-outlined { color: var(--blue); }
 .nav-item .material-symbols-outlined { color: var(--muted); font-size: 20px; }
 .nav-item.disabled { opacity: 0.45; cursor: not-allowed; }
+/* Sub-items are INDENTED with a guide line so groups read clearly
+   as parent → children, distinct from top-level menu items. */
 .nav-sub {
-  margin-left: 30px;
+  margin-left: 14px;
   border-left: 1.5px solid var(--line);
-  padding-left: 6px;
+  padding-left: 8px;
 }
-.nav-sub .nav-item { font-weight: 500; font-size: 0.88rem; padding: 7px 10px; }
+.nav-sub .nav-item { font-weight: 500; font-size: 0.86rem; padding: 7px 10px; }
+.nav-sub .nav-item .material-symbols-outlined { font-size: 18px; }
 .nav-group-label {
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   color: var(--muted);
-  padding: 14px 12px 4px;
-  font-weight: 700;
+  padding: 8px 12px 4px;
+  margin-top: 10px;
+  font-weight: 800;
+  border-top: 1px solid var(--line);
 }
+.nav-group-label:first-of-type { border-top: none; margin-top: 6px; }
 
 /* ---------- Topbar ---------- */
 main.content { flex: 1; min-width: 0; display: flex; flex-direction: column; }

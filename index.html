@@ -18,31 +18,42 @@
   <aside class="sidebar">
     <div class="logo">e<span>venuefy</span></div>
 
+    <!-- Top-level items (no group) -->
     <a class="nav-item" data-route="dashboard" href="#/dashboard">
       <span class="material-symbols-outlined">home</span>Dashboard
     </a>
     <a class="nav-item" data-route="profile" href="#/profile">
       <span class="material-symbols-outlined">account_circle</span>Profile
     </a>
-
-    <a class="nav-item" data-route="digital-showcase" href="#/digital-showcase">
-      <span class="material-symbols-outlined">storefront</span>Digital Showcase
-    </a>
     <a class="nav-item" data-route="orders" href="#/orders">
       <span class="material-symbols-outlined">receipt_long</span>My Orders
     </a>
-    <a class="nav-item" data-route="space-requirement" href="#/space-requirement">
-      <span class="material-symbols-outlined">design_services</span>Space Requirement
-    </a>
-    <a class="nav-item" style="pointer-events:none;opacity:0.5">
-      <span class="material-symbols-outlined">view_comfy_alt</span>Space Booking
-    </a>
-    <a class="nav-item" data-route="aircraft" href="#/aircraft">
-      <span class="material-symbols-outlined">flight</span>Aircraft Registration
-    </a>
+
+    <div class="nav-group-label">Space &amp; Booth</div>
+    <div class="nav-sub">
+      <a class="nav-item" data-route="space-requirement" href="#/space-requirement">
+        <span class="material-symbols-outlined">design_services</span>Space Requirement
+      </a>
+      <a class="nav-item" style="pointer-events:none;opacity:0.5">
+        <span class="material-symbols-outlined">view_comfy_alt</span>Space Booking
+      </a>
+    </div>
+
+    <div class="nav-group-label">Exhibition Services</div>
+    <div class="nav-sub">
+      <a class="nav-item" data-route="exhibition-forms" href="#/exhibition-forms">
+        <span class="material-symbols-outlined">assignment</span>Exhibition Form
+      </a>
+      <a class="nav-item" data-route="aircraft" href="#/aircraft">
+        <span class="material-symbols-outlined">flight</span>Aircraft Registration
+      </a>
+      <a class="nav-item" data-route="digital-showcase" href="#/digital-showcase">
+        <span class="material-symbols-outlined">storefront</span>Digital Showcase
+      </a>
+    </div>
 
     <div class="nav-group-label">Passes</div>
-    <div class="nav-sub" style="margin-left:0;border:none;padding-left:0">
+    <div class="nav-sub">
       <a class="nav-item" data-route="passes/badges" href="#/passes/badges">
         <span class="material-symbols-outlined">badge</span>Badge Details
       </a>
@@ -55,7 +66,7 @@
     </div>
 
     <div class="nav-group-label">Co-Exhibitors</div>
-    <div class="nav-sub" style="margin-left:0;border:none;padding-left:0">
+    <div class="nav-sub">
       <a class="nav-item" data-route="co-exhibitors" href="#/co-exhibitors">
         <span class="material-symbols-outlined">group_add</span>Add Co-Exhibitor
       </a>
@@ -64,18 +75,18 @@
       </a>
     </div>
 
-    <a class="nav-item" data-route="exhibition-forms" href="#/exhibition-forms" style="margin-top:8px">
-      <span class="material-symbols-outlined">assignment</span>Exhibition Form
-    </a>
-    <a class="nav-item" data-route="conference-hall" href="#/conference-hall">
-      <span class="material-symbols-outlined">meeting_room</span>Conference Hall
-    </a>
-    <a class="nav-item" data-route="meeting-room" href="#/meeting-room">
-      <span class="material-symbols-outlined">groups_2</span>Meeting Room
-    </a>
-    <a class="nav-item" data-route="b2b-matchmaking" href="#/b2b-matchmaking">
-      <span class="material-symbols-outlined">hub</span>B2B Matchmaking
-    </a>
+    <div class="nav-group-label">Meetings &amp; Networking</div>
+    <div class="nav-sub">
+      <a class="nav-item" data-route="b2b-matchmaking" href="#/b2b-matchmaking">
+        <span class="material-symbols-outlined">hub</span>B2B Matchmaking
+      </a>
+      <a class="nav-item" data-route="conference-hall" href="#/conference-hall">
+        <span class="material-symbols-outlined">meeting_room</span>Conference Hall
+      </a>
+      <a class="nav-item" data-route="meeting-room" href="#/meeting-room">
+        <span class="material-symbols-outlined">groups_2</span>Meeting Room
+      </a>
+    </div>
 
     <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:12px">
       <a class="nav-item" href="coex.html">
