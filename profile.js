@@ -73,7 +73,6 @@
         'Aircraft Systems (Fixed Wing)': ['Fighter Aircraft', 'Light Combat Aircraft', 'Basic Trainer Aircraft'],
         'Helicopters & Rotary Wing': ['Utility Helicopters', 'Attack Helicopters'],
       },
-      lookingFor: { 'Avionics': ['Mission Computers', 'Cockpit Displays / Glass Cockpits'] },
       offering: { 'MRO & Lifecycle Support': ['Maintenance Services', 'Overhaul Services', 'Upgrades & Retrofits'] },
     };
     save();
@@ -119,7 +118,9 @@ function profileSectionPct(section) {
   if (section === 'matchmaking') {
     const M = P.matchmaking;
     const any = (m) => Object.keys(m).some((k) => m[k].length);
-    const checks = [M.keywords.length, any(M.exCats), any(M.lookingFor), any(M.offering)];
+    // Exhibitor side has only OFFERING — "I am Looking For" is the
+    // visitor-side matchmaking field.
+    const checks = [M.keywords.length, any(M.exCats), any(M.offering)];
     return pctOf(checks.filter(Boolean).length, checks.length);
   }
   return 0;
@@ -492,9 +493,9 @@ function editBilling() { profileEditModal('Edit — Billing Address', ADDR_FIELD
    Four separate sections: Keywords · Exhibition Categories ·
    I am Looking For · Offering — each with multi-select subs.
    ============================================================ */
-const MM_FIELDS = { ex: 'exCats', lf: 'lookingFor', of: 'offering' };
-window.__mmOpen = window.__mmOpen || { ex: {}, lf: {}, of: {} };
-window.__mmQ = window.__mmQ || { ex: '', lf: '', of: '' };
+const MM_FIELDS = { ex: 'exCats', of: 'offering' };
+window.__mmOpen = window.__mmOpen || { ex: {}, of: {} };
+window.__mmQ = window.__mmQ || { ex: '', of: '' };
 
 function mmField(f) { return S.profile.matchmaking[MM_FIELDS[f]]; }
 function mmCount(f) { return Object.values(mmField(f)).reduce((a, x) => a + x.length, 0); }
@@ -586,10 +587,8 @@ function profTabMatchmaking() {
     pcard('sell', 'var(--blue-soft)', 'var(--blue)', 'Keywords <span class="req">*</span>', null, keywordsBlock) +
     pcard('category', '#F3ECFB', '#6C47C9', secTitle('Exhibition Categories <span class="req">*</span>', 'ex'), null,
       '<div class="hint" style="margin:0 0 8px">The categories you exhibit under.</div>' + mmTree('ex')) +
-    pcard('travel_explore', '#FFF4E0', 'var(--amber)', secTitle('I am Looking For <span class="req">*</span>', 'lf'), null,
-      '<div class="hint" style="margin:0 0 8px">Products &amp; capabilities you want to source / discover at the show.</div>' + mmTree('lf')) +
     pcard('volunteer_activism', '#E6F4EC', 'var(--green)', secTitle('Offering <span class="req">*</span>', 'of'), null,
-      '<div class="hint" style="margin:0 0 8px">Products &amp; capabilities you offer to visitors and partners.</div>' + mmTree('of'));
+      '<div class="hint" style="margin:0 0 8px">Products &amp; capabilities you offer. Visitors pick "I am Looking For" on their side — matchmaking pairs their demand with your offering.</div>' + mmTree('of'));
 }
 
 function addKeyword() {
