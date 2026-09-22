@@ -97,8 +97,8 @@ function profileSectionPct(section) {
     const a = countFilled(P.company, ['businessType', 'email', 'phone', 'website']);
     const b = countFilled(P.compliance, ['msme', 'udyam', 'selfCert', 'pan', 'gst']);
     const c = countFilled(P.regAddress, ['building', 'landmark', 'city', 'state', 'postal', 'country']);
-    const d = (P.business.overview ? 1 : 0) + (P.business.capabilities.length ? 1 : 0); // Company Positioning
-    return pctOf(a + b + c + d, 17);
+    const d = P.business.overview ? 1 : 0; // Company Positioning (overview only)
+    return pctOf(a + b + c + d, 16);
   }
   if (section === 'contacts') {
     const d = countFilled(P.contacts.director, ['fullName', 'email', 'phone', 'designation']);
@@ -398,20 +398,10 @@ function positioningCard() {
   const positioning =
     '<div class="field" style="margin-bottom:14px"><label>Company Overview <span style="float:right;color:var(--muted);font-weight:500">' + B.overview.length + ' / 500 characters</span></label>' +
       '<textarea id="bizOverview" rows="4" maxlength="500" style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:9px 12px;font-family:inherit;font-size:0.88rem">' + esc(B.overview) + '</textarea></div>' +
-    '<div style="margin-bottom:14px"><label style="font-size:0.8rem;font-weight:700">Key Capabilities</label><div style="margin-top:6px">' + chips(B.capabilities, 'rmCapability') + '</div>' +
-      '<div style="display:flex;gap:8px;margin-top:8px"><input type="text" id="capInput" placeholder="Add capability" style="border:1px solid #CFD7E4;border-radius:8px;padding:7px 12px;font-family:inherit;font-size:0.84rem">' +
-      '<button class="btn btn-outline btn-sm" onclick="addCapability()">+ Add Tag</button></div></div>' +
     '<div style="display:flex;justify-content:flex-end"><button class="btn btn-primary btn-sm" onclick="saveOverview()"><span class="material-symbols-outlined" style="font-size:16px">save</span>Save</button></div>';
   return pcard('campaign', '#FBEAE6', 'var(--red)', 'Company Positioning', null, positioning);
 }
 
-function addCapability() {
-  const v = $('capInput').value.trim();
-  if (!v) return;
-  S.profile.business.capabilities.push(v);
-  save(); render();
-}
-function rmCapability(i) { S.profile.business.capabilities.splice(i, 1); save(); render(); }
 function saveOverview() {
   S.profile.business.overview = $('bizOverview').value.trim();
   save(); render();
