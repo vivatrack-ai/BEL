@@ -1348,6 +1348,12 @@ function viewExhibitorDashboard() {
     sub: 'Catalogue, sponsorship, contractor, furniture & electrical forms — deadline 31 Dec 2026.',
     btn: '<a class="btn btn-outline btn-sm" href="#/exhibition-forms">Fill Now</a>',
   });
+  const b2bPending = (typeof b2bIncomingPending === 'function' && S.b2b) ? b2bIncomingPending() : 0;
+  if (b2bPending > 0) actions.push({
+    icon: 'hub', title: b2bPending + ' incoming B2B meeting request(s)',
+    sub: 'Visitors matched to your offering want to meet — accept or decline their requests.',
+    btn: '<a class="btn btn-outline btn-sm" href="#/b2b-matchmaking" onclick="window.__b2bTab=\'meetings\'">Respond</a>',
+  });
   const actionsCard = actions.length
     ? '<div class="card section-gap pending-card"><div class="card-head-row"><h2 class="card-title">Pending Actions</h2>' +
       '<span class="pill amber">' + actions.length + ' pending</span></div>' +
@@ -1392,6 +1398,10 @@ function viewExhibitorDashboard() {
         (S.bookings ? S.bookings.filter((b) => b.kind === 'conference').length : 0) + ' booking(s)') +
       feat('#/meeting-room', 'fc-amber', 'handshake', 'B2B Table',
         (S.bookings ? S.bookings.filter((b) => b.kind === 'b2b').length : 0) + ' booking(s)') +
+      feat('#/b2b-matchmaking', 'fc-teal', 'hub', 'B2B Matchmaking',
+        (typeof b2bIncomingPending === 'function' && S.b2b
+          ? S.b2b.meetings.filter((m) => m.status === 'confirmed').length + ' confirmed · ' + b2bIncomingPending() + ' incoming'
+          : '')) +
       feat('#/digital-showcase', 'fc-red', 'storefront', 'Digital Showcase',
         ((S.profile && S.profile.business.products.length) || 0) + ' product(s) · ' +
         (S.booth ? S.booth.videos.length : 0) + ' video(s) · ' +
