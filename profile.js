@@ -116,12 +116,10 @@ function profileSectionPct(section) {
     return pctOf(P.documents.filter((d) => d.file).length, P.documents.length);
   }
   if (section === 'matchmaking') {
-    const M = P.matchmaking;
-    const any = (m) => Object.keys(m).some((k) => m[k].length);
-    // Exhibitor side has only OFFERING — "I am Looking For" is the
-    // visitor-side matchmaking field.
-    const checks = [M.keywords.length, any(M.exCats), any(M.offering)];
-    return pctOf(checks.filter(Boolean).length, checks.length);
+    // Exhibitor-side matchmaking = OFFERING only ("I am Looking For" is
+    // visitor-side; keywords & categories moved to Products → Product Profile).
+    const m = P.matchmaking.offering;
+    return Object.keys(m).some((k) => m[k].length) ? 100 : 0;
   }
   return 0;
 }
@@ -570,24 +568,23 @@ function mmToggleParent(f, ci) {
   save(); render();
 }
 
-function profTabMatchmaking() {
-  const M = S.profile.matchmaking;
+const mmSecTitle = (t, f) => t + (f && mmCount(f) ? ' <span class="pill blue" style="margin-left:6px">' + mmCount(f) + ' selected</span>' : '');
 
-  const keywordsBlock =
-    '<div style="margin:6px 0">' + chips(M.keywords, 'rmKeyword') + '</div>' +
+function kwBlock() {
+  return '<div style="margin:6px 0">' + chips(S.profile.matchmaking.keywords, 'rmKeyword') + '</div>' +
     '<div style="display:flex;gap:8px"><input type="text" id="kwInput" placeholder="Enter Keywords.." ' +
       'onkeydown="if(event.key===\'Enter\'){event.preventDefault();addKeyword();}" ' +
       'style="flex:1;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.86rem">' +
       '<button class="btn btn-outline btn-sm" onclick="addKeyword()">+ Add</button></div>';
+}
 
-  const secTitle = (t, f) => t + (f && mmCount(f) ? ' <span class="pill blue" style="margin-left:6px">' + mmCount(f) + ' selected</span>' : '');
-
+/* Matchmaking = OFFERING only. Keywords & Exhibition Categories are
+   product-side classification (app-level filters) — they live on the
+   Products page under the "Product Profile" tab. */
+function profTabMatchmaking() {
   return '<div style="margin-bottom:16px"><h2 class="card-title" style="margin:0">Matchmaking</h2>' +
-    '<p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0">Powers B2B recommendations in the networking platform. Category &amp; subcategory selections are multi-select — tick a category to select all its subcategories, or pick subcategories individually. <span class="req">*</span> indicates mandatory fields.</p></div>' +
-    pcard('sell', 'var(--blue-soft)', 'var(--blue)', 'Keywords <span class="req">*</span>', null, keywordsBlock) +
-    pcard('category', '#F3ECFB', '#6C47C9', secTitle('Exhibition Categories <span class="req">*</span>', 'ex'), null,
-      '<div class="hint" style="margin:0 0 8px">The categories you exhibit under.</div>' + mmTree('ex')) +
-    pcard('volunteer_activism', '#E6F4EC', 'var(--green)', secTitle('Offering <span class="req">*</span>', 'of'), null,
+    '<p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0">Powers B2B recommendations in the networking platform. Multi-select — tick a category to select all its subcategories, or pick subcategories individually. Keywords &amp; exhibition categories are managed under <a class="btn-link" style="padding:0" href="#/products" onclick="window.__prodTab=\'pprofile\'">Products → Product Profile</a>.</p></div>' +
+    pcard('volunteer_activism', '#E6F4EC', 'var(--green)', mmSecTitle('Offering <span class="req">*</span>', 'of'), null,
       '<div class="hint" style="margin:0 0 8px">Products &amp; capabilities you offer. Visitors pick "I am Looking For" on their side — matchmaking pairs their demand with your offering.</div>' + mmTree('of'));
 }
 
@@ -603,7 +600,7 @@ function rmKeyword(i) { S.profile.matchmaking.keywords.splice(i, 1); save(); ren
    VIEW · Products — SEPARATE menu (not inside company profile),
    mirroring the platform: Product Gallery + placeholder tabs
    ============================================================ */
-const PRODUCT_TABS = [['gallery', 'Product Gallery'], ['orders-by', 'Order By Product'], ['access', 'Request For Access'], ['orders', 'Product Orders']];
+const PRODUCT_TABS = [['gallery', 'Product Gallery'], ['pprofile', 'Product Profile'], ['orders-by', 'Order By Product'], ['access', 'Request For Access'], ['orders', 'Product Orders']];
 window.__prodTab = window.__prodTab || 'gallery';
 window.__prodQ = window.__prodQ || '';
 
@@ -614,7 +611,14 @@ function viewProducts() {
       '<button class="ptab' + (tab === id ? ' on' : '') + '" onclick="window.__prodTab=\'' + id + '\';render()">' + l + '</button>').join('') + '</div>';
 
   let body;
-  if (tab !== 'gallery') {
+  if (tab === 'pprofile') {
+    // Keywords & Exhibition Categories — product-side classification that
+    // powers the event app's keyword and category/subcategory filters.
+    body = '<p style="font-size:0.8rem;color:var(--muted);margin:0 0 14px">Visitors filter products in the event app by <b>keyword</b> and by <b>category &amp; subcategory</b> — this classification drives those filters. <span class="req">*</span> indicates mandatory fields.</p>' +
+      pcard('sell', 'var(--blue-soft)', 'var(--blue)', 'Keywords <span class="req">*</span>', null, kwBlock()) +
+      pcard('category', '#F3ECFB', '#6C47C9', mmSecTitle('Exhibition Categories <span class="req">*</span>', 'ex'), null,
+        '<div class="hint" style="margin:0 0 8px">The categories you exhibit under — tick a category to select all its subcategories, or pick individually.</div>' + mmTree('ex'));
+  } else if (tab !== 'gallery') {
     const labels = { 'orders-by': 'orders placed by product', 'access': 'access requests', 'orders': 'product orders' };
     body = '<div class="card"><div class="empty"><span class="material-symbols-outlined">inventory_2</span>' +
       '<h3>Nothing here yet</h3><p>Visitor ' + labels[tab] + ' will appear here once the networking platform goes live.</p></div></div>';
