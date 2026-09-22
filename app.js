@@ -1470,7 +1470,46 @@ function viewMyOrders() {
     footerTools();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+/* ============================================================
+   Exhibitor login gate — the app opens on a login screen; the
+   shell renders only for a logged-in session (demo credentials).
+   ============================================================ */
+const EXH_SESSION_KEY = 'evenuefy_exhibitor_session';
+function exhibitorLoggedIn() {
+  try { return sessionStorage.getItem(EXH_SESSION_KEY) === 'yes'; } catch (e) { return false; }
+}
+
+function exhibitorLogin(e) {
+  e.preventDefault();
+  clearErrs();
+  const email = $('lgEmail').value.trim();
+  const pwd = $('lgPassword').value;
+  let ok = true;
+  if (!email) { setErr('lgEmail', 'Email is required'); ok = false; }
+  else if (!EMAIL_RE.test(email)) { setErr('lgEmail', 'Enter a valid email address'); ok = false; }
+  if (!pwd) { setErr('lgPassword', 'Password is required'); ok = false; }
+  if (!ok) return false;
+  try { sessionStorage.setItem(EXH_SESSION_KEY, 'yes'); } catch (err) { /* ignore */ }
+  enterExhibitorApp();
+  toast('Welcome back, ' + EVENT.exhibitor, 'success');
+  return false;
+}
+
+function exhibitorLogout() {
+  try { sessionStorage.removeItem(EXH_SESSION_KEY); } catch (e) { /* ignore */ }
+  location.hash = '';
+  $('appShell').style.display = 'none';
+  $('loginScreen').style.display = 'flex';
+}
+
+function enterExhibitorApp() {
+  $('loginScreen').style.display = 'none';
+  $('appShell').style.display = 'flex';
   if (!location.hash) location.hash = '#/dashboard';
   render();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (exhibitorLoggedIn()) enterExhibitorApp();
+  // not logged in → the login screen stays visible; the shell renders after login
 });
