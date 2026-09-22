@@ -1283,28 +1283,42 @@ function viewExhibitorDashboard() {
   const acftDrafts = aircraft.filter((a) => a.status === 'draft').length;
   const acftUnpaid = aircraft.filter((a) => a.status === 'approved' && a.price != null).length;
 
-  /* --- My Space strip — one chip-row per BOOKED stall; when no space is
-     booked yet, the card turns into a friendly empty state instead --- */
-  const spaceChips = S.stalls.map((st) =>
-    '<div class="schip"><b>Hall</b><span>' + esc(st.hall) + '</span></div>' +
-    '<div class="schip"><b>Stall No.</b><span>' + esc(st.stall) + '</span></div>' +
-    '<div class="schip"><b>Area</b><span>' + st.area + ' SQM</span></div>' +
-    '<span style="flex-basis:100%;height:0"></span>').join('');
+  /* --- Aero Space hero — gradient banner with boarding-pass style
+     stall tickets; friendly amber hero when nothing is booked yet --- */
+  const totalSqm = S.stalls.reduce((a, st) => a + st.area, 0);
+  const stallTickets = S.stalls.map((st) =>
+    '<div class="stall-ticket">' +
+      '<span class="sicon"><span class="material-symbols-outlined">storefront</span></span>' +
+      '<div><div class="sno">' + esc(st.stall) + '</div>' +
+      '<div class="smeta">' + esc(st.hall) + ' · ' + st.area + ' SQM</div></div>' +
+    '</div>').join('');
   const spaceCard = S.stalls.length
-    ? '<div class="card"><div class="card-head-row"><div>' +
-        '<span class="pill blue">Aero Space · ' + S.stalls.length + ' stall(s) booked</span>' +
-        '<h2 class="card-title" style="margin-top:8px">' + esc(EVENT.exhibitor) + '</h2></div>' +
-        '<a class="btn btn-outline btn-sm" href="#/space-requirement"><span class="material-symbols-outlined" style="font-size:16px">design_services</span>Space Requirement</a></div>' +
-        '<div class="space-chips">' + spaceChips + '</div></div>'
-    : '<div class="card"><div class="card-head-row"><div>' +
-        '<span class="pill amber">No Space Booked Yet</span>' +
-        '<h2 class="card-title" style="margin-top:8px">' + esc(EVENT.exhibitor) + '</h2></div></div>' +
-        '<div style="display:flex;align-items:center;gap:14px">' +
-          '<span class="aicon" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">view_comfy_alt</span></span>' +
-          '<div style="flex:1"><b style="font-size:0.9rem">Your space booking is not confirmed yet.</b>' +
-          '<div style="font-size:0.78rem;color:var(--muted)">Submit your space requirement — booked stalls will appear here once the organiser confirms your space.</div></div>' +
-          '<a class="btn btn-primary btn-sm" href="#/space-requirement">Submit Requirement</a>' +
-        '</div></div>';
+    ? '<div class="hero-space">' +
+        '<span class="material-symbols-outlined watermark">flight_takeoff</span>' +
+        '<div class="hero-flex"><div style="flex:1;min-width:260px">' +
+          '<span class="hero-eyebrow"><span class="material-symbols-outlined" style="font-size:13px">verified</span>Aero Space · Booking Confirmed</span>' +
+          '<h2>' + esc(EVENT.exhibitor) + '</h2>' +
+          '<div class="stall-tickets">' + stallTickets + '</div>' +
+          '<div class="hero-stats">' +
+            '<div class="hero-stat"><b>' + S.stalls.length + '</b><span>Stalls Booked</span></div>' +
+            '<div class="hero-stat"><b>' + totalSqm + ' <small style="font-size:0.75rem;font-weight:700">SQM</small></b><span>Total Area</span></div>' +
+            '<div class="hero-stat"><b>10–15 Feb</b><span>Aero India 2027</span></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="hero-actions">' +
+          '<a class="btn-hero" href="#/space-requirement"><span class="material-symbols-outlined" style="font-size:17px">design_services</span>Space Requirement</a>' +
+          '<a class="btn-hero btn-hero-ghost" href="#/exhibition-forms"><span class="material-symbols-outlined" style="font-size:17px">assignment</span>Exhibition Forms</a>' +
+        '</div></div></div>'
+    : '<div class="hero-space amber">' +
+        '<span class="material-symbols-outlined watermark">flight</span>' +
+        '<div class="hero-flex"><div style="flex:1;min-width:260px">' +
+          '<span class="hero-eyebrow"><span class="material-symbols-outlined" style="font-size:13px">hourglass_top</span>Aero Space · Booking Pending</span>' +
+          '<h2>' + esc(EVENT.exhibitor) + '</h2>' +
+          '<p style="margin:10px 0 0;font-size:0.86rem;color:#FBE9C8;max-width:520px">Your space booking is not confirmed yet. Submit your space requirement — booked stalls will appear here once the organiser confirms your space.</p>' +
+        '</div>' +
+        '<div class="hero-actions">' +
+          '<a class="btn-hero" href="#/space-requirement"><span class="material-symbols-outlined" style="font-size:17px">design_services</span>Submit Requirement</a>' +
+        '</div></div></div>';
 
   /* --- Pending actions (only what actually needs attention) --- */
   const actions = [];
