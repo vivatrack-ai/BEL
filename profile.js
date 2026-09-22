@@ -600,8 +600,8 @@ function rmKeyword(i) { S.profile.matchmaking.keywords.splice(i, 1); save(); ren
    VIEW · Products — SEPARATE menu (not inside company profile),
    mirroring the platform: Product Gallery + placeholder tabs
    ============================================================ */
-const PRODUCT_TABS = [['gallery', 'Product Gallery'], ['pprofile', 'Product Profile'], ['orders-by', 'Order By Product'], ['access', 'Request For Access'], ['orders', 'Product Orders']];
-window.__prodTab = window.__prodTab || 'gallery';
+const PRODUCT_TABS = [['pprofile', 'Product Profile'], ['gallery', 'Product Gallery'], ['orders-by', 'Order By Product'], ['access', 'Request For Access'], ['orders', 'Product Orders']];
+window.__prodTab = window.__prodTab || 'pprofile';
 window.__prodQ = window.__prodQ || '';
 
 function viewProducts() {
