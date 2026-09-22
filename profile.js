@@ -58,6 +58,10 @@
   // Migration: bank detail form fields added later (per revised design)
   const bk = S.profile.bank;
   ['beneficiary', 'address', 'chequeFile', 'chequeAt'].forEach((k) => { if (bk[k] === undefined) bk[k] = ''; });
+  // Migration: organiser approval of the company profile. Once approved,
+  // documents uploaded at registration time are LOCKED (no replace) —
+  // only still-pending documents may be uploaded.
+  if (S.profile.approved === undefined) { S.profile.approved = true; S.profile.approvedAt = '19 Sept 2026'; }
 })();
 
 /* ---------------- progress math ---------------- */
@@ -146,7 +150,8 @@ function viewProfile(tab) {
   else if (tab === 'business') body = profTabBusiness();
   else body = profTabCompany();
 
-  return '<h1 class="page-title">' + esc(EVENT.exhibitor) + '</h1>' +
+  return '<h1 class="page-title">' + esc(EVENT.exhibitor) +
+      (S.profile.approved ? ' <span class="pill green" style="vertical-align:middle">Profile Approved</span>' : '') + '</h1>' +
     '<p class="page-sub">' + esc(S.profile.tagline) + '</p>' +
     tabs +
     '<div class="prof-layout"><div>' + body + '</div>' + profileProgressRail() + '</div>';
@@ -311,17 +316,30 @@ function scrollToFirstErrField() {
 
 /* ---------------- tab: Documents ---------------- */
 function profTabDocuments() {
-  const rows = S.profile.documents.map((d) =>
-    '<div class="doc-row">' +
+  const approved = S.profile.approved;
+  const rows = S.profile.documents.map((d) => {
+    const locked = approved && d.file; // approved profile → uploaded docs cannot be replaced
+    return '<div class="doc-row">' +
       '<span class="icon-sq" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">description</span></span>' +
       '<div class="dname">' + esc(d.name) +
         (d.file ? '<small>' + esc(d.file) + ' · uploaded ' + esc(d.at) + '</small>' : '<small>Not uploaded yet</small>') + '</div>' +
       (d.file ? '<span class="pill green">Uploaded</span>' : '<span class="pill amber">Pending</span>') +
-      '<label class="btn btn-outline btn-sm" style="cursor:pointer">' +
-        '<span class="material-symbols-outlined" style="font-size:16px">upload</span>' + (d.file ? 'Replace' : 'Upload') +
-        '<input type="file" accept=".pdf,image/*" style="display:none" onchange="uploadProfileDoc(\'' + d.id + '\', this)"></label>' +
-    '</div>').join('');
+      (locked
+        ? '<span class="btn btn-outline btn-sm" style="opacity:0.55;cursor:not-allowed" title="Profile is approved — this document is locked. Contact the organiser to change it.">' +
+            '<span class="material-symbols-outlined" style="font-size:16px">lock</span>Locked</span>'
+        : '<label class="btn btn-outline btn-sm" style="cursor:pointer">' +
+            '<span class="material-symbols-outlined" style="font-size:16px">upload</span>' + (d.file ? 'Replace' : 'Upload') +
+            '<input type="file" accept=".pdf,image/*" style="display:none" onchange="uploadProfileDoc(\'' + d.id + '\', this)"></label>') +
+    '</div>';
+  }).join('');
+  const approvedNote = approved
+    ? '<div class="note" style="margin-bottom:14px"><b class="title">Company profile approved' +
+      (S.profile.approvedAt ? ' — ' + esc(S.profile.approvedAt) : '') + '</b>' +
+      'Documents uploaded at the time of registration are <b>locked</b> and cannot be replaced. ' +
+      'You can still upload the documents that are pending. To correct a locked document, contact the organiser.</div>'
+    : '';
   return pcard('folder_open', 'var(--blue-soft)', 'var(--blue)', 'Company Documents', null,
+    approvedNote +
     '<p style="font-size:0.8rem;color:var(--muted);margin:0 0 6px">Upload the supporting documents required by the organiser. PDF or image, up to 2 MB each.</p>' + rows);
 }
 
@@ -330,6 +348,11 @@ function uploadProfileDoc(id, input) {
   if (!f) return;
   const d = S.profile.documents.find((x) => x.id === id);
   if (!d) return;
+  if (S.profile.approved && d.file) {
+    toast('Profile is approved — "' + d.name + '" is locked and cannot be replaced. Contact the organiser.', 'error');
+    return;
+  }
+  if (f.size > 2 * 1024 * 1024) { toast('File is larger than 2 MB — upload a smaller scan.', 'error'); return; }
   d.file = f.name;
   d.at = nowStr();
   save(); render();
