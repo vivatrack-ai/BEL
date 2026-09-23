@@ -1412,12 +1412,26 @@ function viewExhibitorDashboard() {
         (S.booth ? S.booth.documents.length : 0) + ' doc(s)') +
     '</div>';
 
+  /* --- Important Documents and Agenda (organiser circulars) --- */
+  const impDocsCard =
+    '<div class="card section-gap" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">' +
+      '<span class="icon-sq" style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#EAF0FC,#FBF1DC)">' +
+        '<span class="material-symbols-outlined" style="font-size:30px;color:var(--blue)">history_edu</span></span>' +
+      '<div style="flex:1;min-width:240px">' +
+        '<b style="font-size:0.98rem">Important Documents and Agenda</b>' +
+        '<div style="font-size:0.8rem;color:var(--muted)">The important document files contain vital information and guidelines to help you make the most of your participation.</div>' +
+      '</div>' +
+      '<button class="btn btn-primary" onclick="openImportantDocs()">Important Documents' +
+        '<span class="material-symbols-outlined" style="font-size:17px">chevron_right</span></button>' +
+    '</div>';
+
   return '<div class="dash-hello"><div>' +
       '<h1 class="page-title">Hi ' + esc(EVENT.exhibitor) + ', let’s get started 👋</h1>' +
       '<p class="page-sub" style="margin-bottom:0">This is a quick summary of your participation. You can access every key section here.</p>' +
     '</div></div>' +
     spaceCard +
     actionsCard +
+    impDocsCard +
     '<div class="section-gap"><div class="dash-section-head"><h2 class="card-title" style="margin:0">Quick Access</h2>' +
       '<span class="sub">Everything assigned to your participation, one tap away</span></div>' + grid + '</div>' +
     footerTools();
@@ -1428,32 +1442,60 @@ function viewExhibitorDashboard() {
    ============================================================ */
 const MY_ORDER_TYPE = { coex_reg: 'Co-Exhibitor Registration', vehicle: 'Vehicle Pass', aircraft_reg: 'Aircraft Registration', exh_form: 'Exhibition Form', booking: 'Hall / Table Booking', space: 'Space Booking' };
 
+window.__moQ = window.__moQ || '';
+window.__moType = window.__moType || '';
+window.__moPage = window.__moPage || 1;
+const MO_ROWS = 10;
+function moSetQ(v) { window.__moQ = v; window.__moPage = 1; render(); const el = $('moQ'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+function moSetType(v) { window.__moType = v; window.__moPage = 1; render(); }
+function moPage(d) { window.__moPage += d; render(); }
+
 function viewMyOrders() {
   const paidInr = S.orders.filter((o) => o.currency !== 'USD').reduce((a, o) => a + Number(o.amount || 0), 0);
   const paidUsd = S.orders.filter((o) => o.currency === 'USD').reduce((a, o) => a + Number(o.amount || 0), 0);
   const cartTotal = S.cart.reduce((a, i) => a + Number(i.amount || 0), 0);
 
-  const pendingRows = S.cart.map((i) =>
-    '<tr><td><span style="color:var(--muted)">—</span></td>' +
-    '<td><span class="td-strong">' + esc(MY_ORDER_TYPE[i.type] || i.type) + '</span>' +
-      '<span class="td-sub">' + esc(i.label) + (i.sub ? ' · ' + esc(i.sub) : '') + '</span></td>' +
-    '<td class="money">' + (i.currency === 'USD' ? '$' + Number(i.amount).toLocaleString('en-US') : money(i.amount)) + '</td>' +
-    '<td><span class="pill amber">Pending</span></td>' +
-    '<td><button class="btn-link" onclick="openCart()">Pay Now</button></td></tr>').join('');
+  /* one unified list — cart items ride on top as Pending */
+  const all = S.cart.map((i) => ({
+    id: '—', type: i.type, label: i.label, sub: i.sub || '', amount: i.amount,
+    currency: i.currency || 'INR', method: '—', status: 'pending', date: '',
+  })).concat(S.orders.slice().reverse().map((o) => ({
+    id: o.orderNo, type: o.type, label: o.label, sub: o.sub || '', amount: o.amount,
+    currency: o.currency || 'INR', method: 'CARD', status: 'success', date: o.paidAt,
+  })));
 
-  const paidRows = S.orders.slice().reverse().map((o) =>
-    '<tr><td><span class="regno">' + esc(o.orderNo) + '</span></td>' +
-    '<td><span class="td-strong">' + esc(MY_ORDER_TYPE[o.type] || o.type) + '</span>' +
+  const q = window.__moQ.toLowerCase();
+  let list = all;
+  if (q) list = list.filter((o) => (o.id + ' ' + o.label + ' ' + o.sub + ' ' + (MY_ORDER_TYPE[o.type] || '')).toLowerCase().includes(q));
+  if (window.__moType) list = list.filter((o) => o.type === window.__moType);
+
+  const totalPages = Math.max(1, Math.ceil(list.length / MO_ROWS));
+  if (window.__moPage > totalPages) window.__moPage = totalPages;
+  const start = (window.__moPage - 1) * MO_ROWS;
+  const pageList = list.slice(start, start + MO_ROWS);
+
+  const typeIcon = { coex_reg: 'group_add', vehicle: 'directions_car', aircraft_reg: 'flight', exh_form: 'assignment', booking: 'meeting_room', space: 'grid_on' };
+  const rows = pageList.map((o) =>
+    '<tr><td><span class="regno">' + esc(o.id) + '</span></td>' +
+    '<td><span class="td-strong"><span class="material-symbols-outlined" style="font-size:16px;color:var(--blue);vertical-align:-3px">' + (typeIcon[o.type] || 'receipt_long') + '</span> ' +
+      esc(MY_ORDER_TYPE[o.type] || o.type) + '</span>' +
       '<span class="td-sub">' + esc(o.label) + (o.sub ? ' · ' + esc(o.sub) : '') + '</span></td>' +
     '<td class="money">' + (o.currency === 'USD' ? '$' + Number(o.amount).toLocaleString('en-US') : money(o.amount)) + '</td>' +
-    '<td><span class="pill green">Success</span></td>' +
-    '<td>' + esc(o.paidAt) + '</td></tr>').join('');
+    '<td>' + (o.status === 'success' ? 'CARD' : '<span style="color:var(--muted)">—</span>') + '</td>' +
+    '<td>' + (o.status === 'success'
+      ? '<span class="pill green"><span class="material-symbols-outlined" style="font-size:12px;vertical-align:-2px">check_circle</span> Success</span>'
+      : '<span class="pill amber">Pending</span>') + '</td>' +
+    '<td>' + (o.date ? esc(o.date) : '<button class="btn-link" onclick="openCart()">Pay Now</button>') + '</td></tr>').join('') ||
+    '<tr><td colspan="6" style="color:var(--muted)">' +
+      (all.length ? 'No orders match your search / filter.' : 'No orders yet — payments you make from the cart will appear here.') + '</td></tr>';
 
-  const rows = (pendingRows + paidRows) ||
-    '<tr><td colspan="5" style="color:var(--muted)">No orders yet — payments you make from the cart will appear here.</td></tr>';
+  const typeOpts = '<select onchange="moSetType(this.value)" style="border:1px solid #CFD7E4;border-radius:8px;padding:8px 10px;font-family:inherit;font-size:0.84rem;cursor:pointer">' +
+    '<option value="">All Types</option>' +
+    Object.keys(MY_ORDER_TYPE).map((k) => '<option value="' + k + '"' + (window.__moType === k ? ' selected' : '') + '>' + MY_ORDER_TYPE[k] + '</option>').join('') +
+    '</select>';
 
   return '<h1 class="page-title">My Orders</h1>' +
-    '<p class="page-sub">All your payments — co-exhibitor registrations, vehicle passes and aircraft registration fees.</p>' +
+    '<p class="page-sub">All your payments — space booking, exhibition forms, passes, aircraft registration and bookings.</p>' +
     '<div class="tiles">' +
       '<div class="tile blue"><div class="t-label">Total Orders</div><div class="t-value">' + S.orders.length + '</div></div>' +
       '<div class="tile accent"><div class="t-label">Total Paid</div><div class="t-value">' + money(paidInr) +
@@ -1461,13 +1503,50 @@ function viewMyOrders() {
       '<div class="tile"><div class="t-label">Pending in Cart</div><div class="t-value">' + S.cart.length +
         (cartTotal ? '<span style="font-size:0.85rem;color:var(--muted);font-weight:600"> · ' + money(cartTotal) + '</span>' : '') + '</div></div>' +
     '</div>' +
-    '<div class="card"><div class="card-head-row"><h2 class="card-title">Order History</h2>' +
-      (S.cart.length ? '<button class="btn btn-primary btn-sm" onclick="openCart()"><span class="material-symbols-outlined" style="font-size:16px">shopping_cart</span>Pay Pending (' + S.cart.length + ')</button>' : '') +
-    '</div>' +
+    '<div class="card"><div class="card-head-row" style="flex-wrap:wrap;gap:10px"><h2 class="card-title">Order History</h2>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">' +
+        '<input type="text" id="moQ" value="' + esc(window.__moQ) + '" placeholder="Search orders.." oninput="moSetQ(this.value)" ' +
+          'style="min-width:190px;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.84rem">' +
+        typeOpts +
+        (S.cart.length ? '<button class="btn btn-primary btn-sm" onclick="openCart()"><span class="material-symbols-outlined" style="font-size:16px">shopping_cart</span>Pay Pending (' + S.cart.length + ')</button>' : '') +
+      '</div></div>' +
     '<div class="tablewrap"><table class="grid">' +
-    '<tr><th>Order No.</th><th>Order Type / Item</th><th>Amount</th><th>Payment Status</th><th>Paid At</th></tr>' +
-    rows + '</table></div></div>' +
+    '<tr><th>Payment Info</th><th>Type</th><th>Amount</th><th>Method</th><th>Status</th><th>Date</th></tr>' +
+    rows + '</table></div>' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:12px;font-size:0.8rem;color:var(--muted)">' +
+      '<span>Total: <b>' + list.length + '</b> · Rows ' + MO_ROWS + '</span>' +
+      '<span style="display:flex;align-items:center;gap:8px">Showing <b>' + (list.length ? start + 1 : 0) + '</b> to <b>' + Math.min(start + MO_ROWS, list.length) + '</b>' +
+        '<button class="btn btn-outline btn-sm" onclick="moPage(-1)"' + (window.__moPage <= 1 ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size:16px">keyboard_arrow_left</span></button>' +
+        '<button class="btn btn-outline btn-sm" onclick="moPage(1)"' + (window.__moPage >= totalPages ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size:16px">keyboard_arrow_right</span></button>' +
+      '</span></div>' +
+    '</div>' +
     footerTools();
+}
+
+/* ============================================================
+   Important Documents and Agenda — organiser-published circulars
+   (in production these rows serve the PDFs uploaded in the CMS)
+   ============================================================ */
+const IMPORTANT_DOCS = [
+  { name: 'Terms & Condition', sub: 'Participation terms for Aero India 2027' },
+  { name: 'Exhibitor Manual', sub: 'Stall guidelines, timelines & venue rules' },
+  { name: 'AERO INDIA — Flying Display Manual', sub: 'Flying display procedures & safety' },
+  { name: 'Event Agenda & Programme', sub: 'Day-wise schedule, 10–15 Feb 2027' },
+  { name: 'Exhibitor Guidelines Circular', sub: 'Latest circular from the organiser' },
+];
+
+function openImportantDocs() {
+  const rows = IMPORTANT_DOCS.map((d, i) =>
+    '<div class="doc-row" style="border:1px solid var(--line);border-radius:10px;padding:13px 14px;margin-bottom:10px;cursor:pointer" onclick="viewImportantDoc(' + i + ')">' +
+      '<span class="icon-sq" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">description</span></span>' +
+      '<div class="dname">' + esc(d.name) + '<small>' + esc(d.sub) + ' · PDF</small></div>' +
+      '<span class="material-symbols-outlined" style="color:var(--muted)">chevron_right</span>' +
+    '</div>').join('');
+  openModal('Important Documents And Agenda', rows, '', true);
+}
+
+function viewImportantDoc(i) {
+  toast('Opening "' + IMPORTANT_DOCS[i].name + '" — in production this serves the organiser-uploaded PDF.', 'success');
 }
 
 /* ============================================================
