@@ -532,15 +532,6 @@ function slotRange(slot) {
   return slot + ' - ' + String(e % 12 || 12).padStart(2, '0') + ':' + mm[2] + ' ' + (e >= 12 ? 'PM' : 'AM');
 }
 
-function completeMeeting(id) {
-  const m = S.b2b.meetings.find((x) => x.id === id);
-  if (!m) return;
-  m.status = 'completed';
-  m.completedAt = nowStr();
-  save(); render();
-  toast('Meeting with ' + m.name + ' marked as completed.', 'success');
-}
-
 function mtgTitle(m) {
   if (m.title) return m.title;
   return m.direction === 'incoming'
@@ -560,13 +551,11 @@ function mtgActions(m) {
     '<button class="btn btn-outline btn-sm" style="color:' + (color || 'var(--blue)') + ';min-width:84px;justify-content:center" onclick="' + fn + '">' + label + '</button>';
   if (k === 'confirmed') {
     return '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">' +
-      '<span style="color:var(--green);font-weight:700;font-size:0.84rem;display:block;width:100%">Approved</span>' +
-      b('Complete', 'completeMeeting(\'' + m.id + '\')') +
       b('Reschedule', 'openRescheduleModal(\'' + m.id + '\')') +
       b('Cancel', 'cancelMeeting(\'' + m.id + '\')', 'var(--red)') + '</div>';
   }
   if (k === 'declined') return '<span style="color:var(--red);font-weight:700;font-size:0.84rem">Rejected</span>';
-  if (k === 'completed') return '<span style="color:var(--blue);font-weight:700;font-size:0.84rem">Completed</span>';
+  if (k === 'completed') return '<span style="color:var(--blue);font-weight:700;font-size:0.84rem">Completed</span><span class="td-sub">Marked by organiser</span>';
   if (m.direction === 'incoming') {
     return '<div style="display:flex;gap:6px">' +
       b('Accept', 'respondMeeting(\'' + m.id + '\',\'confirmed\')') +
