@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
    Evenuefy — Co-Exhibitor Module (functional prototype)
    State persists in localStorage. Reset via footer link.
    ============================================================ */
@@ -213,6 +213,7 @@ function render() {
 
   $('view').innerHTML = view(arg);
   updateCartBadge();
+  if (typeof updateNotifBadge === 'function') updateNotifBadge();
   window.scrollTo(0, 0);
 }
 
@@ -773,26 +774,95 @@ function catRow(cat, i, coexLabel) {
     '</td></tr>';
 }
 
+/* Badge Quota Management — modelled on the live platform page:
+   quota tiles, per-category cards with usage progress and actions
+   (Invite Via Email · Registration Team · View Listing · Bulk
+   Upload · Co-Exhibitor Quota) plus the badge-holder listing. */
+window.__bqQ = window.__bqQ || '';
+window.__bqCat = window.__bqCat || '';
+function bqSetQ(v) { window.__bqQ = v; render(); const el = $('bqQ'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+function bqSetCat(v) { window.__bqCat = v; render(); }
+
+function openBulkUpload(catId) {
+  const cat = catById(catId);
+  openModal('Bulk Upload — ' + esc(cat.name),
+    '<p style="margin-top:0;font-size:0.84rem;color:var(--muted)">Upload the filled badge template (Excel/CSV). Each row registers one badge holder against this category’s quota.</p>' +
+    '<div class="field"><label>Template File <span class="req">*</span></label><input type="file" id="bulkFile" accept=".xlsx,.xls,.csv"><div class="error"></div></div>' +
+    '<div class="hint" style="margin-top:6px"><a class="btn-link" style="padding:0" onclick="toast(\'Template downloaded (demo).\', \'success\')">Download blank template</a> · Maximum 5MB</div>',
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="submitBulkUpload(\'' + catId + '\')"><span class="material-symbols-outlined">upload</span>Upload</button>');
+}
+function submitBulkUpload(catId) {
+  const f = $('bulkFile').files[0];
+  if (!f) { setErr('bulkFile', 'Choose the filled template file'); return; }
+  closeModal();
+  toast('"' + f.name + '" received — badge holders will be imported after validation (demo).', 'success');
+}
+
 function viewBadges() {
   const badgeCats = S.categories.filter((c) => c.kind === 'badge');
-  const totals = badgeCats.reduce((a, c) => {
-    a.total += catTotal(c);
-    a.used += usedByExhibitor(c.id) + S.passes.filter((p) => p.catId === c.id && p.coexId).length;
-    return a;
-  }, { total: 0, used: 0 });
+  const catUsed = (c) => usedByExhibitor(c.id) + S.passes.filter((p) => p.catId === c.id && p.coexId).length;
+  const totals = badgeCats.reduce((a, c) => { a.total += catTotal(c); a.used += catUsed(c); return a; }, { total: 0, used: 0 });
 
-  return '<h1 class="page-title">Badge Details</h1>' +
-    '<p class="page-sub">Category-wise badge quota. Allocate quota to co-exhibitors, register your team, or send e-invitee links.</p>' +
+  const catCards = badgeCats.map((c) => {
+    const used = catUsed(c);
+    const pct = catTotal(c) ? Math.round((used / catTotal(c)) * 100) : 0;
+    return '<div class="card" style="margin-top:14px">' +
+      '<div class="card-head-row" style="margin-bottom:8px"><div>' +
+        '<span class="pill blue"><span class="material-symbols-outlined" style="font-size:12px;vertical-align:-2px">confirmation_number</span> Assign Quota</span>' +
+        '<h2 class="card-title" style="margin:8px 0 0">' + esc(c.name) + '</h2></div>' +
+        '<div style="text-align:right"><b class="num" style="font-size:1.15rem">' + used + ' / ' + catTotal(c) + '</b>' +
+        '<div style="font-size:0.68rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.07em">Usage Progress</div></div></div>' +
+      '<div class="prog-bar" style="margin-bottom:8px"><i style="width:' + pct + '%"></i></div>' +
+      '<div style="font-size:0.78rem;color:var(--muted);font-weight:600;margin-bottom:12px">Free: ' + c.free + ' &nbsp;·&nbsp; Paid: ' + c.paid + '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button class="btn btn-outline btn-sm" onclick="openSendLink(\'' + c.id + '\')"><span class="material-symbols-outlined" style="font-size:15px">mail</span>Invite Via Email</button>' +
+        '<button class="btn btn-outline btn-sm" onclick="openPassForm(\'' + c.id + '\')"><span class="material-symbols-outlined" style="font-size:15px">person_add</span>Registration Team</button>' +
+        '<button class="btn btn-outline btn-sm" onclick="bqSetCat(\'' + c.id + '\')"><span class="material-symbols-outlined" style="font-size:15px">list</span>View Listing</button>' +
+        '<button class="btn btn-outline btn-sm" onclick="openBulkUpload(\'' + c.id + '\')"><span class="material-symbols-outlined" style="font-size:15px">upload_file</span>Bulk Upload</button>' +
+        '<a class="btn btn-outline btn-sm" href="#/passes/badges/coex/' + c.id + '"><span class="material-symbols-outlined" style="font-size:15px">group_add</span>Co-Exhibitor Quota</a>' +
+      '</div></div>';
+  }).join('');
+
+  /* badge-holder listing */
+  const q = window.__bqQ.toLowerCase();
+  let holders = S.passes.filter((p) => badgeCats.some((c) => c.id === p.catId));
+  if (window.__bqCat) holders = holders.filter((p) => p.catId === window.__bqCat);
+  if (q) holders = holders.filter((p) =>
+    ((p.data.firstName || '') + ' ' + (p.data.lastName || '') + ' ' + (p.data.email || '')).toLowerCase().includes(q));
+  const holderRows = holders.map((p, i) =>
+    '<tr><td>' + (i + 1) + '</td>' +
+    '<td><div class="profile-cell"><span class="avatar">' + esc((p.data.firstName || '?').charAt(0).toUpperCase()) + '</span>' +
+      '<span><span class="td-strong">' + esc((p.data.firstName || '') + ' ' + (p.data.lastName || '')) + '</span>' +
+      (p.coexId && coexById(p.coexId) ? '<span class="td-sub">via ' + esc(coexById(p.coexId).company) + '</span>' : '') + '</span></div></td>' +
+    '<td class="contact-cell">' + esc(p.data.email || '—') + '<br><span class="ph">' + esc(p.data.mobile || '') + '</span></td>' +
+    '<td>' + esc(p.data.designation || '—') + '</td>' +
+    '<td>' + esc((catById(p.catId) || {}).name || '') + '</td>' +
+    '<td>' + esc(p.createdAt || '') + '</td></tr>').join('');
+  const listEmpty = '<tr><td colspan="6"><div class="empty" style="padding:26px 10px">' +
+    '<span class="material-symbols-outlined">badge</span><h3>Exhibitor Not Found</h3>' +
+    '<p>Exhibitor will show up here once they are added.</p></div></td></tr>';
+
+  return '<h1 class="page-title">Badge Quota Management</h1>' +
+    '<p class="page-sub">Oversee attendee registrations and manage your exhibitor team access with real-time tracking and allocation controls.</p>' +
     '<div class="tiles">' +
-      '<div class="tile blue"><div class="t-label">Total Quota</div><div class="t-value">' + totals.total + '</div></div>' +
+      '<div class="tile blue"><div class="t-label">Total Quota</div><div class="t-value">' + totals.total + '<span style="font-size:0.8rem;color:var(--muted);font-weight:600"> Allocated Passes</span></div></div>' +
       '<div class="tile"><div class="t-label">Used</div><div class="t-value">' + totals.used + '</div></div>' +
       '<div class="tile accent"><div class="t-label">Available</div><div class="t-value">' + (totals.total - totals.used) + '</div></div>' +
     '</div>' +
-    '<div class="card"><div class="card-head-row"><h2 class="card-title">Category-wise List</h2></div>' +
-      '<div class="tablewrap"><table class="grid">' +
-      '<tr><th>Sr.</th><th>Type of Category</th><th>Area Wise (Free)</th><th>Paid Badges</th><th>Total Badges</th><th>Balance</th><th>Action</th></tr>' +
-      badgeCats.map((c, i) => catRow(c, i)).join('') +
-      '</table></div></div>' + footerTools();
+    catCards +
+    '<div class="card section-gap"><div class="card-head-row" style="flex-wrap:wrap;gap:10px"><h2 class="card-title">Badge Holders</h2>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">' +
+        '<input type="text" id="bqQ" value="' + esc(window.__bqQ) + '" placeholder="Search Keyword" oninput="bqSetQ(this.value)" ' +
+          'style="min-width:180px;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.84rem">' +
+        '<select onchange="bqSetCat(this.value)" style="border:1px solid #CFD7E4;border-radius:8px;padding:8px 10px;font-family:inherit;font-size:0.84rem;cursor:pointer">' +
+          '<option value="">Select ticket — All</option>' +
+          badgeCats.map((c) => '<option value="' + c.id + '"' + (window.__bqCat === c.id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</select>' +
+        '<button class="btn btn-primary btn-sm" onclick="openPassForm(\'' + (window.__bqCat || badgeCats[0].id) + '\')"><span class="material-symbols-outlined" style="font-size:16px">add</span>New User</button>' +
+      '</div></div>' +
+    '<div class="tablewrap"><table class="grid">' +
+    '<tr><th>Sr.</th><th>Badge Holder</th><th>Contact</th><th>Designation</th><th>Category</th><th>Created</th></tr>' +
+    (holderRows || listEmpty) + '</table></div></div>' + footerTools();
 }
 
 /* ============================================================
@@ -1398,7 +1468,7 @@ function viewExhibitorDashboard() {
         S.coexhibitors.length + ' added' + (coexPending ? ' · ' + coexPending + ' payment pending' : '')) +
       feat('#/exhibition-forms', 'fc-purple', 'assignment', 'Exhibition Forms',
         (typeof exFormsSubmitted === 'function' ? exFormsSubmitted() + ' of 5 forms submitted' : '')) +
-      feat('#/conference-hall', 'fc-pink', 'meeting_room', 'Conference Halls',
+      feat('#/conference-hall', 'fc-pink', 'meeting_room', 'Meeting Rooms',
         (S.bookings ? S.bookings.filter((b) => b.kind === 'conference').length : 0) + ' booking(s)') +
       feat('#/meeting-room', 'fc-amber', 'handshake', 'B2B Table',
         (S.bookings ? S.bookings.filter((b) => b.kind === 'b2b').length : 0) + ' booking(s)') +
@@ -1444,11 +1514,70 @@ const MY_ORDER_TYPE = { coex_reg: 'Co-Exhibitor Registration', vehicle: 'Vehicle
 
 window.__moQ = window.__moQ || '';
 window.__moType = window.__moType || '';
+window.__moDate = window.__moDate || '';
 window.__moPage = window.__moPage || 1;
 const MO_ROWS = 10;
 function moSetQ(v) { window.__moQ = v; window.__moPage = 1; render(); const el = $('moQ'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
 function moSetType(v) { window.__moType = v; window.__moPage = 1; render(); }
+function moSetDate(v) { window.__moDate = v; window.__moPage = 1; render(); }
 function moPage(d) { window.__moPage += d; render(); }
+
+function moParseTs(s) {
+  if (!s) return null;
+  const d = new Date(String(s).replace('Sept', 'Sep').replace(',', ''));
+  return isNaN(d.getTime()) ? null : d;
+}
+function moInDatePreset(s, preset) {
+  if (!preset) return true;
+  const d = moParseTs(s);
+  if (!d) return false;
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const day = 864e5;
+  if (preset === 'today') return d >= t;
+  if (preset === 'yesterday') return d >= new Date(t - day) && d < t;
+  if (preset === 'week') return d >= new Date(t - 6 * day);
+  if (preset === 'month') return d >= new Date(t - 29 * day);
+  return true;
+}
+
+/* Printable tax invoice for any paid order (same pattern as the
+   aircraft invoice — opens a print-ready window). */
+function downloadOrderInvoice(orderNo) {
+  const o = S.orders.find((x) => x.orderNo === orderNo);
+  if (!o) { toast('Invoice is available after payment.', 'error'); return; }
+  const invNo = 'INV-' + o.orderNo.replace('ORD-', '');
+  const amt = o.currency === 'USD' ? '$' + Number(o.amount).toLocaleString('en-US') : money(o.amount);
+  const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + invNo + '</title><style>' +
+    'body{font-family:Segoe UI,Arial,sans-serif;color:#212B36;margin:0;padding:40px;font-size:14px}' +
+    '.top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #2F62D8;padding-bottom:16px}' +
+    '.logo{font-size:26px;font-weight:800;color:#2F62D8}' +
+    'h1{font-size:20px;margin:0;text-align:right}.muted{color:#6B7686;font-size:12px}' +
+    '.grid{display:flex;justify-content:space-between;margin:24px 0}' +
+    'table{width:100%;border-collapse:collapse;margin-top:8px}' +
+    'th{background:#F1F4F9;text-align:left;padding:10px 12px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em}' +
+    'td{padding:10px 12px;border-bottom:1px solid #E6EAF2}' +
+    '.total td{font-weight:800;font-size:16px;border-top:2px solid #212B36;border-bottom:none}' +
+    '.right{text-align:right}.stamp{display:inline-block;margin-top:8px;padding:4px 14px;border:2px solid #1E8E5A;color:#1E8E5A;font-weight:800;border-radius:6px;transform:rotate(-4deg)}' +
+    '.foot{margin-top:36px;font-size:11px;color:#6B7686;border-top:1px solid #E6EAF2;padding-top:12px}' +
+    '.noprint{margin-top:24px}@media print{.noprint{display:none}}' +
+    '</style></head><body>' +
+    '<div class="top"><div><div class="logo">evenuefy</div><div class="muted">' + esc(EVENT.name) + ' · ' + esc(EVENT.dates) + '</div></div>' +
+    '<div><h1>TAX INVOICE</h1><div class="muted right">Invoice No: <b>' + esc(invNo) + '</b><br>Date: ' + esc(o.paidAt || '') + '</div></div></div>' +
+    '<div class="grid"><div><div class="muted">BILLED TO</div><b>' + esc(EVENT.exhibitor) + '</b><br>' + esc(EVENT.exhibitorCountry) + '</div>' +
+    '<div class="right"><div class="muted">ORDER</div><b>' + esc(o.orderNo) + '</b><br><span class="stamp">PAID</span></div></div>' +
+    '<table><tr><th>Description</th><th class="right">Amount</th></tr>' +
+    '<tr><td>' + esc(MY_ORDER_TYPE[o.type] || o.type) + ' — ' + esc(o.label) +
+      (o.sub ? '<br><span class="muted">' + esc(o.sub) + '</span>' : '') + '</td>' +
+      '<td class="right">' + esc(amt) + '</td></tr>' +
+    '<tr class="total"><td>Total (' + (o.currency === 'USD' ? 'USD' : 'INR, incl. GST') + ')</td><td class="right">' + esc(amt) + '</td></tr></table>' +
+    '<div class="foot">This is a computer-generated invoice for the payment collected on behalf of the organiser · ' + esc(EVENT.name) + ' · Payment method: CARD.</div>' +
+    '<div class="noprint"><button onclick="window.print()" style="background:#2F62D8;color:#fff;border:none;border-radius:8px;padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer">Print / Save as PDF</button></div>' +
+    '</body></html>';
+  const w = window.open('', '_blank');
+  if (!w) { toast('Pop-up blocked — allow pop-ups to view the invoice.', 'error'); return; }
+  w.document.write(html);
+  w.document.close();
+}
 
 function viewMyOrders() {
   const paidInr = S.orders.filter((o) => o.currency !== 'USD').reduce((a, o) => a + Number(o.amount || 0), 0);
@@ -1468,6 +1597,7 @@ function viewMyOrders() {
   let list = all;
   if (q) list = list.filter((o) => (o.id + ' ' + o.label + ' ' + o.sub + ' ' + (MY_ORDER_TYPE[o.type] || '')).toLowerCase().includes(q));
   if (window.__moType) list = list.filter((o) => o.type === window.__moType);
+  if (window.__moDate) list = list.filter((o) => o.status === 'pending' ? false : moInDatePreset(o.date, window.__moDate));
 
   const totalPages = Math.max(1, Math.ceil(list.length / MO_ROWS));
   if (window.__moPage > totalPages) window.__moPage = totalPages;
@@ -1485,7 +1615,9 @@ function viewMyOrders() {
     '<td>' + (o.status === 'success'
       ? '<span class="pill green"><span class="material-symbols-outlined" style="font-size:12px;vertical-align:-2px">check_circle</span> Success</span>'
       : '<span class="pill amber">Pending</span>') + '</td>' +
-    '<td>' + (o.date ? esc(o.date) : '<button class="btn-link" onclick="openCart()">Pay Now</button>') + '</td></tr>').join('') ||
+    '<td>' + (o.date
+      ? esc(o.date) + ' <button class="btn-link" title="Download Invoice" onclick="downloadOrderInvoice(\'' + esc(o.id) + '\')"><span class="material-symbols-outlined" style="font-size:17px">receipt_long</span></button>'
+      : '<button class="btn-link" onclick="openCart()">Pay Now</button>') + '</td></tr>').join('') ||
     '<tr><td colspan="6" style="color:var(--muted)">' +
       (all.length ? 'No orders match your search / filter.' : 'No orders yet — payments you make from the cart will appear here.') + '</td></tr>';
 
@@ -1508,6 +1640,9 @@ function viewMyOrders() {
         '<input type="text" id="moQ" value="' + esc(window.__moQ) + '" placeholder="Search orders.." oninput="moSetQ(this.value)" ' +
           'style="min-width:190px;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.84rem">' +
         typeOpts +
+        '<select onchange="moSetDate(this.value)" style="border:1px solid #CFD7E4;border-radius:8px;padding:8px 10px;font-family:inherit;font-size:0.84rem;cursor:pointer">' +
+          [['', 'All Dates'], ['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'Last 7 Days'], ['month', 'Last 30 Days']].map(([v, l]) =>
+            '<option value="' + v + '"' + (window.__moDate === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>' +
         (S.cart.length ? '<button class="btn btn-primary btn-sm" onclick="openCart()"><span class="material-symbols-outlined" style="font-size:16px">shopping_cart</span>Pay Pending (' + S.cart.length + ')</button>' : '') +
       '</div></div>' +
     '<div class="tablewrap"><table class="grid">' +
@@ -1521,6 +1656,151 @@ function viewMyOrders() {
       '</span></div>' +
     '</div>' +
     footerTools();
+}
+
+/* ============================================================
+   Notifications — bell in the header, "Only show Unread" toggle,
+   platform-style empty state. Stored in shared state so read
+   status persists.
+   ============================================================ */
+(function migrateNotifs() {
+  if (!S.notifications) {
+    S.notifications = [
+      { id: 'nt1', icon: 'check_circle', color: 'var(--green)', text: 'Your space booking application has been received.', time: '2 days ago', read: false },
+      { id: 'nt2', icon: 'warning', color: 'var(--amber)', text: 'Exhibition forms are due by 31 Dec 2026 — 5 forms pending.', time: '3 days ago', read: false },
+      { id: 'nt3', icon: 'campaign', color: 'var(--blue)', text: 'New circular released: Exhibitor Guidelines.', time: '1 week ago', read: true },
+      { id: 'nt4', icon: 'flight', color: 'var(--blue)', text: 'Aircraft registration window is open for Static & Flying Display.', time: '1 week ago', read: true },
+    ];
+  }
+  if (!S.queries) S.queries = []; // help-desk queries {tid,cat,title,desc,file,status,createdAt}
+  save();
+})();
+
+window.__notifUnreadOnly = false;
+
+function notifUnread() { return S.notifications.filter((n) => !n.read).length; }
+function updateNotifBadge() {
+  const el = $('notifCount');
+  if (!el) return;
+  const n = notifUnread();
+  el.textContent = n;
+  el.style.display = n ? 'flex' : 'none';
+}
+
+function openNotifications() {
+  const list = window.__notifUnreadOnly ? S.notifications.filter((n) => !n.read) : S.notifications;
+  const rows = list.map((n) =>
+    '<div class="action-row" style="cursor:pointer;' + (n.read ? 'opacity:0.65' : '') + '" onclick="markNotifRead(\'' + n.id + '\')">' +
+      '<span class="aicon" style="background:#F1F4FA;color:' + n.color + '"><span class="material-symbols-outlined">' + n.icon + '</span></span>' +
+      '<div class="atext"><b style="font-weight:' + (n.read ? '500' : '700') + '">' + esc(n.text) + '</b><span>' + esc(n.time) + '</span></div>' +
+      (n.read ? '' : '<span style="width:9px;height:9px;border-radius:99px;background:var(--blue);flex:none"></span>') +
+    '</div>').join('');
+  const empty =
+    '<div class="empty" style="padding:40px 10px"><span class="material-symbols-outlined" style="font-size:56px;color:var(--blue)">notifications</span>' +
+    '<h3>No Notifications yet</h3><p>' + (window.__notifUnreadOnly ? 'You have read everything — nice!' : 'Updates from the organiser will appear here.') + '</p></div>';
+  openModal('Notification',
+    '<div style="display:flex;justify-content:flex-end;gap:14px;margin-bottom:8px;align-items:center">' +
+      '<label class="check-item' + (window.__notifUnreadOnly ? ' selected' : '') + '" style="display:inline-flex;border:none;padding:2px 6px" ' +
+        'onclick="event.preventDefault();window.__notifUnreadOnly=!window.__notifUnreadOnly;openNotifications()">' +
+        '<input type="checkbox"' + (window.__notifUnreadOnly ? ' checked' : '') + '>Only show Unread</label>' +
+      (notifUnread() ? '<button class="btn-link" onclick="markAllNotifsRead()">Mark all read</button>' : '') +
+    '</div>' +
+    (rows || empty), '', true);
+}
+function markNotifRead(id) {
+  const n = S.notifications.find((x) => x.id === id);
+  if (n && !n.read) { n.read = true; save(); }
+  updateNotifBadge();
+  openNotifications();
+}
+function markAllNotifsRead() {
+  S.notifications.forEach((n) => { n.read = true; });
+  save(); updateNotifBadge(); openNotifications();
+}
+
+/* ============================================================
+   Help Desk — "How can we assist you today?" (platform widget):
+   Raise a Query (category · title · description · attachment) and
+   Track Your Query by tracking number.
+   ============================================================ */
+const QUERY_CATS = ['General', 'Space Booking', 'Payments & Orders', 'Passes & Badges', 'Exhibition Forms', 'Technical Issue'];
+
+function openHelpDesk() {
+  const optionCard = (icon, title, sub, fn, label) =>
+    '<div class="card" style="padding:16px;margin-top:12px;cursor:pointer" onclick="' + fn + '">' +
+      '<b style="font-size:0.94rem">' + title + '</b>' +
+      '<p style="font-size:0.8rem;color:var(--muted);margin:4px 0 10px">' + sub + '</p>' +
+      '<span class="btn btn-outline btn-sm">' + icon + ' ' + label + ' <span class="material-symbols-outlined" style="font-size:15px">chevron_right</span></span>' +
+    '</div>';
+  openModal('👋 Welcome! How can we assist you today?',
+    '<p style="margin:0;color:var(--muted);font-size:0.84rem">Here’s what you can do</p>' +
+    optionCard('✋', 'Raise a Query?', 'Have a question or issue? Use our form to create a new query.', 'openRaiseQuery()', 'Raise a Query') +
+    optionCard('🔎', 'Track Your Query?', 'Already submitted a query? Enter your tracking number to check its status.', 'openTrackQuery()', 'Track existing'));
+}
+
+function openRaiseQuery() {
+  openModal('Select Your Query',
+    '<div class="form-grid">' +
+      '<div class="field full"><label>Query Category <span class="req">*</span></label><select id="qCat">' +
+        QUERY_CATS.map((c) => '<option>' + c + '</option>').join('') + '</select></div>' +
+      '<div class="field full"><label>Query Title <span class="req">*</span></label><input type="text" id="qTitle"><div class="error"></div></div>' +
+      '<div class="field full"><label>Description <span class="req">*</span></label>' +
+        '<textarea id="qDesc" rows="3" style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:9px 12px;font-family:inherit;font-size:0.88rem"></textarea><div class="error"></div></div>' +
+      '<div class="field full"><label>Attachments</label><input type="file" id="qFile" accept=".pdf,image/*"><div class="hint">Maximum 5MB file size allowed</div></div>' +
+    '</div>',
+    '<button class="btn btn-outline" onclick="openHelpDesk()">Back</button>' +
+    '<button class="btn btn-primary" onclick="submitQuery()"><span class="material-symbols-outlined">send</span>Submit</button>', true);
+}
+
+function submitQuery() {
+  clearErrs();
+  const title = $('qTitle').value.trim();
+  const desc = $('qDesc').value.trim();
+  let ok = true;
+  if (!title) { setErr('qTitle', 'Query title is required'); ok = false; }
+  if (!desc) { setErr('qDesc', 'Description is required'); ok = false; }
+  const f = $('qFile').files[0];
+  if (f && f.size > 5 * 1024 * 1024) { toast('Attachment is larger than 5 MB.', 'error'); return; }
+  if (!ok) return;
+  S.seq.query = (S.seq.query || 0) + 1;
+  const tid = 'QRY-2027-' + pad(S.seq.query, 4);
+  S.queries.unshift({ tid: tid, cat: $('qCat').value, title: title, desc: desc, file: f ? f.name : '', status: 'Open', createdAt: nowStr() });
+  save();
+  openModal('Query Submitted',
+    '<div style="text-align:center;padding:14px 4px">' +
+      '<span class="material-symbols-outlined" style="font-size:56px;color:var(--green)">check_circle</span>' +
+      '<h3 style="margin:8px 0 4px">We’ve received your query</h3>' +
+      '<p style="font-size:0.84rem;color:var(--muted)">Our helpdesk team will get back to you shortly. Save your tracking number:</p>' +
+      '<div class="regno" style="font-size:1.2rem;background:var(--blue-soft);color:var(--blue);padding:8px 18px;border-radius:9px;display:inline-block">' + tid + '</div>' +
+    '</div>',
+    '<button class="btn btn-primary" onclick="closeModal()">Done</button>');
+  toast('Query ' + tid + ' raised.', 'success');
+}
+
+function openTrackQuery() {
+  const recent = S.queries.slice(0, 4).map((q) =>
+    '<div class="action-row" style="cursor:pointer" onclick="$(\'trkNo\').value=\'' + q.tid + '\';trackQuery()">' +
+      '<span class="aicon" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">contact_support</span></span>' +
+      '<div class="atext"><b>' + esc(q.tid) + ' · ' + esc(q.title) + '</b><span>' + esc(q.cat) + ' · ' + esc(q.createdAt) + '</span></div>' +
+      '<span class="pill ' + (q.status === 'Resolved' ? 'green' : 'amber') + '">' + q.status + '</span>' +
+    '</div>').join('');
+  openModal('Track Your Query',
+    '<div style="display:flex;gap:8px;margin-bottom:12px">' +
+      '<input type="text" id="trkNo" placeholder="e.g. QRY-2027-0001" style="flex:1;border:1px solid #CFD7E4;border-radius:8px;padding:9px 12px;font-family:inherit;font-size:0.88rem">' +
+      '<button class="btn btn-primary" onclick="trackQuery()">🔎 Track</button></div>' +
+    '<div id="trkResult"></div>' +
+    (recent ? '<div style="margin-top:10px"><b style="font-size:0.82rem;color:var(--muted)">YOUR RECENT QUERIES</b>' + recent + '</div>' : ''),
+    '<button class="btn btn-outline" onclick="openHelpDesk()">Back</button>', true);
+}
+
+function trackQuery() {
+  const no = $('trkNo').value.trim().toUpperCase();
+  const q = S.queries.find((x) => x.tid === no);
+  $('trkResult').innerHTML = q
+    ? '<div class="note green" style="margin:0"><b class="title">' + esc(q.tid) + ' — ' + q.status + '</b>' +
+      esc(q.title) + ' · ' + esc(q.cat) + '<br><span style="color:var(--muted)">Raised ' + esc(q.createdAt) +
+      (q.file ? ' · Attachment: ' + esc(q.file) : '') + '. Our helpdesk team is reviewing your query.</span></div>'
+    : '<div class="note amber" style="margin:0"><b class="title">No query found</b>Check the tracking number — e.g. QRY-2027-0001.</div>';
 }
 
 /* ============================================================

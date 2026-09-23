@@ -67,13 +67,14 @@ const ELECTRICAL = [
 ];
 
 const CONF_ROOMS = [
-  { id: 'cr_50', name: 'Conference Hall for 50 people', type: 'Conference Room', persons: 50, price: 200000, mins: 120, slots: 13, amen: 'wifi · AC' },
-  { id: 'cr_30', name: 'Conference Hall for 30 people', type: 'Conference Room', persons: 30, price: 80000, mins: 120, slots: 15, amen: 'wifi · AC · coffee · TV' },
+  { id: 'cr_50', name: 'Conference Hall for 50 people', type: 'Conference Room', persons: 50, price: 200000, mins: 120, slots: 13, amen: ['wifi', 'mode_fan'] },
+  { id: 'cr_30', name: 'Conference Hall for 30 people', type: 'Conference Room', persons: 30, price: 80000, mins: 120, slots: 15, amen: ['wifi', 'mode_fan', 'coffee', 'tv'] },
 ];
 const B2B_TABLES = [
-  { id: 'bt_12', name: '12 Pax — B2B Meeting Table', type: 'Business Meeting Table', persons: 12, price: 15000, mins: 60, slots: 31, amen: 'wifi · coffee' },
-  { id: 'bt_8', name: '8 Pax — B2B Meeting Table', type: 'Business Meeting Table', persons: 8, price: 12000, mins: 60, slots: 33, amen: 'wifi · AC · coffee · TV' },
+  { id: 'bt_12', name: 'B2B Meeting Table for 12 people', type: 'Business Meeting Rooms', persons: 12, price: 15000, mins: 60, slots: 31, amen: ['wifi', 'coffee'] },
+  { id: 'bt_8', name: 'B2B Meeting Table for 8 people', type: 'Business Meeting Rooms', persons: 8, price: 12000, mins: 60, slots: 33, amen: ['wifi', 'mode_fan', 'coffee', 'tv'] },
 ];
+const AMEN_LABEL = { wifi: 'Wi-Fi', mode_fan: 'Air Conditioning', coffee: 'Tea & Coffee', tv: 'Display Screen' };
 const SLOT_TIMES = ['10:00 AM', '11:30 AM', '01:00 PM', '02:30 PM', '04:00 PM'];
 
 /* ---------------- shared bits ---------------- */
@@ -373,18 +374,44 @@ function submitRateCard(formKey, label) {
 function bookingConfirmed(b) { return S.orders.some((o) => o.refId === b.id); }
 function bookingPending(b) { return S.cart.some((i) => i.refId === b.id); }
 
-function roomCards(list, kind) {
-  return '<div class="feat-grid">' + list.map((r) =>
-    '<div class="feat-card" style="cursor:default;min-height:150px">' +
-      '<span class="soon-pill" style="background:var(--green-soft);color:var(--green)">' + r.slots + ' slots</span>' +
-      '<span class="ficon ' + (kind === 'conference' ? 'fc-pink' : 'fc-amber') + '"><span class="material-symbols-outlined">' + (kind === 'conference' ? 'meeting_room' : 'handshake') + '</span></span>' +
-      '<span class="ftitle">' + esc(r.name) + '</span>' +
-      '<span class="fsub">' + esc(r.type) + ' · ' + r.persons + ' persons · ' + esc(r.amen) + '</span>' +
-      '<div style="display:flex;align-items:center;gap:10px;margin-top:auto">' +
-        '<b style="font-size:0.95rem">' + money(r.price) + '</b><span style="font-size:0.7rem;color:var(--muted)">/ ' + r.mins + ' min</span>' +
-        '<span style="flex:1"></span>' +
-        '<button class="btn btn-primary btn-sm" onclick="openBookingModal(\'' + kind + '\',\'' + r.id + '\')">Book Slot</button>' +
-      '</div></div>').join('') + '</div>';
+/* platform-style room card: image banner + slots badge + amenities */
+function roomCard(r, kind, btn) {
+  return '<div class="room-card">' +
+    '<div class="room-banner ' + (kind === 'conference' ? 'rb-conf' : 'rb-b2b') + '">' +
+      '<span class="slots-badge">' + r.slots + ' Slots</span>' +
+      '<span class="avail-badge">Available</span>' +
+      '<span class="material-symbols-outlined">' + (kind === 'conference' ? 'meeting_room' : 'handshake') + '</span>' +
+    '</div>' +
+    '<div class="room-body">' +
+      '<b class="rname">' + esc(r.name) + '</b>' +
+      '<span class="rtype">' + esc(r.type) + '</span>' +
+      '<div class="room-meta">' +
+        '<span class="pax-chip"><span class="material-symbols-outlined" style="font-size:15px">group</span>' + r.persons + ' Persons</span>' +
+        '<span class="amen-row">' + r.amen.map((a) => '<span class="material-symbols-outlined" title="' + AMEN_LABEL[a] + '">' + a + '</span>').join('') + '</span>' +
+      '</div>' +
+      '<div class="room-foot">' +
+        '<span class="price"><b>' + money(r.price) + '</b> <small>/' + r.mins + '-minutes</small></span>' +
+        btn +
+      '</div>' +
+    '</div></div>';
+}
+
+function openRoomDetail(kind, roomId) {
+  const list = kind === 'conference' ? CONF_ROOMS : B2B_TABLES;
+  const r = list.find((x) => x.id === roomId);
+  openModal(esc(r.name),
+    '<div class="room-banner ' + (kind === 'conference' ? 'rb-conf' : 'rb-b2b') + '" style="border-radius:10px;margin-bottom:14px">' +
+      '<span class="slots-badge">' + r.slots + ' Slots</span>' +
+      '<span class="material-symbols-outlined">' + (kind === 'conference' ? 'meeting_room' : 'handshake') + '</span></div>' +
+    '<div class="pkv">' +
+      '<div class="cell"><div class="k">Category</div><div class="v">' + esc(r.type) + '</div></div>' +
+      '<div class="cell"><div class="k">Capacity</div><div class="v">' + r.persons + ' Persons</div></div>' +
+      '<div class="cell"><div class="k">Slot Duration</div><div class="v">' + r.mins + ' minutes</div></div>' +
+      '<div class="cell"><div class="k">Price per Slot</div><div class="v">' + money(r.price) + '</div></div>' +
+      '<div class="cell full"><div class="k">Amenities</div><div class="v">' + r.amen.map((a) => AMEN_LABEL[a]).join(' · ') + '</div></div>' +
+    '</div>',
+    '<button class="btn btn-outline" onclick="closeModal()">Close</button>' +
+    '<button class="btn btn-primary" onclick="openBookingModal(\'' + kind + '\',\'' + r.id + '\')">Book Slot</button>', true);
 }
 
 function bookingsList(kind) {
@@ -405,15 +432,58 @@ function bookingsList(kind) {
     rows + '</table></div></div>';
 }
 
+/* Meeting Rooms — the platform page lists BOTH categories with a
+   search bar and category filter chips; cards use View Details. */
+window.__mrQ = window.__mrQ || '';
+window.__mrType = window.__mrType || '';
+function mrSetQ(v) { window.__mrQ = v; render(); const el = $('mrQ'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+
 function viewConferenceHall() {
-  return '<h1 class="page-title">Conference Hall</h1>' +
-    '<p class="page-sub">Book a conference hall for your delegation briefings, product launches and press meets. Slots are ' + CONF_ROOMS[0].mins + ' minutes; payment via cart.</p>' +
-    roomCards(CONF_ROOMS, 'conference') + bookingsList('conference');
+  const all = B2B_TABLES.map((r) => ({ r: r, kind: 'b2b' })).concat(CONF_ROOMS.map((r) => ({ r: r, kind: 'conference' })));
+  const q = window.__mrQ.toLowerCase();
+  let list = all;
+  if (q) list = list.filter((x) => x.r.name.toLowerCase().includes(q));
+  if (window.__mrType) list = list.filter((x) => x.r.type === window.__mrType);
+  const chip = (label) =>
+    '<button class="fchip' + (window.__mrType === label ? ' on' : '') + '" onclick="window.__mrType=window.__mrType===\'' + label + '\'?\'\':\'' + label + '\';render()">' +
+      '<span class="material-symbols-outlined" style="font-size:14px;vertical-align:-2px">group</span> ' + label + '</button>';
+  return '<h1 class="page-title">Meeting Rooms</h1>' +
+    '<p class="page-sub">Business meeting rooms and conference halls for your delegation briefings, product launches and press meets. Payment via cart.</p>' +
+    '<div class="card" style="margin-bottom:16px"><div class="card-head-row" style="margin-bottom:0;flex-wrap:wrap;gap:10px">' +
+      '<input type="text" id="mrQ" value="' + esc(window.__mrQ) + '" placeholder="Search by Meeting Rooms" oninput="mrSetQ(this.value)" ' +
+        'style="flex:1;min-width:220px;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.86rem">' +
+      '<div class="filter-chips">' + chip('Business Meeting Rooms') + chip('Conference Room') + '</div>' +
+    '</div></div>' +
+    '<div class="room-grid">' +
+      list.map((x) => roomCard(x.r, x.kind,
+        '<button class="btn btn-primary btn-sm" onclick="openRoomDetail(\'' + x.kind + '\',\'' + x.r.id + '\')">View Details</button>')).join('') +
+    '</div>' +
+    bookingsList('conference') + bookingsList('b2b');
 }
+
+/* B2B Meetings — Meeting Table page: PAX filter chips + Book Slot */
+window.__btPax = window.__btPax || 0;
 function viewMeetingRoom() {
-  return '<h1 class="page-title">Meeting Room — B2B Tables</h1>' +
-    '<p class="page-sub">Book a B2B meeting table for your matchmaking meetings. 60-minute slots; payment via cart.</p>' +
-    roomCards(B2B_TABLES, 'b2b') + bookingsList('b2b');
+  let list = B2B_TABLES;
+  if (window.__btPax) list = list.filter((r) => r.persons === window.__btPax);
+  const paxChip = (v, label, count) =>
+    '<button class="fchip' + (window.__btPax === v ? ' on' : '') + '" onclick="window.__btPax=' + v + ';render()">' + label +
+      ' <span class="pill blue" style="margin-left:4px">' + count + '</span></button>';
+  return '<h1 class="page-title">Meeting Table</h1>' +
+    '<p class="page-sub">Book a B2B meeting table for your matchmaking meetings — 60-minute slots; payment via cart.</p>' +
+    '<div class="card" style="margin-bottom:16px"><div class="card-head-row" style="margin-bottom:0;flex-wrap:wrap;gap:10px">' +
+      '<div class="filter-chips">' +
+        paxChip(0, 'ALL', B2B_TABLES.length) +
+        paxChip(8, '8 PAX', B2B_TABLES.filter((r) => r.persons === 8).length) +
+        paxChip(12, '12 PAX', B2B_TABLES.filter((r) => r.persons === 12).length) +
+      '</div>' +
+      '<span class="pill green">' + list.length + ' AVAILABLE NOW</span>' +
+    '</div></div>' +
+    '<div class="room-grid">' +
+      list.map((r) => roomCard(r, 'b2b',
+        '<button class="btn btn-primary btn-sm" onclick="openBookingModal(\'b2b\',\'' + r.id + '\')">Book Slot</button>')).join('') +
+    '</div>' +
+    bookingsList('b2b');
 }
 
 function openBookingModal(kind, roomId) {

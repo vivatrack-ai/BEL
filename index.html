@@ -119,10 +119,10 @@
         <span class="material-symbols-outlined">hub</span>B2B Matchmaking
       </a>
       <a class="nav-item" data-route="conference-hall" href="#/conference-hall">
-        <span class="material-symbols-outlined">meeting_room</span>Conference Hall
+        <span class="material-symbols-outlined">meeting_room</span>Meeting Rooms
       </a>
       <a class="nav-item" data-route="meeting-room" href="#/meeting-room">
-        <span class="material-symbols-outlined">groups_2</span>Meeting Room
+        <span class="material-symbols-outlined">groups_2</span>B2B Meetings
       </a>
     </div>
 
@@ -142,6 +142,13 @@
       <div class="event">Aero India 2027<small>10th to 15th Feb 2027 (Asia/Kolkata)</small></div>
       <div class="spacer"></div>
       <span class="chip-user">Hindustan Aeronautics Limited (HAL)</span>
+      <button class="cart-btn" onclick="openNotifications()" aria-label="Notifications">
+        <span class="material-symbols-outlined">notifications</span>
+        <span class="cart-count" id="notifCount" style="display:none">0</span>
+      </button>
+      <button class="cart-btn" onclick="openHelpDesk()" aria-label="Help Desk">
+        <span class="material-symbols-outlined">help</span>
+      </button>
       <button class="cart-btn" onclick="openCart()" aria-label="Cart">
         <span class="material-symbols-outlined">shopping_cart</span>
         <span class="cart-count" id="cartCount" style="display:none">0</span>

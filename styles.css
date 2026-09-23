@@ -702,3 +702,23 @@ table.grid tr:hover td { background: #FAFBFE; }
 .fp-rail.right { border-left: 1.5px dashed rgba(198, 67, 46, 0.3); }
 .fp-grid { flex: 1; display: grid; gap: 10px; padding: 14px; grid-template-columns: repeat(4, 1fr); grid-template-rows: 62px 110px 110px 84px; grid-template-areas: "t9 t10 t11 t12" "l1 l1 l2 l2" "l3 l3 l4 l4" "m5 m6 m7 m8"; }
 .fp-grid .stall-tile { display: flex; flex-direction: column; justify-content: center; margin: 0; }
+
+/* ============ Meeting room cards (platform style) ============ */
+.room-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+.room-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); display: flex; flex-direction: column; }
+.room-banner { height: 110px; position: relative; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.9); }
+.room-banner .material-symbols-outlined { font-size: 52px; opacity: 0.5; }
+.room-banner.rb-conf { background: linear-gradient(120deg, #16307A, #2F62D8); }
+.room-banner.rb-b2b { background: linear-gradient(120deg, #7A4A16, #C98514); }
+.room-banner .slots-badge { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.55); color: #fff; font-size: 0.62rem; font-weight: 800; padding: 3px 9px; border-radius: 6px; letter-spacing: 0.04em; }
+.room-banner .avail-badge { position: absolute; top: 10px; right: 10px; background: var(--green); color: #fff; font-size: 0.62rem; font-weight: 800; padding: 3px 9px; border-radius: 6px; }
+.room-body { padding: 14px 16px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.room-body b.rname { font-size: 0.95rem; }
+.room-body .rtype { font-size: 0.74rem; color: var(--muted); font-weight: 600; margin-top: -6px; }
+.room-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pax-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--blue-soft); color: var(--blue); font-size: 0.72rem; font-weight: 800; padding: 3px 10px; border-radius: 99px; }
+.amen-row { display: flex; gap: 10px; color: var(--muted); }
+.amen-row .material-symbols-outlined { font-size: 18px; }
+.room-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line); padding-top: 10px; margin-top: auto; }
+.room-foot .price b { font-size: 1.02rem; }
+.room-foot .price small { color: var(--muted); font-weight: 600; }
