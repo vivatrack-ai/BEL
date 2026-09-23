@@ -85,6 +85,36 @@ const PARTICIPANTS = [
     lookingFor: { 'Artificial Intelligence & Autonomy': ['Computer Vision', 'AI Decision Support Systems'], 'Simulation & Training': ['Wargaming & Decision Simulation'] } },
   { id: 'pt_gulfwing', name: 'Omar Al-Farsi', desig: 'Procurement Head', company: 'GulfWing Aviation', country: 'UAE', state: 'Dubai', city: 'Dubai', type: 'Delegation',
     lookingFor: { 'Helicopters & Rotary Wing': ['Utility Helicopters', 'VIP Helicopters'], 'MRO & Lifecycle Support': ['Maintenance Services'] } },
+  { id: 'pt_volga', name: 'Elena Petrova', desig: 'Export Director', company: 'Volga Dynamics', country: 'Russia', state: 'Moscow Oblast', city: 'Moscow', type: 'Delegation',
+    lookingFor: { 'Missile Systems': ['Surface-to-Air Missiles', 'Air-to-Air Missiles (Short/Medium/Long Range)'], 'Radar Systems': ['Fire Control Radar'] } },
+  { id: 'pt_delta', name: 'Tom van der Berg', desig: 'Naval Programmes Lead', company: 'Delta Naval Systems', country: 'Netherlands', state: 'South Holland', city: 'Rotterdam', type: 'Delegation',
+    lookingFor: { 'Naval Combat & Communication Systems': ['Naval Communication Systems'], 'Underwater Warfare': ['Sonar Systems (Hull-Mounted Towed Dipping)'] } },
+  { id: 'pt_chennaiprop', name: 'Ananya Krishnan', desig: 'Head — Sourcing', company: 'Chennai Propulsion Works', country: 'India', state: 'Tamil Nadu', city: 'Chennai', type: 'Visitor',
+    lookingFor: { 'Engines & Propulsion': ['Turbofan Engines', 'Turboprop Engines'], 'Precision Engineering': ['Gear Systems & Transmissions'] } },
+  { id: 'pt_sahel', name: 'David Okafor', desig: 'Chief of Acquisitions', company: 'Sahel Defence Group', country: 'Nigeria', state: 'Lagos State', city: 'Lagos', type: 'Delegation',
+    lookingFor: { 'Land Combat Vehicles': ['Main Battle Tanks (MBTs)', 'Armoured Personnel Carriers (APCs)'], 'Soldier Systems': ['Body Armour & Ballistic Plates'] } },
+  { id: 'pt_pacaero', name: 'Chen Wei', desig: 'Supply Chain Director', company: 'Pacific AeroStructures', country: 'Singapore', state: 'Singapore', city: 'Singapore', type: 'Exhibitor',
+    lookingFor: { 'Aerospace Structures': ['Airframes', 'Composite Aerostructures'], 'Advanced Materials': ['Composite Materials'] } },
+  { id: 'pt_falcon', name: 'Fatima Al-Zahra', desig: 'Fleet Director', company: 'Qatar Falcon Aviation', country: 'Qatar', state: 'Doha', city: 'Doha', type: 'Delegation',
+    lookingFor: { 'Helicopters & Rotary Wing': ['VIP Helicopters'], 'MRO & Lifecycle Support': ['Maintenance Services', 'Spares & Consumables Supply'] } },
+  { id: 'pt_punjabforge', name: 'Rajat Kapoor', desig: 'Managing Director', company: 'Punjab Forge & Precision', country: 'India', state: 'Punjab', city: 'Ludhiana', type: 'Visitor',
+    lookingFor: { 'Precision Engineering': ['Forging', 'CNC Machining', 'Heat Treatment'] } },
+  { id: 'pt_adria', name: 'Lisa Novak', desig: 'CEO', company: 'Adria Simulation Labs', country: 'Czech Republic', state: 'Prague', city: 'Prague', type: 'Exhibitor',
+    lookingFor: { 'Simulation & Training': ['Flight Simulators', 'Mission & Tactics Simulators'] } },
+  { id: 'pt_cybershield', name: 'Vikrant Desai', desig: 'CTO', company: 'Pune Cyber Shield', country: 'India', state: 'Maharashtra', city: 'Pune', type: 'Visitor',
+    lookingFor: { 'Cyber Security': ['Network Security', 'Security Operations Centres (SOC)'] } },
+  { id: 'pt_caledonia', name: 'James Morrison', desig: 'Partnerships Director', company: 'Caledonia MRO Partners', country: 'United Kingdom', state: 'Scotland', city: 'Glasgow', type: 'Delegation',
+    lookingFor: { 'MRO & Lifecycle Support': ['Overhaul Services', 'Repair Services', 'Upgrades & Retrofits'] } },
+  { id: 'pt_sakura', name: 'Aiko Tanaka', desig: 'Mission Director', company: 'Sakura Space Systems', country: 'Japan', state: 'Osaka', city: 'Osaka', type: 'Delegation',
+    lookingFor: { 'Space Systems': ['Communication Satellites', 'Earth Observation Satellites'] } },
+  { id: 'pt_emirland', name: 'Mohammed Rashid', desig: 'Programmes Head', company: 'Emirates Land Systems', country: 'UAE', state: 'Abu Dhabi', city: 'Abu Dhabi', type: 'Delegation',
+    lookingFor: { 'Armoured Vehicle Technologies': ['Composite Armour', 'Reactive Armour'], 'Land Combat Vehicles': ['Infantry Fighting Vehicles (IFVs)'] } },
+  { id: 'pt_nagpuruav', name: 'Neha Kulkarni', desig: 'Co-Founder', company: 'Nagpur UAV Dynamics', country: 'India', state: 'Maharashtra', city: 'Nagpur', type: 'Exhibitor',
+    lookingFor: { 'Unmanned Aerial Systems': ['Fixed-Wing UAVs', 'Rotary-Wing / Multirotor UAVs', 'Drone Payloads (ISR EW Weapons)'] } },
+  { id: 'pt_nordic', name: 'Erik Johansson', desig: 'Sales Director', company: 'Nordic Radar Solutions', country: 'Sweden', state: 'Västra Götaland', city: 'Gothenburg', type: 'Exhibitor',
+    lookingFor: { 'Radar Systems': ['Ground Surveillance Radar', 'AESA (Active Electronically Scanned Array) Radar'], 'Electronic Warfare': ['Electronic Countermeasures (ECM)'] } },
+  { id: 'pt_andes', name: 'Carlos Mendez', desig: 'Logistics Head', company: 'Andes Defence Logistics', country: 'Brazil', state: 'São Paulo', city: 'São Paulo', type: 'Delegation',
+    lookingFor: { 'Defence Logistics & Supply Chain': ['Warehousing Solutions', 'Packaging Solutions', 'Freight & Transportation Services'] } },
 ];
 
 /* deterministic demo contact details for the profile page */
@@ -138,9 +168,12 @@ window.__b2bSub = window.__b2bSub || '';
 window.__b2bCountry = window.__b2bCountry || '';
 window.__b2bState = window.__b2bState || '';
 window.__b2bCity = window.__b2bCity || '';
-function b2bSetQ(v) { window.__b2bQ = v; render(); const el = $('b2bQ'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
-function b2bSetCountry(v) { window.__b2bCountry = v; window.__b2bState = ''; window.__b2bCity = ''; render(); }
-function b2bSetState(v) { window.__b2bState = v; window.__b2bCity = ''; render(); }
+window.__b2bPage = window.__b2bPage || 1;
+const B2B_PAGE = 9;
+function b2bSetQ(v) { window.__b2bQ = v; window.__b2bPage = 1; render(); const el = $('b2bQ'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+function b2bSetCountry(v) { window.__b2bCountry = v; window.__b2bState = ''; window.__b2bCity = ''; window.__b2bPage = 1; render(); }
+function b2bSetState(v) { window.__b2bState = v; window.__b2bCity = ''; window.__b2bPage = 1; render(); }
+function b2bPageGo(d) { window.__b2bPage += d; render(); window.scrollTo(0, 0); }
 
 function b2bToggleFav(id) {
   if (!S.b2b.favs) S.b2b.favs = [];
@@ -175,6 +208,23 @@ function b2bMatchesBody() {
   if (window.__b2bMin) list = list.filter((x) => x.m.pct >= window.__b2bMin);
   list.sort((a, b) => b.m.pct - a.m.pct);
 
+  /* pagination */
+  const totalPages = Math.max(1, Math.ceil(list.length / B2B_PAGE));
+  if (window.__b2bPage > totalPages) window.__b2bPage = totalPages;
+  const pStart = (window.__b2bPage - 1) * B2B_PAGE;
+  const fullCount = list.length;
+  const pageList = list.slice(pStart, pStart + B2B_PAGE);
+  const pager = fullCount > B2B_PAGE
+    ? '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:16px;font-size:0.8rem;color:var(--muted)">' +
+        '<span>Total: <b>' + fullCount + '</b> · ' + B2B_PAGE + ' per page</span>' +
+        '<span style="display:flex;align-items:center;gap:8px">Showing <b>' + (fullCount ? pStart + 1 : 0) + '</b> to <b>' + Math.min(pStart + B2B_PAGE, fullCount) + '</b>' +
+          '<button class="btn btn-outline btn-sm" onclick="b2bPageGo(-1)"' + (window.__b2bPage <= 1 ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size:16px">keyboard_arrow_left</span></button>' +
+          '<span class="pill blue">' + window.__b2bPage + ' / ' + totalPages + '</span>' +
+          '<button class="btn btn-outline btn-sm" onclick="b2bPageGo(1)"' + (window.__b2bPage >= totalPages ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size:16px">keyboard_arrow_right</span></button>' +
+      '</span></div>'
+    : '';
+  list = pageList;
+
   /* cascading options */
   const countries = [...new Set(PARTICIPANTS.map((p) => p.country))].sort();
   const states = [...new Set(PARTICIPANTS.filter((p) => !window.__b2bCountry || p.country === window.__b2bCountry).map((p) => p.state))].sort();
@@ -186,7 +236,7 @@ function b2bMatchesBody() {
     opts.map((o) => '<option' + (val === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>';
 
   const matchSeg = '<div class="seg">' + [[0, 'All'], [30, '30%+ Match'], [60, '60%+ Match']].map(([v, l]) =>
-    '<button class="' + (window.__b2bMin === v ? 'on' : '') + '" onclick="window.__b2bMin=' + v + ';render()">' + l + '</button>').join('') + '</div>';
+    '<button class="' + (window.__b2bMin === v ? 'on' : '') + '" onclick="window.__b2bMin=' + v + ';window.__b2bPage=1;render()">' + l + '</button>').join('') + '</div>';
   const viewSeg = '<div class="seg">' +
     '<button class="' + (window.__b2bView === 'grid' ? 'on' : '') + '" onclick="window.__b2bView=\'grid\';render()"><span class="material-symbols-outlined">grid_view</span>Grid</button>' +
     '<button class="' + (window.__b2bView === 'list' ? 'on' : '') + '" onclick="window.__b2bView=\'list\';render()"><span class="material-symbols-outlined">view_list</span>List</button></div>';
@@ -247,19 +297,19 @@ function b2bMatchesBody() {
             'style="flex:1;border:none;outline:none;padding:10px 0;font-family:inherit;font-size:0.86rem;background:none">' +
         '</div>' +
         viewSeg +
-        '<span class="result-count">' + list.length + ' of ' + PARTICIPANTS.length + ' matches</span>' +
+        '<span class="result-count">' + fullCount + ' of ' + PARTICIPANTS.length + ' matches</span>' +
       '</div>' +
       '<div class="b2b-row">' +
-        sel(MM_CATS.map((c) => c.name), window.__b2bCat, 'window.__b2bCat=this.value;window.__b2bSub=\'\';render()', 'Category: All') +
-        (catDef ? sel(catDef.subs, window.__b2bSub, 'window.__b2bSub=this.value;render()', 'Subcategory: All') : '') +
+        sel(MM_CATS.map((c) => c.name), window.__b2bCat, 'window.__b2bCat=this.value;window.__b2bSub=\'\';window.__b2bPage=1;render()', 'Category: All') +
+        (catDef ? sel(catDef.subs, window.__b2bSub, 'window.__b2bSub=this.value;window.__b2bPage=1;render()', 'Subcategory: All') : '') +
         sel(countries, window.__b2bCountry, 'b2bSetCountry(this.value)', 'Country: All') +
         sel(states, window.__b2bState, 'b2bSetState(this.value)', 'State: All') +
-        sel(cities, window.__b2bCity, 'window.__b2bCity=this.value;render()', 'City: All') +
+        sel(cities, window.__b2bCity, 'window.__b2bCity=this.value;window.__b2bPage=1;render()', 'City: All') +
         matchSeg +
-        (hasFlt ? '<button class="btn btn-outline btn-sm" onclick="window.__b2bQ=\'\';window.__b2bCat=\'\';window.__b2bSub=\'\';window.__b2bCountry=\'\';window.__b2bState=\'\';window.__b2bCity=\'\';window.__b2bMin=0;render()"><span class="material-symbols-outlined" style="font-size:15px">filter_alt_off</span>Clear</button>' : '') +
+        (hasFlt ? '<button class="btn btn-outline btn-sm" onclick="window.__b2bQ=\'\';window.__b2bCat=\'\';window.__b2bSub=\'\';window.__b2bCountry=\'\';window.__b2bState=\'\';window.__b2bCity=\'\';window.__b2bMin=0;window.__b2bPage=1;render()"><span class="material-symbols-outlined" style="font-size:15px">filter_alt_off</span>Clear</button>' : '') +
       '</div>' +
     '</div>' +
-    (list.length ? (window.__b2bView === 'grid' ? grid : listRows) : empty);
+    (fullCount ? (window.__b2bView === 'grid' ? grid : listRows) + pager : empty);
 }
 
 /* ---------------- full profile detail page ---------------- */
