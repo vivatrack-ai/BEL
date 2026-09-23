@@ -44,50 +44,88 @@ function sbBookedSet() {
 
 window.__sbSel = window.__sbSel || []; // transient stall selection
 
-/* ---------------- VIEW · Book Space (venue map, like the live system:
-   halls, chalet line, outdoor & parking all on ONE layout) ---------------- */
+/* ---------------- VIEW · Book Space — venue OUTER LAYOUT as an
+   aerial site plan (SVG): boundary fence, entry gates, internal
+   roads, chalet line, outdoor area, halls, parking & the runway. ---------------- */
 function viewBookSpace() {
   const booked = sbBookedSet();
   const availOf = (h) => h.stalls.filter((st) => !st.seedBooked && !booked[h.id + '|' + st.name]).length;
-  const hall = (id, l, t) => {
-    const h = SB_HALLS.find((x) => x.id === id);
-    return '<div class="vm-block int" style="left:' + l + '%;top:' + t + '%;width:56px;height:42px" ' +
-      'onclick="location.hash=\'#/space-booking/hall/' + id + '\'" title="' + h.name + ' — ' + availOf(h) + ' stalls available">' +
-      id + '<span class="vm-badge">' + availOf(h) + '</span></div>';
+
+  const hallSvg = (id, x, y, w, hgt) => {
+    const h = SB_HALLS.find((v) => v.id === id);
+    const n = availOf(h);
+    return '<g class="hall" onclick="location.hash=\'#/space-booking/hall/' + id + '\'">' +
+      '<title>' + h.name + ' — ' + n + ' stalls available · click to open the floor plan</title>' +
+      '<rect class="body" x="' + x + '" y="' + y + '" width="' + w + '" height="' + hgt + '" rx="6"/>' +
+      '<text class="hname" x="' + (x + w / 2) + '" y="' + (y + hgt / 2 + 1) + '" text-anchor="middle" dominant-baseline="middle">' + id + '</text>' +
+      '<text class="hsub" x="' + (x + w / 2) + '" y="' + (y + hgt - 9) + '" text-anchor="middle">HALL</text>' +
+      '<circle cx="' + (x + w - 2) + '" cy="' + (y + 2) + '" r="11" fill="#1E8E5A"/>' +
+      '<text x="' + (x + w - 2) + '" y="' + (y + 3) + '" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="10" font-weight="800" font-family="Mulish">' + n + '</text>' +
+    '</g>';
   };
-  const deco = (txt, l, t, w, ht, cls) =>
-    '<div class="vm-block ' + (cls || 'deco') + '" style="left:' + l + '%;top:' + t + '%;width:' + w + 'px;height:' + ht + 'px">' + txt + '</div>';
-  const park = (txt, l, t, w, ht) =>
-    '<div class="vm-park" style="left:' + l + '%;top:' + t + '%;width:' + w + 'px;height:' + ht + 'px">' + txt + '</div>';
+  const decoSvg = (txt, x, y, w, hgt, cls) =>
+    '<g class="' + (cls || 'deco') + '"><rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + hgt + '" rx="5"/>' +
+    '<text x="' + (x + w / 2) + '" y="' + (y + hgt / 2 + 1) + '" text-anchor="middle" dominant-baseline="middle">' + txt + '</text></g>';
+
+  const svg =
+    '<svg viewBox="0 0 1000 560" xmlns="http://www.w3.org/2000/svg">' +
+      /* ground */
+      '<rect x="0" y="0" width="1000" height="560" fill="#F1E8D4"/>' +
+      '<rect x="0" y="0" width="1000" height="560" fill="url(#grid)" opacity="0.5"/>' +
+      '<defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">' +
+        '<path d="M40 0H0V40" fill="none" stroke="#E4D8BC" stroke-width="1"/></pattern></defs>' +
+      /* boundary fence */
+      '<rect x="14" y="14" width="972" height="440" rx="16" fill="none" stroke="#A29066" stroke-width="2" stroke-dasharray="10 6"/>' +
+      '<text class="zonelabel" x="30" y="38">YELAHANKA AIR FORCE STATION — VENUE LAYOUT</text>' +
+      /* compass */
+      '<g transform="translate(950,52)"><circle r="16" fill="#fff" stroke="#CBB584"/><path d="M0,-10 L4,6 L0,3 L-4,6 Z" fill="#C6432E"/><text y="-20" text-anchor="middle" font-size="10" font-weight="800" fill="#8A7648" font-family="Mulish">N</text></g>' +
+      /* chalet line */
+      '<rect x="70" y="56" width="360" height="26" rx="5" fill="#2E2A25"/>' +
+      '<text x="250" y="73" text-anchor="middle" fill="#F4E7C8" font-size="11" font-weight="800" letter-spacing="4" font-family="Mulish">CHALET LINE 1</text>' +
+      /* outdoor display zone */
+      '<rect x="70" y="96" width="250" height="88" rx="8" fill="#EAE0C6" stroke="#CBB584" stroke-dasharray="6 4"/>' +
+      '<text class="zonelabel" x="110" y="144">OUTDOOR DISPLAY</text>' +
+      decoSvg('18', 90, 156, 40, 20) + decoSvg('16', 250, 156, 40, 20) +
+      /* parking left + right */
+      '<g class="park"><rect x="24" y="200" width="86" height="34" rx="5"/><text x="67" y="221" text-anchor="middle">P1 PARKING</text></g>' +
+      '<g class="park"><rect x="880" y="96" width="92" height="34" rx="5"/><text x="926" y="117" text-anchor="middle">P5A PARKING</text></g>' +
+      /* row 1 halls */
+      hallSvg('E', 340, 108, 92, 68) +
+      decoSvg('G', 470, 116, 64, 52) + decoSvg('K', 560, 120, 54, 44, 'redb') + decoSvg('F', 650, 112, 84, 60) +
+      /* apron road */
+      '<rect x="40" y="192" width="920" height="30" fill="#D9CFB4"/>' +
+      '<line x1="52" y1="207" x2="948" y2="207" stroke="#FFFFFF" stroke-width="2" stroke-dasharray="16 12" opacity="0.8"/>' +
+      '<text class="zonelabel" x="770" y="212" font-size="9">APRON ROAD</text>' +
+      /* row 2 halls (bookable) */
+      hallSvg('D', 130, 240, 100, 78) + hallSvg('C', 262, 240, 100, 78) + hallSvg('B', 394, 240, 100, 78) + hallSvg('A', 526, 240, 100, 78) +
+      decoSvg('10', 658, 252, 46, 40, 'redb') + decoSvg('H', 736, 244, 80, 62) +
+      /* row 3 */
+      decoSvg('12 · 11', 262, 348, 108, 44) + decoSvg('J', 560, 348, 64, 44, 'redb') + decoSvg('19', 740, 348, 56, 44) +
+      '<g class="park"><rect x="640" y="410" width="96" height="30" rx="5"/><text x="688" y="429" text-anchor="middle">P3 PARKING</text></g>' +
+      '<g class="park"><rect x="760" y="400" width="40" height="48" rx="5"/><text x="780" y="427" text-anchor="middle">P4</text></g>' +
+      /* entry gates */
+      '<g><rect x="180" y="444" width="70" height="18" rx="4" fill="#fff" stroke="#A29066"/><text x="215" y="456" text-anchor="middle" font-size="9" font-weight="800" fill="#8A7648" font-family="Mulish">▲ GATE 1</text></g>' +
+      '<g><rect x="470" y="444" width="70" height="18" rx="4" fill="#fff" stroke="#A29066"/><text x="505" y="456" text-anchor="middle" font-size="9" font-weight="800" fill="#8A7648" font-family="Mulish">▲ GATE 2</text></g>' +
+      /* runway */
+      '<rect x="0" y="486" width="1000" height="52" fill="#4A4F58"/>' +
+      '<line x1="30" y1="512" x2="970" y2="512" stroke="#fff" stroke-width="4" stroke-dasharray="34 26" opacity="0.85"/>' +
+      '<text x="500" y="478" text-anchor="middle" font-size="10" font-weight="800" letter-spacing="3" fill="#8A93A5" font-family="Mulish">RUNWAY 09/27 — FLYING DISPLAY AREA</text>' +
+    '</svg>';
 
   return '<h1 class="page-title">Space Booking — Exhibition Hall Selection</h1>' +
-    '<p class="page-sub">The full venue layout — tap a highlighted hall (A–E) to open its floor plan and select stalls. Chalet Line &amp; Outdoor areas are allotted by the organiser via Space Requirement.</p>' +
-    '<div class="venue-map">' +
-      '<div class="vm-chalet" style="left:12%;top:7%;width:36%;height:24px">CHALET LINE 1</div>' +
-      '<div class="vm-label" style="left:33%;top:16%">Outdoor</div>' +
-      deco('18', 8, 18, 30, 24) +
-      deco('16', 22, 30, 30, 24) +
-      hall('D', 30, 27) +
-      hall('E', 46, 15) +
-      deco('G', 63, 22, 38, 28) +
-      deco('K', 47, 31, 36, 26, 'red') +
-      deco('F', 59, 37, 42, 32) +
-      hall('C', 32, 48) +
-      hall('B', 40, 48) +
-      hall('A', 48, 48) +
-      deco('10', 60, 48, 32, 22, 'red') +
-      deco('H', 54, 63, 40, 30) +
-      deco('J', 61, 72, 36, 26, 'red') +
-      deco('12 · 11', 28, 63, 44, 26) +
-      deco('19', 78, 60, 30, 24) +
-      park('P1 PARKING', 5, 32, 52, 20) +
-      park('P5 A PARKING', 85, 20, 58, 22) +
-      park('P3 PARKING', 62, 85, 56, 22) +
-      park('P4 PARKING', 73, 79, 22, 46) +
-      '<div class="vm-legend"><span class="material-symbols-outlined" style="font-size:14px;color:var(--blue)">touch_app</span> Highlighted halls (A–E) are open for booking — tap to view the floor plan</div>' +
-    '</div>' +
-    '<div class="filter-chips" style="margin-top:14px">' +
-      SB_HALLS.map((h) => '<button class="fchip" onclick="location.hash=\'#/space-booking/hall/' + h.id + '\'">' + h.name + ' · ' + availOf(h) + ' available</button>').join('') +
+    '<p class="page-sub">The venue’s outer layout — tap a highlighted hall to open its floor plan and select stalls. Chalet Line &amp; Outdoor areas are allotted by the organiser via Space Requirement.</p>' +
+    '<div class="vmap-card"><div class="vmap">' + svg + '</div>' +
+      '<div class="filter-chips" style="margin-top:12px;align-items:center">' +
+        '<span class="pill blue">Tan halls with green count = open for booking</span>' +
+        '<span class="pill gray">Light blocks = map only</span>' +
+        '<span class="pill red" style="background:var(--red-soft);color:var(--red)">Red = reserved venues</span>' +
+        '<span class="pill green">Green = parking</span>' +
+      '</div></div>' +
+    '<div class="hall-cards">' +
+      SB_HALLS.map((h) => '<div class="hall-card" onclick="location.hash=\'#/space-booking/hall/' + h.id + '\'">' +
+        '<span class="hc-icon"><span class="material-symbols-outlined">grid_view</span></span>' +
+        '<span><b>' + h.name + '</b><small>12 stalls · Shell &amp; Raw</small></span>' +
+        '<span class="hc-count">' + availOf(h) + ' available</span></div>').join('') +
     '</div>';
 }
 

@@ -746,3 +746,30 @@ table.grid tr:hover td { background: #FAFBFE; }
 .bq-dots i.on { background: var(--blue); }
 .icon-act { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line); background: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .icon-act:hover { background: #F1F4FA; }
+
+/* ============ Venue map v2 (SVG site plan) ============ */
+.vmap-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 14px; }
+.vmap svg { width: 100%; height: auto; display: block; border-radius: 12px; }
+.vmap .hall { cursor: pointer; }
+.vmap .hall rect.body { fill: #DDBE83; stroke: #B99755; stroke-width: 1.5; transition: fill 0.15s; }
+.vmap .hall text.hname { fill: #4A3A18; font-weight: 800; font-size: 20px; font-family: Mulish, sans-serif; pointer-events: none; }
+.vmap .hall text.hsub { fill: #8A7648; font-weight: 700; font-size: 8.5px; font-family: Mulish, sans-serif; pointer-events: none; letter-spacing: 0.06em; }
+.vmap .hall:hover rect.body { fill: #2F62D8; stroke: #2450B4; }
+.vmap .hall:hover text.hname { fill: #fff; }
+.vmap .hall:hover text.hsub { fill: #BCD0F7; }
+.vmap .deco rect { fill: #EAD9B0; stroke: #CBB584; stroke-width: 1; }
+.vmap .deco text { fill: #9A8A62; font-weight: 800; font-size: 13px; font-family: Mulish, sans-serif; }
+.vmap .redb rect { fill: #D65A4E; stroke: #B03E33; }
+.vmap .redb text { fill: #fff; font-weight: 800; font-size: 13px; font-family: Mulish, sans-serif; }
+.vmap .park rect { fill: #3E8E58; stroke: #2E6B42; }
+.vmap .park text { fill: #fff; font-weight: 800; font-size: 9px; font-family: Mulish, sans-serif; letter-spacing: 0.08em; }
+.vmap .zonelabel { fill: #A29066; font-weight: 800; font-size: 11px; letter-spacing: 0.22em; font-family: Mulish, sans-serif; }
+.hall-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-top: 16px; }
+.hall-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 13px 15px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: all 0.14s; box-shadow: var(--shadow); }
+.hall-card:hover { transform: translateY(-2px); border-color: #C9D6F2; box-shadow: 0 8px 20px rgba(25,44,89,0.12); }
+.hall-card .hc-icon { width: 38px; height: 38px; border-radius: 10px; background: var(--blue-soft); color: var(--blue); display: flex; align-items: center; justify-content: center; flex: none; }
+.hall-card b { display: block; font-size: 0.9rem; }
+.hall-card small { color: var(--muted); font-weight: 600; font-size: 0.72rem; }
+.hall-card .hc-count { margin-left: auto; background: var(--green-soft); color: var(--green); font-weight: 800; font-size: 0.72rem; padding: 3px 10px; border-radius: 99px; white-space: nowrap; }
+.hall-card > span:nth-child(2) { flex: 1; min-width: 0; }
+.hall-card b, .hall-card small { white-space: nowrap; }
