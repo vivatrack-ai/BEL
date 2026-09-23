@@ -791,3 +791,14 @@ table.grid tr:hover td { background: #FAFBFE; }
 .match-card .mc-act { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: #F6F5FE; color: #5B54D9; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .match-card .mc-act:hover { background: #EDEBFB; }
 .match-card .mc-status { margin-top: 10px; }
+
+/* ============ B2B toolbar (segmented controls + filter row) ============ */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: #fff; }
+.seg button { border: none; background: none; padding: 8px 14px; cursor: pointer; color: var(--muted); font-weight: 700; font-size: 0.78rem; font-family: inherit; display: inline-flex; align-items: center; gap: 5px; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: none; }
+.seg button.on { background: var(--blue); color: #fff; }
+.seg button .material-symbols-outlined { font-size: 18px; }
+.flt-sel { border: 1px solid #CFD7E4; border-radius: 9px; padding: 8px 10px; font-family: inherit; font-size: 0.82rem; cursor: pointer; background: #fff; color: var(--ink); max-width: 190px; }
+.flt-sel:focus { outline: 2px solid var(--blue-soft); }
+.b2b-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.b2b-row + .b2b-row { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }

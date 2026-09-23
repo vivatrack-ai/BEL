@@ -27,9 +27,39 @@
         },
       ],
     };
-    save();
   }
+  /* TEAM MEMBERS of the exhibiting company — visitors can request a
+     meeting with a specific member; ALL such requests are visible in
+     this MAIN exhibitor login, and either the member or the main
+     login can approve them. */
+  if (!S.b2b.team) {
+    S.b2b.team = [
+      { id: 'tm_main', name: 'Dhiren Shah', desig: 'Nodal Officer (Main Login)', email: 'dhirens@evenuefy.com' },
+      { id: 'tm_nikhil', name: 'Nikhil Sharma', desig: 'GM — Exhibitions', email: 'nikhil.sharma@hal-india.co.in' },
+      { id: 'tm_priya', name: 'Priya Menon', desig: 'Marketing Head', email: 'priya.menon@hal-india.co.in' },
+      { id: 'tm_rakesh', name: 'Rakesh Verma', desig: 'MRO Business Lead', email: 'rakesh.verma@hal-india.co.in' },
+      { id: 'tm_asha', name: 'Asha Iyer', desig: 'Design & Avionics SPOC', email: 'asha.iyer@hal-india.co.in' },
+    ];
+    // existing seeded incoming requests were addressed to specific members
+    const assign = { mtg_seed1: 'tm_rakesh', mtg_seed2: 'tm_priya' };
+    S.b2b.meetings.forEach((m, i) => {
+      if (!m.memberId) m.memberId = assign[m.id] || S.b2b.team[i % S.b2b.team.length].id;
+    });
+    // a third demo request for another member, so the team view is rich
+    if (!S.b2b.meetings.some((m) => m.id === 'mtg_seed3')) {
+      S.b2b.meetings.push({
+        id: 'mtg_seed3', partId: 'pt_helios', name: 'Daniel Moreau', company: 'Helios Avionique (France)',
+        date: '13 Feb 2027', slot: '10:00 AM', venue: 'Their Booth / Delegation Lounge',
+        note: 'Avionics co-development discussion with your design team.',
+        direction: 'incoming', status: 'pending', createdAt: '23 Sept 2026, 11:40 am', memberId: 'tm_asha',
+      });
+    }
+  }
+  save();
 })();
+
+const teamById = (id) => S.b2b.team.find((t) => t.id === id);
+const memberName = (m) => { const t = m.memberId && teamById(m.memberId); return t ? t.name : 'Dhiren Shah'; };
 
 /* ---------------- visiting companies / delegations (demo directory) ----------------
    In production this list streams from visitor registrations; each
@@ -104,6 +134,7 @@ function viewB2BMatchmaking() {
 
 window.__b2bView = window.__b2bView || 'grid';
 window.__b2bCat = window.__b2bCat || '';
+window.__b2bSub = window.__b2bSub || '';
 window.__b2bCountry = window.__b2bCountry || '';
 window.__b2bState = window.__b2bState || '';
 window.__b2bCity = window.__b2bCity || '';
@@ -116,22 +147,6 @@ function b2bToggleFav(id) {
   const a = S.b2b.favs;
   a.includes(id) ? a.splice(a.indexOf(id), 1) : a.push(id);
   save(); render();
-}
-
-function openChatModal(partId) {
-  const p = PARTICIPANTS.find((x) => x.id === partId);
-  openModal('Message — ' + esc(p.name),
-    '<p style="margin-top:0;font-size:0.82rem;color:var(--muted)">' + esc(p.desig) + ' · ' + esc(p.company) + '</p>' +
-    '<textarea id="chatMsg" rows="3" maxlength="400" placeholder="Hi ' + esc(p.name.split(' ')[0]) + ', I’d like to connect regarding..." ' +
-      'style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:9px 12px;font-family:inherit;font-size:0.88rem"></textarea>',
-    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
-    '<button class="btn btn-primary" onclick="sendChat(\'' + partId + '\')"><span class="material-symbols-outlined">send</span>Send</button>');
-}
-function sendChat(partId) {
-  const p = PARTICIPANTS.find((x) => x.id === partId);
-  if (!$('chatMsg').value.trim()) { toast('Write a message first.', 'error'); return; }
-  closeModal();
-  toast('Message sent to ' + p.name + ' — replies arrive in the networking app (demo).', 'success');
 }
 
 function b2bMatchPill(p) {
@@ -153,27 +168,29 @@ function b2bMatchesBody() {
   let list = PARTICIPANTS.map((p) => ({ p: p, m: b2bMatchInfo(p) }));
   if (q) list = list.filter((x) => (x.p.name + ' ' + x.p.company + ' ' + x.p.country + ' ' + x.p.city).toLowerCase().includes(q));
   if (window.__b2bCat) list = list.filter((x) => Object.keys(x.p.lookingFor).includes(window.__b2bCat));
+  if (window.__b2bSub) list = list.filter((x) => (x.p.lookingFor[window.__b2bCat] || []).includes(window.__b2bSub));
   if (window.__b2bCountry) list = list.filter((x) => x.p.country === window.__b2bCountry);
   if (window.__b2bState) list = list.filter((x) => x.p.state === window.__b2bState);
   if (window.__b2bCity) list = list.filter((x) => x.p.city === window.__b2bCity);
   if (window.__b2bMin) list = list.filter((x) => x.m.pct >= window.__b2bMin);
   list.sort((a, b) => b.m.pct - a.m.pct);
 
-  /* cascading location options from the directory */
+  /* cascading options */
   const countries = [...new Set(PARTICIPANTS.map((p) => p.country))].sort();
   const states = [...new Set(PARTICIPANTS.filter((p) => !window.__b2bCountry || p.country === window.__b2bCountry).map((p) => p.state))].sort();
   const cities = [...new Set(PARTICIPANTS.filter((p) =>
     (!window.__b2bCountry || p.country === window.__b2bCountry) && (!window.__b2bState || p.state === window.__b2bState)).map((p) => p.city))].sort();
-  const selStyle = 'border:1px solid #CFD7E4;border-radius:8px;padding:8px 10px;font-family:inherit;font-size:0.82rem;cursor:pointer;max-width:170px';
+  const catDef = MM_CATS.find((c) => c.name === window.__b2bCat);
   const sel = (opts, val, fn, allLabel) =>
-    '<select onchange="' + fn + '" style="' + selStyle + '"><option value="">' + allLabel + '</option>' +
+    '<select class="flt-sel" onchange="' + fn + '"><option value="">' + allLabel + '</option>' +
     opts.map((o) => '<option' + (val === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>';
 
-  const minChips = [[0, 'All'], [30, '30%+'], [60, '60%+']].map(([v, l]) =>
-    '<button class="fchip' + (window.__b2bMin === v ? ' on' : '') + '" onclick="window.__b2bMin=' + v + ';render()">' + l + '</button>').join('');
-  const viewBtn = (v, icon) =>
-    '<button class="icon-act" title="' + (v === 'grid' ? 'Grid view' : 'List view') + '" style="' + (window.__b2bView === v ? 'background:var(--blue-soft);color:var(--blue);border-color:#B7CBF2' : '') + '" ' +
-      'onclick="window.__b2bView=\'' + v + '\';render()"><span class="material-symbols-outlined" style="font-size:19px">' + icon + '</span></button>';
+  const matchSeg = '<div class="seg">' + [[0, 'All'], [30, '30%+ Match'], [60, '60%+ Match']].map(([v, l]) =>
+    '<button class="' + (window.__b2bMin === v ? 'on' : '') + '" onclick="window.__b2bMin=' + v + ';render()">' + l + '</button>').join('') + '</div>';
+  const viewSeg = '<div class="seg">' +
+    '<button class="' + (window.__b2bView === 'grid' ? 'on' : '') + '" onclick="window.__b2bView=\'grid\';render()"><span class="material-symbols-outlined">grid_view</span>Grid</button>' +
+    '<button class="' + (window.__b2bView === 'list' ? 'on' : '') + '" onclick="window.__b2bView=\'list\';render()"><span class="material-symbols-outlined">view_list</span>List</button></div>';
+  const hasFlt = window.__b2bCat || window.__b2bSub || window.__b2bCountry || window.__b2bState || window.__b2bCity || window.__b2bMin || window.__b2bQ;
 
   const chipsOf = (m, max) =>
     m.offHit.slice(0, max).map((s) => '<span class="tagchip" style="margin:0 4px 4px 0">' + esc(s) + '</span>').join('') +
@@ -196,7 +213,6 @@ function b2bMatchesBody() {
       '<div class="mc-foot">' +
         '<span class="mc-match">' + m.pct + '%&nbsp; Profile Match</span>' +
         '<button class="mc-act" title="Request Meeting" onclick="event.stopPropagation();openMeetingModal(\'' + p.id + '\')"><span class="material-symbols-outlined" style="font-size:19px">calendar_month</span></button>' +
-        '<button class="mc-act" title="Send Message" onclick="event.stopPropagation();openChatModal(\'' + p.id + '\')"><span class="material-symbols-outlined" style="font-size:19px">chat_bubble</span></button>' +
       '</div>' +
       (met ? '<span class="mc-status">' + (S.b2b.meetings.some((mt) => mt.partId === p.id && mt.status === 'confirmed')
         ? '<span class="pill green">Meeting Confirmed</span>' : '<span class="pill amber">Meeting Requested</span>') + '</span>' : '') +
@@ -223,17 +239,26 @@ function b2bMatchesBody() {
 
   const empty = '<div class="card" style="margin-top:12px"><div class="empty"><span class="material-symbols-outlined">search_off</span><h3>No matches found</h3><p>Try clearing the search or filters.</p></div></div>';
 
-  return '<div class="card"><div class="card-head-row" style="margin-bottom:0;flex-wrap:wrap;gap:10px">' +
-      '<input type="text" id="b2bQ" value="' + esc(window.__b2bQ) + '" placeholder="Search by name, company, city or country" oninput="b2bSetQ(this.value)" ' +
-        'style="flex:1;min-width:200px;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.86rem">' +
-      sel(MM_CATS.map((c) => c.name), window.__b2bCat, 'window.__b2bCat=this.value;render()', 'Category: All') +
-      sel(countries, window.__b2bCountry, 'b2bSetCountry(this.value)', 'Country: All') +
-      sel(states, window.__b2bState, 'b2bSetState(this.value)', 'State: All') +
-      sel(cities, window.__b2bCity, 'window.__b2bCity=this.value;render()', 'City: All') +
-      '<div class="filter-chips">' + minChips + '</div>' +
-      viewBtn('grid', 'grid_view') + viewBtn('list', 'view_list') +
-      '<span class="result-count">' + list.length + ' of ' + PARTICIPANTS.length + '</span>' +
-    '</div></div>' +
+  return '<div class="card">' +
+      '<div class="b2b-row">' +
+        '<div style="flex:1;min-width:240px;display:flex;align-items:center;gap:8px;border:1px solid #CFD7E4;border-radius:9px;padding:0 12px">' +
+          '<span class="material-symbols-outlined" style="font-size:19px;color:var(--muted)">search</span>' +
+          '<input type="text" id="b2bQ" value="' + esc(window.__b2bQ) + '" placeholder="Search by name, company, city or country" oninput="b2bSetQ(this.value)" ' +
+            'style="flex:1;border:none;outline:none;padding:10px 0;font-family:inherit;font-size:0.86rem;background:none">' +
+        '</div>' +
+        viewSeg +
+        '<span class="result-count">' + list.length + ' of ' + PARTICIPANTS.length + ' matches</span>' +
+      '</div>' +
+      '<div class="b2b-row">' +
+        sel(MM_CATS.map((c) => c.name), window.__b2bCat, 'window.__b2bCat=this.value;window.__b2bSub=\'\';render()', 'Category: All') +
+        (catDef ? sel(catDef.subs, window.__b2bSub, 'window.__b2bSub=this.value;render()', 'Subcategory: All') : '') +
+        sel(countries, window.__b2bCountry, 'b2bSetCountry(this.value)', 'Country: All') +
+        sel(states, window.__b2bState, 'b2bSetState(this.value)', 'State: All') +
+        sel(cities, window.__b2bCity, 'window.__b2bCity=this.value;render()', 'City: All') +
+        matchSeg +
+        (hasFlt ? '<button class="btn btn-outline btn-sm" onclick="window.__b2bQ=\'\';window.__b2bCat=\'\';window.__b2bSub=\'\';window.__b2bCountry=\'\';window.__b2bState=\'\';window.__b2bCity=\'\';window.__b2bMin=0;render()"><span class="material-symbols-outlined" style="font-size:15px">filter_alt_off</span>Clear</button>' : '') +
+      '</div>' +
+    '</div>' +
     (list.length ? (window.__b2bView === 'grid' ? grid : listRows) : empty);
 }
 
@@ -306,6 +331,9 @@ function openMeetingModal(partId) {
         '<option>B2B Meeting Table</option>' +
         '<option>Their Booth / Delegation Lounge</option></select>' +
         '<div class="hint">B2B Meeting Table slots are chargeable — book the table from the Meeting Room menu.</div></div>' +
+      '<div class="field full"><label>Attending Team Member <span class="req">*</span></label><select id="mtMember">' +
+        S.b2b.team.map((t) => '<option value="' + t.id + '">' + esc(t.name) + ' — ' + esc(t.desig) + '</option>').join('') + '</select>' +
+        '<div class="hint">The meeting goes on this member’s schedule; the main login always sees it too.</div></div>' +
       '<div class="field full"><label>Agenda / Message</label>' +
         '<textarea id="mtNote" rows="2" maxlength="300" placeholder="Briefly describe what you would like to discuss" style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:9px 12px;font-family:inherit;font-size:0.88rem"></textarea></div>' +
     '</div>',
@@ -318,7 +346,7 @@ function sendMeetingRequest(partId) {
   S.b2b.meetings.unshift({
     id: 'mtg_' + Date.now(), partId: partId, name: p.name, company: p.company,
     date: $('mtDate').value, slot: $('mtSlot').value, venue: $('mtVenue').value,
-    note: $('mtNote').value.trim(),
+    note: $('mtNote').value.trim(), memberId: $('mtMember') ? $('mtMember').value : 'tm_main',
     direction: 'outgoing', status: 'pending', createdAt: nowStr(),
   });
   save(); closeModal(); render();
@@ -330,8 +358,36 @@ function respondMeeting(id, status) {
   if (!m) return;
   m.status = status;
   m.respondedAt = nowStr();
+  m.respondedBy = 'Main Exhibitor Login'; // member logins record their own name in production
   save(); render();
-  toast('Meeting ' + (status === 'confirmed' ? 'accepted — added to your schedule.' : 'declined.'), status === 'confirmed' ? 'success' : 'error');
+  toast('Meeting ' + (status === 'confirmed' ? 'accepted — added to ' + memberName(m) + '’s schedule.' : 'declined.'), status === 'confirmed' ? 'success' : 'error');
+}
+
+/* ---------------- My Team (members of the exhibiting company) ---------------- */
+function openTeamModal() {
+  const rows = S.b2b.team.map((t) =>
+    '<div class="action-row"><span class="avatar" style="width:36px;height:36px;flex:none">' + esc(t.name.charAt(0)) + '</span>' +
+    '<div class="atext"><b>' + esc(t.name) + (t.id === 'tm_main' ? ' <span class="pill blue">Main Login</span>' : '') + '</b>' +
+    '<span>' + esc(t.desig) + ' · ' + esc(t.email) + '</span></div>' +
+    '<span class="pill gray">' + S.b2b.meetings.filter((m) => m.memberId === t.id).length + ' meeting(s)</span></div>').join('');
+  openModal('My Team — ' + esc(EVENT.exhibitor),
+    '<p style="margin-top:0;font-size:0.8rem;color:var(--muted)">Visitors can request a meeting with any team member — every request lands here in the main login, and you or the member can approve it.</p>' +
+    rows +
+    '<div class="form-grid" style="margin-top:14px">' +
+      '<div class="field"><label>Member Name</label><input type="text" id="tmName" placeholder="Full name"></div>' +
+      '<div class="field"><label>Designation</label><input type="text" id="tmDesig" placeholder="e.g. Sales Lead"></div>' +
+    '</div>' +
+    '<button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="addTeamMember()"><span class="material-symbols-outlined" style="font-size:16px">person_add</span>Add Member</button>');
+}
+function addTeamMember() {
+  const name = $('tmName').value.trim();
+  if (!name) { toast('Enter the member name.', 'error'); return; }
+  S.b2b.team.push({
+    id: 'tm_' + Date.now(), name: name, desig: $('tmDesig').value.trim() || 'Team Member',
+    email: name.toLowerCase().replace(/[^a-z]+/g, '.') + '@hal-india.co.in',
+  });
+  save(); openTeamModal(); render();
+  toast(name + ' added to your team.', 'success');
 }
 
 function openRescheduleModal(id) {
@@ -377,23 +433,35 @@ const mtgStatusPill = (m) => m.status === 'confirmed' ? '<span class="pill green
   : m.status === 'declined' ? '<span class="pill red">Declined</span>'
   : '<span class="pill amber">Pending</span>';
 
+window.__b2bTeam = window.__b2bTeam || '';
 function b2bMeetingsBody() {
-  const inc = S.b2b.meetings.filter((m) => m.direction === 'incoming' && m.status === 'pending');
+  const teamSel =
+    '<select onchange="window.__b2bTeam=this.value;render()" style="border:1px solid #CFD7E4;border-radius:8px;padding:8px 10px;font-family:inherit;font-size:0.82rem;cursor:pointer">' +
+      '<option value="">All Team Members</option>' +
+      S.b2b.team.map((t) => '<option value="' + t.id + '"' + (window.__b2bTeam === t.id ? ' selected' : '') + '>' + esc(t.name) + '</option>').join('') +
+    '</select>';
+  const filt = (arr) => window.__b2bTeam ? arr.filter((m) => m.memberId === window.__b2bTeam) : arr;
+
+  const inc = filt(S.b2b.meetings.filter((m) => m.direction === 'incoming' && m.status === 'pending'));
   const incoming = inc.length
     ? '<div class="card pending-card" style="margin-bottom:16px"><div class="card-head-row"><h2 class="card-title">Incoming Requests</h2>' +
-      '<span class="pill amber">' + inc.length + ' awaiting your response</span></div>' +
+      '<span class="pill amber">' + inc.length + ' awaiting response</span></div>' +
+      '<p style="font-size:0.78rem;color:var(--muted);margin:0 0 6px">Requests sent to <b>any of your team members</b> appear here — you (main login) or the member can approve them.</p>' +
       inc.map((m) =>
         '<div class="action-row"><span class="aicon"><span class="material-symbols-outlined">move_to_inbox</span></span>' +
-        '<div class="atext"><b>' + esc(m.name) + ' · ' + esc(m.company) + '</b>' +
+        '<div class="atext"><b>' + esc(m.name) + ' · ' + esc(m.company) +
+          ' <span class="pill blue">for ' + esc(memberName(m)) + '</span></b>' +
         '<span>' + esc(m.date) + ' · ' + esc(m.slot) + ' · ' + esc(m.venue) + (m.note ? ' — “' + esc(m.note) + '”' : '') + '</span></div>' +
         '<button class="btn btn-primary btn-sm" onclick="respondMeeting(\'' + m.id + '\',\'confirmed\')">Accept</button>' +
         '<button class="btn btn-outline btn-sm" onclick="respondMeeting(\'' + m.id + '\',\'declined\')">Decline</button>' +
         '</div>').join('') + '</div>'
     : '';
 
-  const rows = S.b2b.meetings.map((m, i) =>
+  const rows = filt(S.b2b.meetings).map((m, i) =>
     '<tr><td>' + (i + 1) + '</td>' +
     '<td><span class="td-strong">' + esc(m.name) + '</span><span class="td-sub">' + esc(m.company) + '</span></td>' +
+    '<td><span class="td-strong">' + esc(memberName(m)) + '</span>' +
+      '<span class="td-sub">' + (m.direction === 'incoming' ? 'requested with' : 'attending') + '</span></td>' +
     '<td>' + esc(m.date) + '<span class="td-sub">' + esc(m.slot) + '</span></td>' +
     '<td>' + esc(m.venue) + '</td>' +
     '<td>' + (m.direction === 'incoming' ? '<span class="pill blue">Incoming</span>' : '<span class="pill gray">Sent by you</span>') + '</td>' +
@@ -406,18 +474,21 @@ function b2bMeetingsBody() {
         ? '<button class="btn-link" onclick="openRescheduleModal(\'' + m.id + '\')">Reschedule</button>' +
           '<button class="btn-link danger" onclick="cancelMeeting(\'' + m.id + '\')">Cancel</button>' : '') +
     '</td></tr>').join('') ||
-    '<tr><td colspan="7" style="color:var(--muted)">No meetings yet — request one from the Recommended Matches tab.</td></tr>';
+    '<tr><td colspan="8" style="color:var(--muted)">No meetings yet — request one from the Recommended Matches tab.</td></tr>';
 
-  const confirmed = S.b2b.meetings.filter((m) => m.status === 'confirmed').length;
+  const all = filt(S.b2b.meetings);
+  const confirmed = all.filter((m) => m.status === 'confirmed').length;
   return incoming +
     '<div class="tiles">' +
-      '<div class="tile blue"><div class="t-label">Total Meetings</div><div class="t-value">' + S.b2b.meetings.length + '</div></div>' +
+      '<div class="tile blue"><div class="t-label">Total Meetings</div><div class="t-value">' + all.length + '</div></div>' +
       '<div class="tile accent"><div class="t-label">Confirmed</div><div class="t-value">' + confirmed + '</div></div>' +
-      '<div class="tile"><div class="t-label">Awaiting Response</div><div class="t-value">' + S.b2b.meetings.filter((m) => m.status === 'pending').length + '</div></div>' +
+      '<div class="tile"><div class="t-label">Awaiting Response</div><div class="t-value">' + all.filter((m) => m.status === 'pending').length + '</div></div>' +
     '</div>' +
-    '<div class="card"><div class="card-head-row"><h2 class="card-title">Meeting Schedule</h2></div>' +
+    '<div class="card"><div class="card-head-row" style="flex-wrap:wrap;gap:10px"><h2 class="card-title">Meeting Schedule</h2>' +
+      '<div style="display:flex;gap:8px;align-items:center">' + teamSel +
+      '<button class="btn btn-outline btn-sm" onclick="openTeamModal()"><span class="material-symbols-outlined" style="font-size:16px">groups</span>My Team (' + S.b2b.team.length + ')</button></div></div>' +
     '<div class="tablewrap"><table class="grid">' +
-    '<tr><th>No.</th><th>With</th><th>Date / Slot</th><th>Venue</th><th>Direction</th><th>Status</th><th></th></tr>' +
+    '<tr><th>No.</th><th>With</th><th>Team Member</th><th>Date / Slot</th><th>Venue</th><th>Direction</th><th>Status</th><th></th></tr>' +
     rows + '</table></div></div>';
 }
 
