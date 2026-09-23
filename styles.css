@@ -773,3 +773,21 @@ table.grid tr:hover td { background: #FAFBFE; }
 .hall-card .hc-count { margin-left: auto; background: var(--green-soft); color: var(--green); font-weight: 800; font-size: 0.72rem; padding: 3px 10px; border-radius: 99px; white-space: nowrap; }
 .hall-card > span:nth-child(2) { flex: 1; min-width: 0; }
 .hall-card b, .hall-card small { white-space: nowrap; }
+
+/* ============ B2B matchmaking cards (networking platform style) ============ */
+.match-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(225px, 1fr)); gap: 16px; margin-top: 16px; }
+.match-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 22px 18px 16px; text-align: center; position: relative; cursor: pointer; transition: all 0.15s; display: flex; flex-direction: column; align-items: center; }
+.match-card:hover { transform: translateY(-3px); box-shadow: 0 10px 26px rgba(25, 44, 89, 0.12); border-color: #C9D6F2; }
+.match-card .mc-bm { position: absolute; top: 12px; right: 12px; background: none; border: none; cursor: pointer; color: #A8B3C7; padding: 4px; }
+.match-card .mc-bm.on { color: var(--blue); }
+.match-card .mc-avatar { width: 84px; height: 84px; border-radius: 99px; background: linear-gradient(135deg, var(--blue), #6C8FE8); color: #fff; font-size: 2rem; font-weight: 800; display: flex; align-items: center; justify-content: center; position: relative; margin-bottom: 12px; }
+.match-card .mc-avatar .dot { position: absolute; top: 4px; right: 4px; width: 13px; height: 13px; border-radius: 99px; background: #22A75D; border: 2.5px solid #fff; }
+.match-card b.mc-name { font-size: 1.02rem; }
+.match-card .mc-desig { font-size: 0.78rem; color: var(--muted); font-weight: 600; margin-top: 2px; }
+.match-card .mc-company { font-size: 0.78rem; color: var(--blue); font-weight: 700; margin-top: 2px; }
+.match-card .mc-loc { font-size: 0.7rem; color: var(--muted); font-weight: 600; margin-top: 4px; }
+.match-card .mc-foot { display: flex; align-items: center; gap: 8px; margin-top: 14px; width: 100%; justify-content: center; }
+.match-card .mc-match { background: #EDEBFB; color: #5B54D9; font-size: 0.72rem; font-weight: 800; padding: 6px 12px; border-radius: 99px; white-space: nowrap; }
+.match-card .mc-act { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: #F6F5FE; color: #5B54D9; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.match-card .mc-act:hover { background: #EDEBFB; }
+.match-card .mc-status { margin-top: 10px; }

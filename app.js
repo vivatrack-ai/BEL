@@ -194,9 +194,11 @@ function render() {
   const mCoex = route.match(/^passes\/(badges|invitee|vehicle)\/coex\/(.+)$/);
   const mProf = route.match(/^profile(?:\/(.+))?$/);
   const mHall = route.match(/^space-booking\/hall\/(.+)$/);
+  const mB2b = route.match(/^b2b-matchmaking\/profile\/(.+)$/);
   if (mCoex) { view = viewCatCoexPage; arg = mCoex[2]; }
   else if (mProf) { view = viewProfile; arg = mProf[1] || 'company'; }
   else if (mHall) { view = viewHallStalls; arg = mHall[1]; }
+  else if (mB2b) { view = viewB2BProfile; arg = mB2b[1]; }
   else view = ROUTES[route] || viewExhibitorDashboard;
 
   // sidebar active state
@@ -208,7 +210,8 @@ function render() {
       (r === 'exhibition-forms' && route.indexOf('exhibition-forms') === 0) ||
       (r === 'digital-showcase' && (route === 'products' || route.indexOf('booth/') === 0)) ||
       (r === 'space-booking/book' && route.indexOf('space-booking/hall') === 0) ||
-      (r === 'space-booking/my' && route === 'space-booking/success'));
+      (r === 'space-booking/my' && route === 'space-booking/success') ||
+      (r === 'b2b-matchmaking' && route.indexOf('b2b-matchmaking') === 0));
   });
 
   $('view').innerHTML = view(arg);
