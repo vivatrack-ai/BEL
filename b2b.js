@@ -55,6 +55,34 @@
       });
     }
   }
+  /* more demo meetings across statuses, dates & slots so the Meetings &
+     Requests table, its filters and pagination can be tested */
+  if (!S.b2b.meetings.some((m) => m.id === 'mtg_seed4')) {
+    const mk = (n, partId, name, company, memberId, date, slot, venue, title, note, direction, status, extra) =>
+      Object.assign({ id: 'mtg_seed' + n, partId: partId, name: name, company: company, memberId: memberId,
+        date: date, slot: slot, venue: venue, title: title, note: note, direction: direction, status: status,
+        createdAt: '2' + (n % 3) + ' Sept 2026, 1' + (n % 9) + ':15 am' }, extra || {});
+    S.b2b.meetings.push(
+      mk(4, 'pt_skyhawk', 'Maj. Gen. R. K. Bisht (Retd.)', 'SkyHawk Defence Consultants', 'tm_nikhil', '11 Feb 2027', '10:00 AM', 'My Booth (Hall A · A8.5)',
+        'LCA export advisory', 'Discuss LCA Tejas export positioning for friendly nations.', 'incoming', 'confirmed'),
+      mk(5, 'pt_gulfwing', 'Omar Al-Farsi', 'GulfWing Aviation', 'tm_rakesh', '12 Feb 2027', '11:30 AM', 'B2B Meeting Table',
+        'Helicopter MRO partnership', 'Utility helicopter MRO support in the Gulf region.', 'outgoing', 'confirmed'),
+      mk(6, 'pt_volga', 'Elena Petrova', 'Volga Dynamics', 'tm_main', '12 Feb 2027', '04:00 PM', 'Their Booth / Delegation Lounge',
+        'Missile integration talk', 'Explore integration on the Su-30 platform.', 'incoming', 'declined'),
+      mk(7, 'pt_atlas', 'Hannah Cole', 'Atlas AeroWorks', 'tm_nikhil', '13 Feb 2027', '01:00 PM', 'My Booth (Hall A · A8.5)',
+        'HTT-40 trainer collaboration', 'Basic trainer overhaul & documentation support.', 'outgoing', 'pending', { rescheduled: true }),
+      mk(8, 'pt_chennaiprop', 'Ananya Krishnan', 'Chennai Propulsion Works', 'tm_rakesh', '11 Feb 2027', '02:30 PM', 'B2B Meeting Table',
+        'Engine component sourcing', 'Turboprop engine parts supply chain.', 'incoming', 'pending'),
+      mk(9, 'pt_sarang', 'Dr. Nivedita Rao', 'Sarang Defence Research', 'tm_asha', '13 Feb 2027', '11:30 AM', 'My Booth (Hall A · A8.5)',
+        'AI decision support demo', 'Show AI decision-support tools for mission planning.', 'incoming', 'completed'),
+      mk(10, 'pt_pacaero', 'Chen Wei', 'Pacific AeroStructures', 'tm_priya', '12 Feb 2027', '10:00 AM', 'Their Booth / Delegation Lounge',
+        'Composite aerostructures', 'Composite airframe sub-assemblies for LUH.', 'outgoing', 'pending'),
+      mk(11, 'pt_nordic', 'Erik Johansson', 'Nordic Radar Solutions', 'tm_asha', '11 Feb 2027', '04:00 PM', 'B2B Meeting Table',
+        'AESA radar cooperation', 'Ground surveillance AESA co-development.', 'incoming', 'confirmed'),
+      mk(12, 'pt_falcon', 'Fatima Al-Zahra', 'Qatar Falcon Aviation', 'tm_main', '13 Feb 2027', '02:30 PM', 'My Booth (Hall A · A8.5)',
+        'VIP helicopter fleet', 'VIP helicopter fleet support & spares.', 'incoming', 'pending')
+    );
+  }
   save();
 })();
 
@@ -154,7 +182,7 @@ function viewB2BMatchmaking() {
   const pend = b2bIncomingPending();
   const tabs = '<div class="ptabs" style="border-bottom:none;padding-bottom:0;margin-bottom:16px">' +
     '<button class="ptab' + (window.__b2bTab === 'matches' ? ' on' : '') + '" onclick="window.__b2bTab=\'matches\';render()">Recommended Matches</button>' +
-    '<button class="ptab' + (window.__b2bTab === 'meetings' ? ' on' : '') + '" onclick="window.__b2bTab=\'meetings\';render()">My Meetings' +
+    '<button class="ptab' + (window.__b2bTab === 'meetings' ? ' on' : '') + '" onclick="window.__b2bTab=\'meetings\';render()">Meetings &amp; Requests' +
       (pend ? ' <span class="pill amber" style="margin-left:4px">' + pend + '</span>' : '') + '</button>' +
     '</div>';
   return '<h1 class="page-title">B2B Matchmaking</h1>' +
@@ -384,7 +412,9 @@ function openMeetingModal(partId) {
       '<div class="field full"><label>Attending Team Member <span class="req">*</span></label><select id="mtMember">' +
         S.b2b.team.map((t) => '<option value="' + t.id + '">' + esc(t.name) + ' — ' + esc(t.desig) + '</option>').join('') + '</select>' +
         '<div class="hint">The meeting goes on this member’s schedule; the main login always sees it too.</div></div>' +
-      '<div class="field full"><label>Agenda / Message</label>' +
+      '<div class="field full"><label>Meeting Title <span class="req">*</span></label>' +
+        '<input type="text" id="mtTitle" maxlength="100" value="Business Meeting — ' + esc(p.company) + '"></div>' +
+      '<div class="field full"><label>Meeting Description</label>' +
         '<textarea id="mtNote" rows="2" maxlength="300" placeholder="Briefly describe what you would like to discuss" style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:9px 12px;font-family:inherit;font-size:0.88rem"></textarea></div>' +
     '</div>',
     '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
@@ -396,6 +426,7 @@ function sendMeetingRequest(partId) {
   S.b2b.meetings.unshift({
     id: 'mtg_' + Date.now(), partId: partId, name: p.name, company: p.company,
     date: $('mtDate').value, slot: $('mtSlot').value, venue: $('mtVenue').value,
+    title: ($('mtTitle') && $('mtTitle').value.trim()) || 'Business Meeting',
     note: $('mtNote').value.trim(), memberId: $('mtMember') ? $('mtMember').value : 'tm_main',
     direction: 'outgoing', status: 'pending', createdAt: nowStr(),
   });
@@ -478,68 +509,188 @@ function cancelMeeting(id) {
   toast('Meeting request cancelled.', 'success');
 }
 
-/* ---------------- meetings tab ---------------- */
-const mtgStatusPill = (m) => m.status === 'confirmed' ? '<span class="pill green">Confirmed</span>'
-  : m.status === 'declined' ? '<span class="pill red">Declined</span>'
-  : '<span class="pill amber">Pending</span>';
+/* ---------------- Meetings & Requests tab ----------------
+   Laid out like the platform's "Networking Lounge Meetings":
+   From · To · Meeting At · Title · Description · Status · Actions,
+   with search, date, slot, status & team filters and pagination.
+   Requests to ANY team member land here in the main login. */
+const mtgStatusKey = (m) => m.status === 'confirmed' ? 'confirmed'
+  : m.status === 'completed' ? 'completed'
+  : m.status === 'declined' ? 'declined'
+  : m.rescheduled ? 'rescheduled' : 'pending';
+const MTG_STATUS = {
+  pending: ['amber', 'Pending'], confirmed: ['green', 'Confirmed'], declined: ['red', 'Rejected'],
+  rescheduled: ['amber', 'Rescheduled'], completed: ['blue', 'Completed'],
+};
+const mtgStatusPill = (m) => { const s = MTG_STATUS[mtgStatusKey(m)]; return '<span class="pill ' + s[0] + '">' + s[1] + '</span>'; };
+
+function slotRange(slot) {
+  const mm = /^(\d{1,2}):(\d{2}) (AM|PM)$/.exec(slot || '');
+  if (!mm) return slot || '';
+  const h = (+mm[1] % 12) + (mm[3] === 'PM' ? 12 : 0);
+  const e = (h + 1) % 24;
+  return slot + ' - ' + String(e % 12 || 12).padStart(2, '0') + ':' + mm[2] + ' ' + (e >= 12 ? 'PM' : 'AM');
+}
+
+function completeMeeting(id) {
+  const m = S.b2b.meetings.find((x) => x.id === id);
+  if (!m) return;
+  m.status = 'completed';
+  m.completedAt = nowStr();
+  save(); render();
+  toast('Meeting with ' + m.name + ' marked as completed.', 'success');
+}
+
+function mtgTitle(m) {
+  if (m.title) return m.title;
+  return m.direction === 'incoming'
+    ? 'Hi ' + memberName(m).split(' ')[0] + ', I would like to connect with you.'
+    : 'Business Meeting';
+}
+
+function mtgPersonCell(name, company, desig) {
+  return '<span class="td-strong">' + esc(name) + '</span>' +
+    '<span class="td-sub"><b>C:</b> ' + esc(company) + '</span>' +
+    (desig ? '<span class="td-sub"><b>D:</b> ' + esc(desig) + '</span>' : '');
+}
+
+function mtgActions(m) {
+  const k = mtgStatusKey(m);
+  const b = (label, fn, color) =>
+    '<button class="btn btn-outline btn-sm" style="color:' + (color || 'var(--blue)') + ';min-width:84px;justify-content:center" onclick="' + fn + '">' + label + '</button>';
+  if (k === 'confirmed') {
+    return '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">' +
+      '<span style="color:var(--green);font-weight:700;font-size:0.84rem;display:block;width:100%">Approved</span>' +
+      b('Complete', 'completeMeeting(\'' + m.id + '\')') +
+      b('Reschedule', 'openRescheduleModal(\'' + m.id + '\')') +
+      b('Cancel', 'cancelMeeting(\'' + m.id + '\')', 'var(--red)') + '</div>';
+  }
+  if (k === 'declined') return '<span style="color:var(--red);font-weight:700;font-size:0.84rem">Rejected</span>';
+  if (k === 'completed') return '<span style="color:var(--blue);font-weight:700;font-size:0.84rem">Completed</span>';
+  if (m.direction === 'incoming') {
+    return '<div style="display:flex;gap:6px">' +
+      b('Accept', 'respondMeeting(\'' + m.id + '\',\'confirmed\')') +
+      b('Reject', 'respondMeeting(\'' + m.id + '\',\'declined\')', 'var(--red)') + '</div>';
+  }
+  return '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">' +
+    '<span style="color:var(--amber);font-weight:700;font-size:0.8rem;display:block;width:100%">Awaiting response</span>' +
+    b('Reschedule', 'openRescheduleModal(\'' + m.id + '\')') +
+    b('Cancel', 'cancelMeeting(\'' + m.id + '\')', 'var(--red)') + '</div>';
+}
 
 window.__b2bTeam = window.__b2bTeam || '';
+window.__b2bMtgQ = window.__b2bMtgQ || '';
+window.__b2bMtgDate = window.__b2bMtgDate || '';
+window.__b2bMtgSlot = window.__b2bMtgSlot || '';
+window.__b2bMtgStatus = window.__b2bMtgStatus || '';
+window.__b2bMtgPage = window.__b2bMtgPage || 1;
+const MTG_ROWS = 10;
+function mtgSet(key, v) { window[key] = v; window.__b2bMtgPage = 1; render(); }
+function mtgSetQ(v) {
+  window.__b2bMtgQ = v; window.__b2bMtgPage = 1; render();
+  const el = $('b2bMtgQ'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
+function mtgPage(d) { window.__b2bMtgPage += d; render(); }
+
+function mtgFiltered() {
+  const q = window.__b2bMtgQ.toLowerCase();
+  return S.b2b.meetings.filter((m) =>
+    (!q || (m.name + ' ' + memberName(m) + ' ' + m.company).toLowerCase().includes(q)) &&
+    (!window.__b2bTeam || m.memberId === window.__b2bTeam) &&
+    (!window.__b2bMtgDate || m.date === window.__b2bMtgDate) &&
+    (!window.__b2bMtgSlot || m.slot === window.__b2bMtgSlot) &&
+    (!window.__b2bMtgStatus || mtgStatusKey(m) === window.__b2bMtgStatus));
+}
+
+function exportMeetingsCsv() {
+  const list = mtgFiltered();
+  if (!list.length) { toast('No meetings to export.', 'error'); return; }
+  const head = ['From', 'From Company', 'To', 'To Company', 'Date', 'Slot', 'Venue', 'Title', 'Description', 'Status'];
+  const rows = list.map((m) => {
+    const inc = m.direction === 'incoming';
+    return [inc ? m.name : memberName(m), inc ? m.company : EVENT.exhibitor,
+      inc ? memberName(m) : m.name, inc ? EVENT.exhibitor : m.company,
+      m.date, slotRange(m.slot), m.venue, mtgTitle(m), m.note || '-', MTG_STATUS[mtgStatusKey(m)][1]];
+  });
+  const csv = [head].concat(rows)
+    .map((r) => r.map((v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'B2B-Meetings-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  toast('Meetings exported.', 'success');
+}
+
 function b2bMeetingsBody() {
-  const teamSel =
-    '<select onchange="window.__b2bTeam=this.value;render()" style="border:1px solid #CFD7E4;border-radius:8px;padding:8px 10px;font-family:inherit;font-size:0.82rem;cursor:pointer">' +
-      '<option value="">All Team Members</option>' +
-      S.b2b.team.map((t) => '<option value="' + t.id + '"' + (window.__b2bTeam === t.id ? ' selected' : '') + '>' + esc(t.name) + '</option>').join('') +
+  const sel = (key, opts, allLabel) =>
+    '<select class="flt-sel" onchange="mtgSet(\'' + key + '\', this.value)">' +
+      '<option value="">' + allLabel + '</option>' +
+      opts.map(([v, l]) => '<option value="' + esc(v) + '"' + (window[key] === v ? ' selected' : '') + '>' + esc(l) + '</option>').join('') +
     '</select>';
-  const filt = (arr) => window.__b2bTeam ? arr.filter((m) => m.memberId === window.__b2bTeam) : arr;
+  const hasFlt = window.__b2bMtgQ || window.__b2bTeam || window.__b2bMtgDate || window.__b2bMtgSlot || window.__b2bMtgStatus;
 
-  const inc = filt(S.b2b.meetings.filter((m) => m.direction === 'incoming' && m.status === 'pending'));
-  const incoming = inc.length
-    ? '<div class="card pending-card" style="margin-bottom:16px"><div class="card-head-row"><h2 class="card-title">Incoming Requests</h2>' +
-      '<span class="pill amber">' + inc.length + ' awaiting response</span></div>' +
-      '<p style="font-size:0.78rem;color:var(--muted);margin:0 0 6px">Requests sent to <b>any of your team members</b> appear here — you (main login) or the member can approve them.</p>' +
-      inc.map((m) =>
-        '<div class="action-row"><span class="aicon"><span class="material-symbols-outlined">move_to_inbox</span></span>' +
-        '<div class="atext"><b>' + esc(m.name) + ' · ' + esc(m.company) +
-          ' <span class="pill blue">for ' + esc(memberName(m)) + '</span></b>' +
-        '<span>' + esc(m.date) + ' · ' + esc(m.slot) + ' · ' + esc(m.venue) + (m.note ? ' — “' + esc(m.note) + '”' : '') + '</span></div>' +
-        '<button class="btn btn-primary btn-sm" onclick="respondMeeting(\'' + m.id + '\',\'confirmed\')">Accept</button>' +
-        '<button class="btn btn-outline btn-sm" onclick="respondMeeting(\'' + m.id + '\',\'declined\')">Decline</button>' +
-        '</div>').join('') + '</div>'
-    : '';
+  const all = S.b2b.meetings;
+  const cnt = (k) => all.filter((m) => mtgStatusKey(m) === k).length;
+  const list = mtgFiltered();
+  const totalPages = Math.max(1, Math.ceil(list.length / MTG_ROWS));
+  if (window.__b2bMtgPage > totalPages) window.__b2bMtgPage = totalPages;
+  const start = (window.__b2bMtgPage - 1) * MTG_ROWS;
 
-  const rows = filt(S.b2b.meetings).map((m, i) =>
-    '<tr><td>' + (i + 1) + '</td>' +
-    '<td><span class="td-strong">' + esc(m.name) + '</span><span class="td-sub">' + esc(m.company) + '</span></td>' +
-    '<td><span class="td-strong">' + esc(memberName(m)) + '</span>' +
-      '<span class="td-sub">' + (m.direction === 'incoming' ? 'requested with' : 'attending') + '</span></td>' +
-    '<td>' + esc(m.date) + '<span class="td-sub">' + esc(m.slot) + '</span></td>' +
-    '<td>' + esc(m.venue) + '</td>' +
-    '<td>' + (m.direction === 'incoming' ? '<span class="pill blue">Incoming</span>' : '<span class="pill gray">Sent by you</span>') + '</td>' +
-    '<td>' + mtgStatusPill(m) +
-      (m.rescheduled && m.status === 'pending' ? '<span class="td-sub" style="color:var(--amber)">Rescheduled — awaiting re-confirmation</span>' : '') + '</td>' +
-    '<td class="td-actions">' +
-      (m.status === 'confirmed'
-        ? '<button class="btn-link" onclick="openRescheduleModal(\'' + m.id + '\')">Reschedule</button>' : '') +
-      (m.direction === 'outgoing' && m.status === 'pending'
-        ? '<button class="btn-link" onclick="openRescheduleModal(\'' + m.id + '\')">Reschedule</button>' +
-          '<button class="btn-link danger" onclick="cancelMeeting(\'' + m.id + '\')">Cancel</button>' : '') +
-    '</td></tr>').join('') ||
-    '<tr><td colspan="8" style="color:var(--muted)">No meetings yet — request one from the Recommended Matches tab.</td></tr>';
+  const rows = list.slice(start, start + MTG_ROWS).map((m) => {
+    const inc = m.direction === 'incoming';
+    const p = PARTICIPANTS.find((x) => x.id === m.partId);
+    const t = teamById(m.memberId) || {};
+    const visitor = mtgPersonCell(m.name, m.company, p ? p.desig : '');
+    const member = mtgPersonCell(memberName(m), 'HAL', t.desig || '');
+    return '<tr>' +
+      '<td style="min-width:170px">' + (inc ? visitor : member) + '</td>' +
+      '<td style="min-width:170px">' + (inc ? member : visitor) + '</td>' +
+      '<td style="white-space:nowrap">' + esc(m.date) + '<span class="td-sub">' + esc(slotRange(m.slot)) + '</span>' +
+        '<span class="td-sub">' + esc(m.venue) + '</span></td>' +
+      '<td style="min-width:150px;max-width:210px">' + esc(mtgTitle(m)) + '</td>' +
+      '<td style="min-width:160px;max-width:230px">' + (m.note ? esc(m.note) : '-') + '</td>' +
+      '<td>' + mtgStatusPill(m) + '</td>' +
+      '<td style="min-width:190px">' + mtgActions(m) + '</td>' +
+    '</tr>';
+  }).join('') ||
+    '<tr><td colspan="7"><div class="empty" style="padding:26px 10px"><span class="material-symbols-outlined">event_busy</span>' +
+    '<h3>No meetings found</h3><p>' + (all.length ? 'No meetings match the selected filters.' : 'Request a meeting from the Recommended Matches tab.') + '</p></div></td></tr>';
 
-  const all = filt(S.b2b.meetings);
-  const confirmed = all.filter((m) => m.status === 'confirmed').length;
-  return incoming +
-    '<div class="tiles">' +
+  return '<div class="tiles">' +
       '<div class="tile blue"><div class="t-label">Total Meetings</div><div class="t-value">' + all.length + '</div></div>' +
-      '<div class="tile accent"><div class="t-label">Confirmed</div><div class="t-value">' + confirmed + '</div></div>' +
-      '<div class="tile"><div class="t-label">Awaiting Response</div><div class="t-value">' + all.filter((m) => m.status === 'pending').length + '</div></div>' +
+      '<div class="tile"><div class="t-label">Pending</div><div class="t-value">' + (cnt('pending') + cnt('rescheduled')) + '</div></div>' +
+      '<div class="tile accent"><div class="t-label">Confirmed</div><div class="t-value">' + cnt('confirmed') + '</div></div>' +
+      '<div class="tile"><div class="t-label">Rejected</div><div class="t-value">' + cnt('declined') + '</div></div>' +
     '</div>' +
-    '<div class="card"><div class="card-head-row" style="flex-wrap:wrap;gap:10px"><h2 class="card-title">Meeting Schedule</h2>' +
-      '<div style="display:flex;gap:8px;align-items:center">' + teamSel +
-      '<button class="btn btn-outline btn-sm" onclick="openTeamModal()"><span class="material-symbols-outlined" style="font-size:16px">groups</span>My Team (' + S.b2b.team.length + ')</button></div></div>' +
-    '<div class="tablewrap"><table class="grid">' +
-    '<tr><th>No.</th><th>With</th><th>Team Member</th><th>Date / Slot</th><th>Venue</th><th>Direction</th><th>Status</th><th></th></tr>' +
-    rows + '</table></div></div>';
+    '<div class="card">' +
+      '<div class="card-head-row" style="margin-bottom:6px"><h2 class="card-title">Meetings &amp; Requests</h2>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          '<button class="icon-act" title="Export" onclick="exportMeetingsCsv()"><span class="material-symbols-outlined" style="font-size:19px;color:var(--blue)">download</span></button>' +
+          '<button class="btn btn-outline btn-sm" onclick="openTeamModal()"><span class="material-symbols-outlined" style="font-size:16px">groups</span>My Team (' + S.b2b.team.length + ')</button>' +
+        '</div></div>' +
+      '<p style="font-size:0.78rem;color:var(--muted);margin:0 0 12px">All requests sent to <b>any of your team members</b> appear here — you (main login) or the member can accept them.</p>' +
+      '<div class="b2b-row">' +
+        '<div style="flex:1;min-width:220px;display:flex;align-items:center;gap:8px;border:1px solid #CFD7E4;border-radius:9px;padding:0 12px">' +
+          '<span class="material-symbols-outlined" style="font-size:19px;color:var(--muted)">search</span>' +
+          '<input type="text" id="b2bMtgQ" value="' + esc(window.__b2bMtgQ) + '" placeholder="Search Meetings by User Name" oninput="mtgSetQ(this.value)" ' +
+            'style="flex:1;border:none;outline:none;padding:9px 0;font-family:inherit;font-size:0.86rem;background:none">' +
+        '</div>' +
+        sel('__b2bMtgDate', EVENT.eventDays.map((d) => [d, d]), 'All Dates') +
+        sel('__b2bMtgSlot', SLOT_TIMES.map((s) => [s, slotRange(s)]), 'All Slot') +
+        sel('__b2bMtgStatus', Object.keys(MTG_STATUS).map((k) => [k, MTG_STATUS[k][1]]), 'All Status') +
+        sel('__b2bTeam', S.b2b.team.map((t) => [t.id, t.name]), 'All Team Members') +
+        (hasFlt ? '<button class="btn btn-outline btn-sm" onclick="window.__b2bMtgQ=\'\';window.__b2bTeam=\'\';window.__b2bMtgDate=\'\';window.__b2bMtgSlot=\'\';window.__b2bMtgStatus=\'\';window.__b2bMtgPage=1;render()"><span class="material-symbols-outlined" style="font-size:15px">filter_alt_off</span>Clear</button>' : '') +
+      '</div>' +
+      '<div class="tablewrap" style="margin-top:12px"><table class="grid">' +
+      '<tr><th>From</th><th>To</th><th>Meeting At</th><th>Meeting Title</th><th>Meeting Description</th><th>Status</th><th>Actions</th></tr>' +
+      rows + '</table></div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:12px;font-size:0.8rem;color:var(--muted)">' +
+        '<span class="pill blue">Total: ' + list.length + '</span>' +
+        '<span style="display:flex;align-items:center;gap:8px">Rows ' + MTG_ROWS + ' · Showing <b>' + (list.length ? start + 1 : 0) + '</b> to <b>' + Math.min(start + MTG_ROWS, list.length) + '</b>' +
+          '<button class="btn btn-outline btn-sm" onclick="mtgPage(-1)"' + (window.__b2bMtgPage <= 1 ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size:16px">keyboard_arrow_left</span></button>' +
+          '<button class="btn btn-outline btn-sm" onclick="mtgPage(1)"' + (window.__b2bMtgPage >= totalPages ? ' disabled' : '') + '><span class="material-symbols-outlined" style="font-size:16px">keyboard_arrow_right</span></button>' +
+        '</span></div>' +
+    '</div>';
 }
 
 ROUTES['b2b-matchmaking'] = viewB2BMatchmaking;
