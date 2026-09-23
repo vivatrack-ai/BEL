@@ -722,3 +722,27 @@ table.grid tr:hover td { background: #FAFBFE; }
 .room-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line); padding-top: 10px; margin-top: auto; }
 .room-foot .price b { font-size: 1.02rem; }
 .room-foot .price small { color: var(--muted); font-weight: 600; }
+
+/* ============ Badge Quota Management (platform layout) ============ */
+.bq-grid { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; margin-bottom: 20px; align-items: stretch; }
+@media (max-width: 1000px) { .bq-grid { grid-template-columns: 1fr; } }
+.bq-tiles { display: grid; grid-template-rows: auto 1fr; gap: 14px; }
+.bq-tile { position: relative; overflow: hidden; border-radius: 14px; padding: 20px 22px; border: 1px solid var(--line); box-shadow: var(--shadow); }
+.bq-tile .material-symbols-outlined.wm { position: absolute; right: -14px; bottom: -14px; font-size: 110px; opacity: 0.1; transform: rotate(-14deg); pointer-events: none; }
+.bq-tile .t-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 800; }
+.bq-tile .t-big { font-size: 2.6rem; font-weight: 800; line-height: 1.1; }
+.bq-tile .t-big small { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+.bq-tile.green { background: linear-gradient(135deg, #E6F4EC, #F4FBF7); }
+.bq-tile.blue { background: linear-gradient(135deg, #EAF0FC, #F5F8FE); }
+.bq-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.bq-carousel { position: relative; border-radius: 14px; border: 1px solid var(--line); box-shadow: var(--shadow); background: linear-gradient(135deg, #F4F7FC, #FCFDFF); padding: 24px 26px; display: flex; flex-direction: column; overflow: hidden; }
+.bq-carousel .material-symbols-outlined.wm { position: absolute; right: -20px; top: 30%; font-size: 170px; opacity: 0.07; transform: rotate(-12deg); pointer-events: none; }
+.bq-nav { position: absolute; top: 18px; right: 18px; display: flex; gap: 8px; }
+.bq-nav button { width: 34px; height: 34px; border-radius: 99px; border: 1px solid var(--line); background: #fff; cursor: pointer; color: var(--blue); display: flex; align-items: center; justify-content: center; }
+.bq-nav button:hover { background: var(--blue-soft); }
+.bq-cat-name { color: var(--blue); font-size: 1.5rem; font-weight: 800; letter-spacing: -0.01em; margin: 6px 0 26px; }
+.bq-dots { display: flex; gap: 7px; justify-content: center; margin-top: 20px; }
+.bq-dots i { width: 8px; height: 8px; border-radius: 99px; background: #C9D4E8; cursor: pointer; }
+.bq-dots i.on { background: var(--blue); }
+.icon-act { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line); background: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.icon-act:hover { background: #F1F4FA; }
