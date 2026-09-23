@@ -143,6 +143,28 @@ const PARTICIPANTS = [
     lookingFor: { 'Radar Systems': ['Ground Surveillance Radar', 'AESA (Active Electronically Scanned Array) Radar'], 'Electronic Warfare': ['Electronic Countermeasures (ECM)'] } },
   { id: 'pt_andes', name: 'Carlos Mendez', desig: 'Logistics Head', company: 'Andes Defence Logistics', country: 'Brazil', state: 'São Paulo', city: 'São Paulo', type: 'Delegation',
     lookingFor: { 'Defence Logistics & Supply Chain': ['Warehousing Solutions', 'Packaging Solutions', 'Freight & Transportation Services'] } },
+  { id: 'pt_bharatrotor', name: 'Sandeep Rathore', desig: 'VP — Rotary Wing', company: 'Bharat Rotorcraft Services', country: 'India', state: 'Uttar Pradesh', city: 'Lucknow', type: 'Visitor',
+    lookingFor: { 'Helicopters & Rotary Wing': ['Utility Helicopters', 'Attack Helicopters'], 'MRO & Lifecycle Support': ['Overhaul Services'] } },
+  { id: 'pt_aegean', name: 'Nikos Papadopoulos', desig: 'Head of Procurement', company: 'Aegean Aerospace', country: 'Greece', state: 'Attica', city: 'Athens', type: 'Delegation',
+    lookingFor: { 'Aircraft Systems (Fixed Wing)': ['Fighter Aircraft'], 'Avionics': ['Mission Computers'] } },
+  { id: 'pt_kalinga', name: 'Subhashree Das', desig: 'Director — Operations', company: 'Kalinga Aero Components', country: 'India', state: 'Odisha', city: 'Bhubaneswar', type: 'Exhibitor',
+    lookingFor: { 'Aerospace Structures': ['Airframes', 'Wings'], 'Precision Engineering': ['CNC Machining'] } },
+  { id: 'pt_southcross', name: 'Liam Walker', desig: 'Business Development Lead', company: 'Southern Cross Defence', country: 'Australia', state: 'New South Wales', city: 'Sydney', type: 'Delegation',
+    lookingFor: { 'MRO & Lifecycle Support': ['Maintenance Services', 'Upgrades & Retrofits'] } },
+  { id: 'pt_nilgiri', name: 'Karthik Subramanian', desig: 'CEO', company: 'Nilgiri Simulation Systems', country: 'India', state: 'Tamil Nadu', city: 'Coimbatore', type: 'Exhibitor',
+    lookingFor: { 'Simulation & Training': ['Flight Simulators', 'Maintenance Training Simulators'] } },
+  { id: 'pt_bavaria', name: 'Markus Weber', desig: 'Programme Manager', company: 'Bavaria Avionik GmbH', country: 'Germany', state: 'Bavaria', city: 'Munich', type: 'Delegation',
+    lookingFor: { 'Avionics': ['Cockpit Displays / Glass Cockpits', 'Flight Control Systems'] } },
+  { id: 'pt_konkan', name: 'Pooja Naik', desig: 'Head — Supply Chain', company: 'Konkan Marine Engineering', country: 'India', state: 'Goa', city: 'Vasco da Gama', type: 'Visitor',
+    lookingFor: { 'Shipbuilding & Marine Engineering': ['Ship Repair & Refit'], 'Naval Platforms': ['Offshore Patrol Vessels (OPVs)'] } },
+  { id: 'pt_andalus', name: 'Javier Ruiz', desig: 'Director — Space', company: 'Andalus Space Tech', country: 'Spain', state: 'Andalusia', city: 'Seville', type: 'Delegation',
+    lookingFor: { 'Space Systems': ['Earth Observation Satellites', 'Small Satellites / CubeSats'] } },
+  { id: 'pt_marutdrone', name: 'Aditya Joshi', desig: 'Founder', company: 'Marut Drone Works', country: 'India', state: 'Rajasthan', city: 'Jaipur', type: 'Exhibitor',
+    lookingFor: { 'Unmanned Aerial Systems': ['Rotary-Wing / Multirotor UAVs', 'Tactical UAVs'] } },
+  { id: 'pt_seoul', name: 'Min-jun Park', desig: 'Senior Manager', company: 'Seoul Precision Aero', country: 'South Korea', state: 'Seoul', city: 'Seoul', type: 'Delegation',
+    lookingFor: { 'Engines & Propulsion': ['Turbofan Engines'], 'Advanced Materials': ['Specialty Alloys'] } },
+  { id: 'pt_capeaero', name: 'Thabo Nkosi', desig: 'Fleet Director', company: 'Cape Aero Holdings', country: 'South Africa', state: 'Western Cape', city: 'Cape Town', type: 'Delegation',
+    lookingFor: { 'MRO & Lifecycle Support': ['Maintenance Services', 'Repair Services'], 'Helicopters & Rotary Wing': ['Utility Helicopters'] } },
 ];
 
 /* deterministic demo contact details for the profile page */
@@ -197,7 +219,7 @@ window.__b2bCountry = window.__b2bCountry || '';
 window.__b2bState = window.__b2bState || '';
 window.__b2bCity = window.__b2bCity || '';
 window.__b2bPage = window.__b2bPage || 1;
-const B2B_PAGE = 9;
+const B2B_PAGE = 12; // divisible by 2, 3 & 4 grid columns — no half-empty last row
 function b2bSetQ(v) { window.__b2bQ = v; window.__b2bPage = 1; render(); const el = $('b2bQ'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
 function b2bSetCountry(v) { window.__b2bCountry = v; window.__b2bState = ''; window.__b2bCity = ''; window.__b2bPage = 1; render(); }
 function b2bSetState(v) { window.__b2bState = v; window.__b2bCity = ''; window.__b2bPage = 1; render(); }
@@ -211,10 +233,10 @@ function b2bToggleFav(id) {
 }
 
 function b2bMatchPill(p) {
-  const already = S.b2b.meetings.some((mt) => mt.partId === p.id && mt.status !== 'declined');
+  const already = S.b2b.meetings.some((mt) => mt.partId === p.id && !['declined', 'cancelled'].includes(mt.status));
   if (!already) return '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();openMeetingModal(\'' + p.id + '\')"><span class="material-symbols-outlined" style="font-size:15px">event</span>Request Meeting</button>';
   return S.b2b.meetings.some((mt) => mt.partId === p.id && mt.status === 'confirmed')
-    ? '<span class="pill green">Meeting Confirmed</span>' : '<span class="pill amber">Meeting Requested</span>';
+    ? '<span class="pill green">Meeting Approved</span>' : '<span class="pill amber">Meeting Requested</span>';
 }
 const b2bScoreColor = (pct) => pct >= 60 ? 'var(--green)' : pct >= 30 ? 'var(--amber)' : 'var(--muted)';
 
@@ -279,7 +301,7 @@ function b2bMatchesBody() {
   const grid = '<div class="match-grid">' + list.map((x) => {
     const p = x.p, m = x.m;
     const fav = (S.b2b.favs || []).includes(p.id);
-    const met = S.b2b.meetings.some((mt) => mt.partId === p.id && mt.status !== 'declined');
+    const met = S.b2b.meetings.some((mt) => mt.partId === p.id && !['declined', 'cancelled'].includes(mt.status));
     return '<div class="match-card" onclick="location.hash=\'#/b2b-matchmaking/profile/' + p.id + '\'">' +
       '<button class="mc-bm' + (fav ? ' on' : '') + '" title="' + (fav ? 'Remove bookmark' : 'Bookmark') + '" onclick="event.stopPropagation();b2bToggleFav(\'' + p.id + '\')">' +
         '<span class="material-symbols-outlined" style="font-size:22px;' + (fav ? "font-variation-settings:'FILL' 1" : '') + '">bookmark</span></button>' +
@@ -293,7 +315,7 @@ function b2bMatchesBody() {
         '<button class="mc-act" title="Request Meeting" onclick="event.stopPropagation();openMeetingModal(\'' + p.id + '\')"><span class="material-symbols-outlined" style="font-size:19px">calendar_month</span></button>' +
       '</div>' +
       (met ? '<span class="mc-status">' + (S.b2b.meetings.some((mt) => mt.partId === p.id && mt.status === 'confirmed')
-        ? '<span class="pill green">Meeting Confirmed</span>' : '<span class="pill amber">Meeting Requested</span>') + '</span>' : '') +
+        ? '<span class="pill green">Meeting Approved</span>' : '<span class="pill amber">Meeting Requested</span>') + '</span>' : '') +
     '</div>';
   }).join('') + '</div>';
 
@@ -504,9 +526,12 @@ function saveReschedule(id) {
 
 function cancelMeeting(id) {
   if (!confirm('Cancel this meeting request?')) return;
-  S.b2b.meetings = S.b2b.meetings.filter((m) => m.id !== id);
+  const m = S.b2b.meetings.find((x) => x.id === id);
+  if (!m) return;
+  m.status = 'cancelled';
+  m.cancelledAt = nowStr();
   save(); render();
-  toast('Meeting request cancelled.', 'success');
+  toast('Meeting cancelled.', 'success');
 }
 
 /* ---------------- Meetings & Requests tab ----------------
@@ -514,13 +539,12 @@ function cancelMeeting(id) {
    From · To · Meeting At · Title · Description · Status · Actions,
    with search, date, slot, status & team filters and pagination.
    Requests to ANY team member land here in the main login. */
-const mtgStatusKey = (m) => m.status === 'confirmed' ? 'confirmed'
-  : m.status === 'completed' ? 'completed'
-  : m.status === 'declined' ? 'declined'
-  : m.rescheduled ? 'rescheduled' : 'pending';
+/* statuses follow the platform: Pending · Approved · Rejected · Cancelled · Completed
+   (a rescheduled meeting goes back to Pending with a "Rescheduled" note) */
+const mtgStatusKey = (m) => ['confirmed', 'declined', 'cancelled', 'completed'].includes(m.status) ? m.status : 'pending';
 const MTG_STATUS = {
-  pending: ['amber', 'Pending'], confirmed: ['green', 'Confirmed'], declined: ['red', 'Rejected'],
-  rescheduled: ['amber', 'Rescheduled'], completed: ['blue', 'Completed'],
+  pending: ['amber', 'Pending'], confirmed: ['green', 'Approved'], declined: ['red', 'Rejected'],
+  cancelled: ['gray', 'Cancelled'], completed: ['blue', 'Completed'],
 };
 const mtgStatusPill = (m) => { const s = MTG_STATUS[mtgStatusKey(m)]; return '<span class="pill ' + s[0] + '">' + s[1] + '</span>'; };
 
@@ -555,6 +579,7 @@ function mtgActions(m) {
       b('Cancel', 'cancelMeeting(\'' + m.id + '\')', 'var(--red)') + '</div>';
   }
   if (k === 'declined') return '<span style="color:var(--red);font-weight:700;font-size:0.84rem">Rejected</span>';
+  if (k === 'cancelled') return '<span style="color:var(--muted);font-weight:700;font-size:0.84rem">Cancelled</span>';
   if (k === 'completed') return '<span style="color:var(--blue);font-weight:700;font-size:0.84rem">Completed</span><span class="td-sub">Marked by organiser</span>';
   if (m.direction === 'incoming') {
     return '<div style="display:flex;gap:6px">' +
@@ -638,7 +663,7 @@ function b2bMeetingsBody() {
         '<span class="td-sub">' + esc(m.venue) + '</span></td>' +
       '<td style="min-width:150px;max-width:210px">' + esc(mtgTitle(m)) + '</td>' +
       '<td style="min-width:160px;max-width:230px">' + (m.note ? esc(m.note) : '-') + '</td>' +
-      '<td>' + mtgStatusPill(m) + '</td>' +
+      '<td>' + mtgStatusPill(m) + (m.rescheduled && mtgStatusKey(m) === 'pending' ? '<span class="td-sub" style="color:var(--amber)">Rescheduled</span>' : '') + '</td>' +
       '<td style="min-width:190px">' + mtgActions(m) + '</td>' +
     '</tr>';
   }).join('') ||
@@ -647,8 +672,8 @@ function b2bMeetingsBody() {
 
   return '<div class="tiles">' +
       '<div class="tile blue"><div class="t-label">Total Meetings</div><div class="t-value">' + all.length + '</div></div>' +
-      '<div class="tile"><div class="t-label">Pending</div><div class="t-value">' + (cnt('pending') + cnt('rescheduled')) + '</div></div>' +
-      '<div class="tile accent"><div class="t-label">Confirmed</div><div class="t-value">' + cnt('confirmed') + '</div></div>' +
+      '<div class="tile"><div class="t-label">Pending</div><div class="t-value">' + cnt('pending') + '</div></div>' +
+      '<div class="tile accent"><div class="t-label">Approved</div><div class="t-value">' + cnt('confirmed') + '</div></div>' +
       '<div class="tile"><div class="t-label">Rejected</div><div class="t-value">' + cnt('declined') + '</div></div>' +
     '</div>' +
     '<div class="card">' +
