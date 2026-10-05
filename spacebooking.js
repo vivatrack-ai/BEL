@@ -32,13 +32,30 @@ const SB_HALLS = ['A', 'B', 'C', 'D', 'E'].map((h, hi) => ({
   }),
 }));
 
+/* Chalet Line 1 — 10 chalets (100 sqm footprint) booked as 1 Floor or
+   2 Floor; same approval → 25/50/25 slab flow as hall stalls. */
+const SB_CHALET_PRICE = { chalet1: 600000, chalet2: 1000000 };
+const SB_CHALET = {
+  id: 'CH', name: 'Chalet Line 1', chalet: true,
+  stalls: Array.from({ length: 10 }, (_, i) => {
+    const n = i + 1;
+    return { name: 'CH-' + String(n).padStart(2, '0'), sqm: 100, size: '10X10', chalet: true,
+      design: 'Standalone Chalet', sides: '4 Sides', seedBooked: n % 4 === 0 };
+  }),
+};
+const sbZone = (id) => (id === 'CH' ? SB_CHALET : SB_HALLS.find((h) => h.id === id));
+const sbZoneLabel = (id) => (id === 'CH' ? 'Chalet Line 1' : 'Hall ' + id);
+const SB_SCHEME_LABEL = { shell: 'Shell', raw: 'Raw', chalet1: 'Chalet · 1 Floor', chalet2: 'Chalet · 2 Floor' };
+const sbSchemeLabel = (sc) => SB_SCHEME_LABEL[sc] || sc;
+const sbPrice = (st, sc) => (st.chalet ? SB_CHALET_PRICE[sc] : SB_PRICE[st.sqm][sc]);
+
 function sbBookedSet() {
   const set = {};
   S.spaceBooking.applications.forEach((a) => {
     if (a.status !== 'rejected') a.stalls.forEach((st) => { set[st.hall + '|' + st.name] = true; });
   });
   // HAL's originally seeded stalls also block inventory
-  S.stalls.forEach((st) => { set[st.hall.replace('Hall ', '') + '|' + st.stall] = true; });
+  S.stalls.forEach((st) => { set[(st.hall === 'Chalet Line 1' ? 'CH' : st.hall.replace('Hall ', '')) + '|' + st.stall] = true; });
   return set;
 }
 
@@ -80,8 +97,13 @@ function viewBookSpace() {
       /* compass */
       '<g transform="translate(950,52)"><circle r="16" fill="#fff" stroke="#CBB584"/><path d="M0,-10 L4,6 L0,3 L-4,6 Z" fill="#C6432E"/><text y="-20" text-anchor="middle" font-size="10" font-weight="800" fill="#8A7648" font-family="Mulish">N</text></g>' +
       /* chalet line */
-      '<rect x="70" y="56" width="360" height="26" rx="5" fill="#2E2A25"/>' +
-      '<text x="250" y="73" text-anchor="middle" fill="#F4E7C8" font-size="11" font-weight="800" letter-spacing="4" font-family="Mulish">CHALET LINE 1</text>' +
+      '<g class="hall chalet" onclick="location.hash=\'#/space-booking/hall/CH\'">' +
+        '<title>Chalet Line 1 — ' + availOf(SB_CHALET) + ' chalets available · click to select</title>' +
+        '<rect class="body" x="70" y="56" width="360" height="26" rx="5"/>' +
+        '<text class="cname" x="250" y="73" text-anchor="middle">CHALET LINE 1</text>' +
+        '<circle cx="428" cy="58" r="11" fill="#1E8E5A"/>' +
+        '<text x="428" y="59" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="10" font-weight="800" font-family="Mulish">' + availOf(SB_CHALET) + '</text>' +
+      '</g>' +
       /* outdoor display zone */
       '<rect x="70" y="96" width="250" height="88" rx="8" fill="#EAE0C6" stroke="#CBB584" stroke-dasharray="6 4"/>' +
       '<text class="zonelabel" x="110" y="144">OUTDOOR DISPLAY</text>' +
@@ -113,7 +135,7 @@ function viewBookSpace() {
     '</svg>';
 
   return '<h1 class="page-title">Space Booking — Exhibition Hall Selection</h1>' +
-    '<p class="page-sub">The venue’s outer layout — tap a highlighted hall to open its floor plan and select stalls. Chalet Line &amp; Outdoor areas are allotted by the organiser via Space Requirement.</p>' +
+    '<p class="page-sub">The venue’s outer layout — tap a highlighted hall or the Chalet Line to open its layout and select stalls / chalets. Outdoor areas are allotted by the organiser via Space Requirement.</p>' +
     '<div class="vmap-card"><div class="vmap">' + svg + '</div>' +
       '<div class="filter-chips" style="margin-top:12px;align-items:center">' +
         '<span class="pill blue">Tan halls with green count = open for booking</span>' +
@@ -122,34 +144,39 @@ function viewBookSpace() {
         '<span class="pill green">Green = parking</span>' +
       '</div></div>' +
     '<div class="hall-cards">' +
-      SB_HALLS.map((h) => '<div class="hall-card" onclick="location.hash=\'#/space-booking/hall/' + h.id + '\'">' +
-        '<span class="hc-icon"><span class="material-symbols-outlined">grid_view</span></span>' +
-        '<span><b>' + h.name + '</b><small>12 stalls · Shell &amp; Raw</small></span>' +
+      SB_HALLS.concat([SB_CHALET]).map((h) => '<div class="hall-card" onclick="location.hash=\'#/space-booking/hall/' + h.id + '\'">' +
+        '<span class="hc-icon"><span class="material-symbols-outlined">' + (h.chalet ? 'cottage' : 'grid_view') + '</span></span>' +
+        '<span><b>' + h.name + '</b><small>' + (h.chalet ? '10 chalets · 1 / 2 Floor' : '12 stalls · Shell &amp; Raw') + '</small></span>' +
         '<span class="hc-count">' + availOf(h) + ' available</span></div>').join('') +
     '</div>';
 }
 
 /* ---------------- VIEW · Hall stall grid ---------------- */
 function viewHallStalls(hallId) {
-  const hall = SB_HALLS.find((h) => h.id === hallId);
+  const hall = sbZone(hallId);
   if (!hall) { location.hash = '#/space-booking/book'; return ''; }
   const booked = sbBookedSet();
 
   /* spatial floor-plan placement: large 12X9 stalls centre, 9X6 along the
      outdoor side, 6X6 along the roadside — like the hall drawing */
-  const AREA = ['l1', 'l2', 'l3', 'l4', 'm5', 'm6', 'm7', 'm8', 't9', 't10', 't11', 't12'];
+  const AREA = hall.chalet ? [] : ['l1', 'l2', 'l3', 'l4', 'm5', 'm6', 'm7', 'm8', 't9', 't10', 't11', 't12'];
   const tiles = hall.stalls.map((st, idx) => {
     const isBooked = st.seedBooked || booked[hall.id + '|' + st.name];
     const inSel = window.__sbSel.some((s) => s.hall === hall.id && s.name === st.name);
     const cls = isBooked ? 'booked' : inSel ? 'insel' : 'avail';
-    return '<div class="stall-tile ' + cls + '" style="grid-area:' + AREA[idx] + '"' +
+    return '<div class="stall-tile ' + cls + '"' + (AREA[idx] ? ' style="grid-area:' + AREA[idx] + '"' : '') +
       (isBooked ? '' : ' onclick="openStallDetail(\'' + hall.id + '\',\'' + st.name + '\')"') + '>' +
       '<b>' + st.name + '</b><span>' + st.size + ' · ' + st.sqm + ' sqm</span>' +
       '<span>' + (isBooked ? 'Booked' : inSel ? 'In Selection' : 'Available') + '</span></div>';
   }).join('');
 
-  const floorplan =
-    '<div class="fp-wrap">' +
+  const floorplan = hall.chalet
+    ? '<div class="fp-wrap">' +
+        '<div class="fp-band">APRON ROAD — VISITOR SIDE</div>' +
+        '<div class="chalet-grid">' + tiles + '</div>' +
+        '<div class="fp-band bottom">RUNWAY 09/27 — FLYING DISPLAY VIEW</div>' +
+      '</div>'
+    : '<div class="fp-wrap">' +
       '<div class="fp-band"><span class="fp-exit" style="left:16px">SERVICE SPACE</span>ROADSIDE' +
         '<span class="fp-exit" style="right:16px">SERVICE SPACE</span></div>' +
       '<div class="fp-mid">' +
@@ -163,14 +190,14 @@ function viewHallStalls(hallId) {
 
   const selRows = window.__sbSel.map((s, i) =>
     '<div class="prod-row" style="padding:10px 12px">' +
-      '<div class="pinfo"><b><span class="regno">' + esc(s.name) + '</span> <span class="pill blue">' + (s.scheme === 'raw' ? 'Raw' : 'Shell') + '</span></b>' +
-      '<span>Hall ' + esc(s.hall) + ' · ' + esc(s.size) + ' sq.m</span></div>' +
+      '<div class="pinfo"><b><span class="regno">' + esc(s.name) + '</span> <span class="pill blue">' + sbSchemeLabel(s.scheme) + '</span></b>' +
+      '<span>' + esc(sbZoneLabel(s.hall)) + ' · ' + esc(s.size) + ' sq.m</span></div>' +
       '<b class="money" style="color:var(--green)">' + money(s.price) + '</b>' +
       '<button class="btn-link danger" onclick="sbRemoveSel(' + i + ')" title="Remove">✕</button></div>').join('');
   const total = window.__sbSel.reduce((a, s) => a + s.price, 0);
 
   return '<a class="back-link" href="#/space-booking/book"><span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>Halls</a>' +
-    '<h1 class="page-title">' + esc(hall.name) + ' (Stall Selection)</h1>' +
+    '<h1 class="page-title">' + esc(hall.name) + (hall.chalet ? ' (Chalet Selection)' : ' (Stall Selection)') + '</h1>' +
     '<div class="filter-chips" style="margin-bottom:14px">' +
       '<span class="pill green">Available</span><span class="pill amber">Booked</span><span class="pill gray">In Selection</span></div>' +
     '<div class="prof-layout"><div>' + floorplan + '</div>' +
@@ -192,8 +219,20 @@ function sbRemoveSel(i) { window.__sbSel.splice(i, 1); render(); }
 
 /* ---------------- Stall Detail modal (2 steps, like the platform) ---------------- */
 function openStallDetail(hallId, stallName) {
-  const hall = SB_HALLS.find((h) => h.id === hallId);
+  const hall = sbZone(hallId);
   const st = hall.stalls.find((x) => x.name === stallName);
+  if (st.chalet) {
+    openModal('Chalet Detail',
+      '<b style="display:block;margin-bottom:4px">Chalet Type</b>' +
+      '<p style="font-size:0.8rem;color:var(--muted);margin:0 0 14px">Kindly select the number of floors to proceed with the booking process.</p>' +
+      '<div class="radio-cards" style="grid-template-columns:1fr">' +
+        '<label class="radio-card" onclick="showStallDetail(\'' + hallId + '\',\'' + stallName + '\',\'chalet1\')" style="text-align:center;padding:22px">' +
+          '<b style="font-size:1.05rem">1 Floor Chalet</b><small>' + money(SB_CHALET_PRICE.chalet1) + ' (' + st.size + ' · ' + st.sqm + ' sqm)</small></label>' +
+        '<label class="radio-card" onclick="showStallDetail(\'' + hallId + '\',\'' + stallName + '\',\'chalet2\')" style="text-align:center;padding:22px">' +
+          '<b style="font-size:1.05rem">2 Floor Chalet</b><small>' + money(SB_CHALET_PRICE.chalet2) + ' (' + st.size + ' · ' + st.sqm + ' sqm per floor)</small></label>' +
+      '</div>');
+    return;
+  }
   const p = SB_PRICE[st.sqm];
   openModal('Stall Detail',
     '<b style="display:block;margin-bottom:4px">Stall Category</b>' +
@@ -207,18 +246,18 @@ function openStallDetail(hallId, stallName) {
 }
 
 function showStallDetail(hallId, stallName, scheme) {
-  const hall = SB_HALLS.find((h) => h.id === hallId);
+  const hall = sbZone(hallId);
   const st = hall.stalls.find((x) => x.name === stallName);
-  const price = SB_PRICE[st.sqm][scheme];
+  const price = sbPrice(st, scheme);
   const row = (icon, val, label, color) =>
     '<div class="action-row" style="padding:9px 0"><span class="aicon" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">' + icon + '</span></span>' +
     '<div class="atext"><b' + (color ? ' style="color:' + color + '"' : '') + '>' + val + '</b><span>' + label + '</span></div></div>';
-  openModal('Stall Detail',
+  openModal(st.chalet ? 'Chalet Detail' : 'Stall Detail',
     row('storefront', esc(st.name), 'Stall Name') +
     row('location_on', esc(hall.name), 'Yelahanka Air Force Station, Bengaluru') +
     row('straighten', st.sqm + ' sq.m (' + st.size + ')', 'Total Area') +
     row('check_circle', 'Available', 'Stall Status', 'var(--green)') +
-    row('category', scheme === 'raw' ? 'Raw' : 'Shell', 'Category') +
+    row('category', sbSchemeLabel(scheme), 'Category') +
     row('grid_view', esc(st.design), 'Stall Design') +
     row('payments', money(price), 'Total Investment'),
     '<button class="btn btn-outline" onclick="openStallDetail(\'' + hallId + '\',\'' + stallName + '\')">Back</button>' +
@@ -226,12 +265,12 @@ function showStallDetail(hallId, stallName, scheme) {
 }
 
 function sbSelectStall(hallId, stallName, scheme) {
-  const hall = SB_HALLS.find((h) => h.id === hallId);
+  const hall = sbZone(hallId);
   const st = hall.stalls.find((x) => x.name === stallName);
   if (!window.__sbSel.some((s) => s.hall === hallId && s.name === stallName)) {
     window.__sbSel.push({
       hall: hallId, name: st.name, size: st.size, sqm: st.sqm,
-      design: st.design, sides: st.sides, scheme: scheme, price: SB_PRICE[st.sqm][scheme],
+      design: st.design, sides: st.sides, scheme: scheme, price: sbPrice(st, scheme),
     });
   }
   closeModal(); render();
@@ -245,7 +284,7 @@ function sbRequestApproval() {
   S.spaceBooking.applications.unshift({
     id: 'sba_' + Date.now(),
     no: '#' + String(10000000 + Math.floor(Math.random() * 89999999)),
-    type: 'Pre-defined Space',
+    type: window.__sbSel.every((s) => s.hall === 'CH') ? 'Chalet' : 'Pre-defined Space',
     stalls: window.__sbSel.slice(),
     total: total,
     status: 'pending', // pending → approved (slabs) → confirmed
@@ -309,7 +348,7 @@ function sbSettleConfirmations() {
       a.confirmedAt = nowStr();
       a.stalls.forEach((st) => {
         if (!S.stalls.some((x) => x.stall === st.name)) {
-          S.stalls.push({ id: 'st_' + st.name, hall: 'Hall ' + st.hall, stall: st.name, area: st.sqm });
+          S.stalls.push({ id: 'st_' + st.name, hall: sbZoneLabel(st.hall), stall: st.name, area: st.sqm });
         }
       });
       changed = true;
@@ -356,7 +395,7 @@ function viewMySpaces() {
       '<div class="pkv" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">' +
         '<div class="cell"><div class="k">Stall Name</div><div class="v">' + a.stalls.map((s) => esc(s.name)).join(', ') + '</div></div>' +
         '<div class="cell"><div class="k">Stall Area</div><div class="v">' + a.stalls.map((s) => s.size).join(', ') + ' / ' + a.stalls.reduce((x, s) => x + s.sqm, 0) + ' m²</div></div>' +
-        '<div class="cell"><div class="k">Scheme</div><div class="v">' + a.stalls.map((s) => s.scheme === 'raw' ? 'Raw' : 'Shell').join(', ') + '</div></div>' +
+        '<div class="cell"><div class="k">Scheme</div><div class="v">' + a.stalls.map((s) => sbSchemeLabel(s.scheme)).join(', ') + '</div></div>' +
         '<div class="cell"><div class="k">Open Sides</div><div class="v">' + esc(a.stalls[0].sides) + '</div></div>' +
         '<div class="cell"><div class="k">Total</div><div class="v">' + money(a.total) + '</div></div>' +
       '</div>' +
