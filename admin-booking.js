@@ -134,7 +134,23 @@ function sbdBookings() {
     const d = b.source === 'demo' && dec[b.id];
     if (!d || b.status !== 'pending') return;
     b.status = d.status; b.remark = d.remark || ''; b.approvedBy = d.by || ''; b.approvedAt = d.at || '';
-    if (d.status === 'approved') b.slabs = SBD_SLABS.map(([label, pct, due]) => ({ label: label, amount: Math.round(b.total * pct), due: due, paidAt: null, method: '', txn: '' }));
+    if (d.status === 'approved') b.slabs = SBD_SLABS.map(([label, pct, due]) => ({ label: label, amount: 0, due: due, paidAt: null, method: '', txn: '' }));
+  });
+  /* order pricing (space-pricing.js): corner charges + GST 18%, registration
+     amount adjusted once per exhibitor on its earliest live application */
+  const firstLive = {};
+  out.slice().sort((a, b) => a.createdAt - b.createdAt).forEach((b) => {
+    if (b.status !== 'rejected' && !firstLive[b.company]) firstLive[b.company] = b.id;
+  });
+  out.forEach((b) => {
+    b.pricing = sbpPrice(b.stalls, firstLive[b.company] === b.id);
+    b.value = b.pricing.grand;
+    b.total = b.pricing.payable;
+    b.slabs.forEach((sl, i) => {
+      const ps = b.pricing.slabs[i];
+      sl.gross = ps.gross; sl.credit = ps.credit; sl.amount = ps.amount;
+      if (!sl.amount) { sl.paidAt = null; sl.method = ''; sl.txn = ''; sl.adjusted = true; }
+    });
   });
   return out.sort((a, b) => b.createdAt - a.createdAt);
 }
@@ -535,13 +551,33 @@ function sbaOpen(id) {
   const slabRows = b.slabs.map((sl) =>
     '<tr><td><b>' + esc(sl.label) + '</b><span class="td-sub">Due ' + esc(sl.due) + '</span></td>' +
     '<td class="money">' + money(sl.amount) + '</td>' +
-    '<td>' + (sl.paidAt ? '<span class="pill green">Paid</span><span class="td-sub">' + sbdFmt(sl.paidAt) + '</span>' : '<span class="pill amber">Due</span>') + '</td>' +
+    '<td>' + (sl.adjusted ? '<span class="pill blue">Adjusted</span><span class="td-sub">Registration Amount</span>'
+      : sl.paidAt ? '<span class="pill green">Paid</span><span class="td-sub">' + sbdFmt(sl.paidAt) + '</span>' : '<span class="pill amber">Due</span>') + '</td>' +
     '<td>' + (sl.paidAt ? esc(sl.method) + '<span class="td-sub regno">' + esc(sl.txn) + '</span>' : '<span style="color:var(--muted)">—</span>') + '</td></tr>').join('');
   const schedule = b.status === 'pending'
     ? '<div class="sba-note"><span class="material-symbols-outlined">info</span>On approval, a 3-slab payment schedule (25% · 50% · 25%) is issued to the exhibitor’s portal.</div>'
     : b.status === 'rejected'
       ? '<div class="sba-note red"><span class="material-symbols-outlined">block</span>Rejected' + (b.remark ? ' — ' + esc(b.remark) : '') + '. The space is released back to inventory.</div>'
       : '<div class="tablewrap"><table class="grid"><tr><th>Slab</th><th>Amount</th><th>Status</th><th>Method / Txn</th></tr>' + slabRows + '</table></div>';
+
+  /* payment summary — full calculation (space-pricing.js) */
+  const p = b.pricing;
+  const sum = (k, v, st) => '<div class="sba-sum"><span>' + k + '</span><b' + (st ? ' style="' + st + '"' : '') + '>' + v + '</b></div>';
+  const calc =
+    (p.lines.length > 1 ? p.lines.map((l) => sum('Base Price <small>' + esc(l.name) + '</small>', money(l.base))).join('') : sum('Base Price', money(p.base))) +
+    (p.lines.some((l) => l.side)
+      ? p.lines.filter((l) => l.side).map((l) => sum('Corner / Open Side Charges <small>' + esc(l.sides) + ' Open · ' + Math.round(l.sidePct * 100) + '%</small>', money(l.side))).join('')
+      : sum('Corner / Open Side Charges <small>' + (p.lines[0] && p.lines[0].hall === 'CH' ? 'not applicable on chalet' : '1 Side Open · no premium') + '</small>', money(0))) +
+    '<div class="sba-sum line"></div>' +
+    sum('Subtotal', money(p.subtotal)) +
+    sum('GST (18%)', money(p.gst)) +
+    '<div class="sba-sum line"></div>' +
+    sum('<b style="color:var(--blue)">Grand Total</b>', money(p.grand), 'color:var(--blue)') +
+    p.slabs.map((sl, i) => sum('Slab ' + (i + 1) + ' (' + Math.round(sl.pct * 100) + '%)', money(sl.gross))).join('') +
+    (p.credit ? sum('Registration Amount <small>already paid · adjusted</small>', '− ' + money(p.credit)) : '') +
+    '<div class="sba-sum line"></div>' +
+    sum('<b>Net Payable</b>', money(p.payable)) +
+    sum('Total Paid', money(rc.paid), 'color:var(--green)');
 
   const html =
     '<div class="sba-drawer-bg" onclick="sbaClose()"></div>' +
@@ -561,8 +597,7 @@ function sbaOpen(id) {
         '<section class="sba-sec"><h4><span class="material-symbols-outlined">payments</span>Payment Summary</h4>' +
           '<div class="sba-pct">' + rc.pct + '% received</div>' +
           '<div class="sba-bar big" title="' + money(rc.paid) + ' of ' + money(b.total) + '"><i style="width:' + rc.pct + '%"></i></div>' +
-          '<div class="sba-sum"><span>Total Payable</span><b>' + money(b.total) + '</b></div>' +
-          '<div class="sba-sum"><span>Total Paid</span><b style="color:var(--green)">' + money(rc.paid) + '</b></div>' +
+          calc +
           '<div class="sba-sum due"><span>Balance Due</span><b>' + money(rc.due) + '</b></div>' +
         '</section>' +
 
@@ -592,7 +627,7 @@ function sbaApprove(id) {
     const a = ex && ex.spaceBooking && ex.spaceBooking.applications.find((x) => x.id === id);
     if (!a) return;
     a.status = 'approved'; a.approvedAt = nowStr(); a.approvedBy = 'Organiser Admin';
-    a.slabs = SBD_SLABS.map(([label, p, due]) => ({ label: label, amount: Math.round(a.total * p), due: due }));
+    a.slabs = b.pricing.slabs.map((ps) => ({ label: ps.label, amount: ps.amount, due: ps.due }));
     saveExState(ex);
   } else sbdSaveDecision(id, { status: 'approved', by: 'Organiser Admin', at: nowStr() });
   render(); sbaOpen(id);

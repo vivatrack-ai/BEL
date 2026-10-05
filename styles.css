@@ -927,3 +927,5 @@ table.grid tr:hover td { background: #FAFBFE; }
 table.grid.sba-table th, table.grid.sba-table td { padding: 12px 8px; font-size: 0.84rem; }
 table.grid.sba-table th { font-size: 0.72rem; } .sba-table .td-strong { max-width: 170px; display: block; }
 .sba-table .sba-type { white-space: normal; } table.grid.sba-table td:first-child, table.grid.sba-table th:first-child { padding-left: 16px; }
+.sba-sum small { color: var(--muted); font-size: 0.74rem; margin-left: 4px; }
+.sba-sum.line { border-top: 1px solid var(--line); margin: 6px 0; padding: 0; }
