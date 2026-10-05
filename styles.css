@@ -420,6 +420,8 @@ table.grid tr:hover td { background: #FAFBFE; }
   display: flex; flex-direction: column;
   animation: slide 0.18s ease-out;
 }
+.drawer.wide { width: 560px; }
+.drawer .seg button { flex: 1; justify-content: center; }
 @keyframes slide { from { transform: translateX(30px); opacity: 0.5; } to { transform: none; opacity: 1; } }
 .drawer-head { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
 .drawer-head h3 { margin: 0; font-size: 1rem; font-weight: 800; }
@@ -802,3 +804,22 @@ table.grid tr:hover td { background: #FAFBFE; }
 .flt-sel:focus { outline: 2px solid var(--blue-soft); }
 .b2b-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .b2b-row + .b2b-row { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+
+/* ============ Admin · Space Booking dashboards ============ */
+.sbd-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.74rem; font-weight: 700; color: var(--muted); }
+.sbd-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sbd-legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.occ-row { display: grid; grid-template-columns: 70px 1fr 190px; gap: 14px; align-items: center; padding: 9px 0; font-size: 0.85rem; }
+.occ-row .occ-val { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-align: right; }
+.stack-bar { display: flex; gap: 2px; height: 14px; }
+.stack-bar i { display: block; height: 100%; min-width: 4px; }
+.stack-bar i:first-child { border-radius: 4px 0 0 4px; }
+.stack-bar i:last-child { border-radius: 0 4px 4px 0; }
+.stack-bar i:only-child { border-radius: 4px; }
+.col-chart { display: flex; align-items: flex-end; gap: 6px; height: 170px; padding: 18px 0 22px; border-bottom: 1px solid var(--line); margin-top: 10px; }
+.col-chart .col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; cursor: default; }
+.col-chart .col i { width: 100%; max-width: 26px; background: var(--blue); border-radius: 4px 4px 0 0; display: block; }
+.col-chart .col:hover i { background: var(--blue-dark); }
+.col-chart .col-lbl { position: absolute; top: -16px; font-size: 0.66rem; font-weight: 800; color: var(--ink); white-space: nowrap; }
+.col-chart .col-x { position: absolute; bottom: -20px; font-size: 0.62rem; color: var(--muted); font-weight: 700; white-space: nowrap; }
+@media (max-width: 700px) { .occ-row { grid-template-columns: 56px 1fr; } .occ-row .occ-val { grid-column: 1 / -1; text-align: left; } }

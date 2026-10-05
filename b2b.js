@@ -1,9 +1,10 @@
 /* ============================================================
    Evenuefy — B2B Matchmaking
-   Pairs the exhibitor's MATCHMAKING fields (Offering, plus
-   Exhibition Categories as a secondary signal) with what visiting
-   companies / delegations are LOOKING FOR, and lets the exhibitor
-   request B2B meetings with them (date · slot · venue · agenda).
+   Before the directory opens, the exhibitor states their preferences
+   (I am Looking For + Offering, from "LookingFor & Offering.xlsx").
+   The match % is two-way: my Offering vs their Looking For, and my
+   Looking For vs their Offering. The exhibitor can then request B2B
+   meetings (date · slot · venue · agenda).
    ============================================================ */
 
 'use strict';
@@ -167,6 +168,34 @@ const PARTICIPANTS = [
     lookingFor: { 'MRO & Lifecycle Support': ['Maintenance Services', 'Repair Services'], 'Helicopters & Rotary Wing': ['Utility Helicopters'] } },
 ];
 
+/* Demo "Offering" per participant (visitor registration captures
+   Offering too). Deterministic: 1–2 categories from the pool of
+   categories participants deal in, 2–4 subcategories each. */
+(function seedParticipantOfferings() {
+  const pool = [...new Set(PARTICIPANTS.reduce((a, p) => a.concat(Object.keys(p.lookingFor)), []))]
+    .filter((n) => MM_CATS.some((c) => c.name === n));
+  PARTICIPANTS.forEach((p) => {
+    if (p.offering) return;
+    let h = 7; for (let i = 0; i < p.id.length; i++) h = (h * 131 + p.id.charCodeAt(i)) >>> 0;
+    const next = () => { h = (Math.imul(h ^ (h >>> 15), 2246822507) + 0x9E3779B9) >>> 0; return h >>> 8; };
+    const off = {};
+    const nCats = 1 + (next() % 2);
+    for (let k = 0; k < nCats; k++) {
+      const catName = pool[next() % pool.length];
+      const cat = MM_CATS.find((c) => c.name === catName);
+      const subs = cat.subs.filter((x) => x.indexOf('Other') !== 0);
+      const want = 2 + (next() % 3);
+      const pick = off[cat.name] || [];
+      for (let j = 0; j < want * 4 && pick.length < want; j++) {
+        const sub = subs[next() % Math.min(subs.length, 10)];
+        if (!pick.includes(sub)) pick.push(sub);
+      }
+      off[cat.name] = pick;
+    }
+    p.offering = off;
+  });
+})();
+
 /* deterministic demo contact details for the profile page */
 function ptEmail(p) {
   return p.name.replace(/[^A-Za-z ]/g, '').trim().split(/\s+/)[0].toLowerCase() + '@' +
@@ -180,6 +209,12 @@ function ptPhone(p) {
 /* ---------------- match math ---------------- */
 const flatSubs = (map) => Object.keys(map || {}).reduce((a, k) => a.concat(map[k]), []);
 
+/* Two-way score:
+   · Demand side — how much of THEIR Looking For is covered by MY
+     Offering (exact subcategory = 1, via my Exhibition Categories = ½).
+   · Supply side — how much of THEIR Offering is something I am
+     Looking For (exact subcategory = 1, same category only = ½).
+   Overall = average of the sides that can be computed. */
 function b2bMatchInfo(p) {
   const M = S.profile.matchmaking;
   const off = flatSubs(M.offering);
@@ -187,8 +222,157 @@ function b2bMatchInfo(p) {
   const want = flatSubs(p.lookingFor);
   const offHit = want.filter((s) => off.includes(s));
   const catHit = want.filter((s) => cats.includes(s) && !offHit.includes(s));
-  const pct = want.length ? Math.round(((offHit.length + catHit.length * 0.5) / want.length) * 100) : 0;
-  return { offHit: offHit, catHit: catHit, pct: Math.min(100, pct) };
+  const demand = want.length ? Math.min(1, (offHit.length + catHit.length * 0.5) / want.length) : null;
+
+  const myLf = M.lookingFor || {};
+  const theirOff = p.offering || {};
+  const lfHit = [], lfCatHit = [];
+  Object.keys(theirOff).forEach((cat) => theirOff[cat].forEach((s) => {
+    if ((myLf[cat] || []).includes(s)) lfHit.push(s);
+    else if ((myLf[cat] || []).length) lfCatHit.push(s);
+  }));
+  const offCount = flatSubs(theirOff).length;
+  const supply = offCount && flatSubs(myLf).length ? Math.min(1, (lfHit.length + lfCatHit.length * 0.5) / offCount) : null;
+
+  const sides = [demand, supply].filter((x) => x !== null);
+  const pct = sides.length ? Math.round((sides.reduce((a, x) => a + x, 0) / sides.length) * 100) : 0;
+  return {
+    offHit: offHit, catHit: catHit, lfHit: lfHit, lfCatHit: lfCatHit, pct: pct,
+    demandPct: demand === null ? null : Math.round(demand * 100),
+    supplyPct: supply === null ? null : Math.round(supply * 100),
+  };
+}
+
+/* ---------------- preferences — asked BEFORE matchmaking ---------------- */
+const b2bHasPrefs = (map) => flatSubs(map).length > 0;
+function b2bPrefsReady() {
+  const M = S.profile.matchmaking;
+  return !!S.b2b.prefsDone && b2bHasPrefs(M.lookingFor) && b2bHasPrefs(M.offering);
+}
+window.__b2bPrefStep = window.__b2bPrefStep || 1;
+
+function b2bPrefsWizard() {
+  const step = window.__b2bPrefStep;
+  const lfN = mmCount('lf'), ofN = mmCount('of');
+  const stepHead = (n, label, count) =>
+    '<div style="display:flex;align-items:center;gap:10px;flex:1;min-width:200px">' +
+      '<span style="width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:0.85rem;flex:none;' +
+        (step === n ? 'background:var(--blue);color:#fff' : count ? 'background:var(--green);color:#fff' : 'background:#EEF1F6;color:var(--muted)') + '">' +
+        (step !== n && count ? '<span class="material-symbols-outlined" style="font-size:17px">check</span>' : n) + '</span>' +
+      '<div><b style="font-size:0.88rem">' + label + '</b><div style="font-size:0.74rem;color:var(--muted)">' +
+        (count ? count + ' selected' : 'Not selected yet') + '</div></div></div>';
+
+  const body = step === 1
+    ? '<h2 class="card-title" style="margin:0 0 4px">What are you looking for?</h2>' +
+      '<p style="font-size:0.82rem;color:var(--muted);margin:0 0 14px">Select the products, services &amp; capabilities you want to source, or the kind of partners you want to meet. Tick a category to select all its subcategories, or pick them individually.</p>' +
+      mmTree('lf')
+    : '<h2 class="card-title" style="margin:0 0 4px">What do you offer?</h2>' +
+      '<p style="font-size:0.82rem;color:var(--muted);margin:0 0 14px">Select the products &amp; capabilities your company offers. Participants looking for these will be recommended to you.</p>' +
+      mmTree('of');
+
+  const need = step === 1 ? lfN : ofN;
+  const foot = '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">' +
+    '<span style="font-size:0.78rem;color:var(--muted)">' + (need ? 'Step ' + step + ' of 2' : 'Select at least one subcategory to continue') + '</span>' +
+    '<span style="display:flex;gap:8px;flex-wrap:wrap">' +
+      (step === 2 ? '<button class="btn btn-outline" onclick="window.__b2bPrefStep=1;render();window.scrollTo(0,0)"><span class="material-symbols-outlined">arrow_back</span>Back</button>' : '') +
+      (step === 1
+        ? '<button class="btn btn-primary" onclick="b2bPrefNext()"' + (lfN ? '' : ' disabled') + '>Next: Offering<span class="material-symbols-outlined">arrow_forward</span></button>'
+        : '<button class="btn btn-primary" onclick="b2bSavePrefs()"' + (ofN ? '' : ' disabled') + '><span class="material-symbols-outlined">hub</span>Save &amp; Find Matches</button>') +
+    '</span></div>';
+
+  return '<h1 class="page-title">B2B Matchmaking</h1>' +
+    '<p class="page-sub">Before we recommend matches, tell us your preferences. Your <b>Looking For</b> is matched with other participants’ <b>Offering</b>, and your <b>Offering</b> with their <b>Looking For</b> — that is how the match % is calculated. You can edit them any time.</p>' +
+    '<div class="card" style="margin-bottom:14px"><div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">' +
+      stepHead(1, 'I am Looking For', lfN) +
+      '<span class="material-symbols-outlined" style="color:var(--muted)">chevron_right</span>' +
+      stepHead(2, 'Offering', ofN) +
+    '</div></div>' +
+    '<div class="card">' + body + foot + '</div>';
+}
+function b2bPrefNext() {
+  if (!mmCount('lf')) { toast('Select at least one subcategory you are looking for'); return; }
+  window.__b2bPrefStep = 2; render(); window.scrollTo(0, 0);
+}
+function b2bSavePrefs() {
+  if (!mmCount('lf') || !mmCount('of')) { toast('Select at least one subcategory in both steps'); return; }
+  S.b2b.prefsDone = true;
+  window.__b2bPrefStep = 1;
+  window.__b2bPage = 1;
+  save(); render(); window.scrollTo(0, 0);
+  toast('Preferences saved — matches updated');
+}
+/* Edit Preferences — a side drawer over the matches, so the exhibitor
+   never leaves the page. Every tick is saved instantly and the match
+   list behind the drawer re-scores live. */
+window.__b2bPrefTab = window.__b2bPrefTab || 'lf';
+function b2bEditPrefs(tab) {
+  if (tab) window.__b2bPrefTab = tab;
+  b2bClosePrefs(true);
+  const wrap = document.createElement('div');
+  wrap.id = 'b2bPrefDrawer';
+  wrap.innerHTML = '<div class="drawer-overlay" onclick="b2bClosePrefs()"></div>' +
+    '<div class="drawer wide" role="dialog" aria-modal="true" aria-label="Edit matchmaking preferences">' +
+      '<div class="drawer-head"><div><h3>Matchmaking Preferences</h3>' +
+        '<div style="font-size:0.74rem;color:var(--muted);margin-top:2px">Changes save instantly — matches update behind this panel.</div></div>' +
+        '<button class="modal-close" onclick="b2bClosePrefs()" aria-label="Close"><span class="material-symbols-outlined">close</span></button></div>' +
+      '<div id="b2bPrefTabs" style="padding:12px 20px 0"></div>' +
+      '<div class="drawer-body" id="b2bPrefBody"></div>' +
+      '<div class="drawer-foot" id="b2bPrefFoot"></div>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  b2bPrefsDrawerRefresh();
+}
+function b2bPrefsDrawerRefresh() {
+  const body = $('b2bPrefBody');
+  if (!body) return;
+  const t = window.__b2bPrefTab;
+  const lfN = mmCount('lf'), ofN = mmCount('of');
+  const tabBtn = (k, label, n) => '<button class="' + (t === k ? 'on' : '') + '" onclick="b2bPrefTab(\'' + k + '\')">' + label +
+    ' <span class="pill ' + (n ? 'blue' : 'amber') + '" style="margin-left:4px">' + (n || '!') + '</span></button>';
+  $('b2bPrefTabs').innerHTML = '<div class="seg" style="width:100%;display:flex">' +
+    tabBtn('lf', 'I am Looking For', lfN) + tabBtn('of', 'Offering', ofN) + '</div>';
+  const scroll = body.scrollTop;
+  body.innerHTML = '<p style="font-size:0.8rem;color:var(--muted);margin:0 0 10px">' + (t === 'lf'
+      ? 'Products, services &amp; partners you want to source or meet — matched with what others <b>offer</b>.'
+      : 'Products &amp; capabilities your company offers — matched with what others are <b>looking for</b>.') + '</p>' +
+    mmTree(t).replace('max-height:420px;overflow-y:auto', 'overflow:visible');
+  body.scrollTop = scroll;
+  const good = PARTICIPANTS.filter((p) => b2bMatchInfo(p).pct >= 30).length;
+  const ok = lfN && ofN;
+  $('b2bPrefFoot').innerHTML =
+    '<div style="font-size:0.8rem;color:var(--muted);margin-bottom:10px">' + (ok
+      ? '<b style="color:var(--ink)">' + good + '</b> participants are a 30%+ match with these preferences.'
+      : '<span style="color:var(--amber);font-weight:700">Select at least one subcategory in both tabs.</span>') + '</div>' +
+    '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="b2bClosePrefs()"' + (ok ? '' : ' disabled') + '>' +
+      '<span class="material-symbols-outlined">check</span>Done — Show Matches</button>';
+}
+window.addEventListener("hashchange", () => b2bClosePrefs(true));
+function b2bPrefTab(k) { window.__b2bPrefTab = k; $('b2bPrefBody').scrollTop = 0; b2bPrefsDrawerRefresh(); }
+function b2bClosePrefs(force) {
+  const d = $('b2bPrefDrawer');
+  if (!d) return;
+  const M = S.profile.matchmaking;
+  if (!force && (!b2bHasPrefs(M.lookingFor) || !b2bHasPrefs(M.offering))) { toast('Select at least one subcategory in both tabs'); return; }
+  d.remove();
+  if (!force) { window.__b2bPage = 1; render(); }
+}
+
+/* compact "My Preferences" strip above the matches */
+function b2bPrefsStrip() {
+  const M = S.profile.matchmaking;
+  const summary = (map) => {
+    const cats = Object.keys(map).filter((k) => map[k].length);
+    return cats.slice(0, 3).map((c) => '<span class="tagchip" style="margin:0 4px 4px 0">' + esc(c) + ' · ' + map[c].length + '</span>').join('') +
+      (cats.length > 3 ? '<span class="tagchip" style="margin:0 4px 4px 0;background:#F1F4FA;color:var(--muted)">+' + (cats.length - 3) + ' more</span>' : '');
+  };
+  const lbl = (t, c) => '<div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:' + c + ';margin-bottom:6px">' + t + '</div>';
+  return '<div class="card" style="margin-bottom:14px">' +
+    '<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">' +
+      '<div style="flex:1;min-width:220px">' + lbl('I am Looking For', 'var(--amber)') + summary(M.lookingFor) +
+        '<button class="btn-link" style="padding:0;font-size:0.76rem" onclick="b2bEditPrefs(\'lf\')">Edit Looking For</button></div>' +
+      '<div style="flex:1;min-width:220px">' + lbl('Offering', 'var(--green)') + summary(M.offering) +
+        '<button class="btn-link" style="padding:0;font-size:0.76rem" onclick="b2bEditPrefs(\'of\')">Edit Offering</button></div>' +
+    '</div></div>';
 }
 
 /* ---------------- views ---------------- */
@@ -201,15 +385,18 @@ function b2bIncomingPending() {
 }
 
 function viewB2BMatchmaking() {
+  if (!b2bPrefsReady()) return b2bPrefsWizard();
   const pend = b2bIncomingPending();
   const tabs = '<div class="ptabs" style="border-bottom:none;padding-bottom:0;margin-bottom:16px">' +
     '<button class="ptab' + (window.__b2bTab === 'matches' ? ' on' : '') + '" onclick="window.__b2bTab=\'matches\';render()">Recommended Matches</button>' +
     '<button class="ptab' + (window.__b2bTab === 'meetings' ? ' on' : '') + '" onclick="window.__b2bTab=\'meetings\';render()">Meetings &amp; Requests' +
       (pend ? ' <span class="pill amber" style="margin-left:4px">' + pend + '</span>' : '') + '</button>' +
     '</div>';
-  return '<h1 class="page-title">B2B Matchmaking</h1>' +
-    '<p class="page-sub">Visitors &amp; delegations whose <b>"I am Looking For"</b> matches your <b>Offering</b> &amp; exhibition categories — request a meeting directly from a match.</p>' +
-    tabs + (window.__b2bTab === 'meetings' ? b2bMeetingsBody() : b2bMatchesBody());
+  return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">' +
+      '<h1 class="page-title">B2B Matchmaking</h1>' +
+      '<button class="btn btn-outline" onclick="b2bEditPrefs()"><span class="material-symbols-outlined">tune</span>Edit My Preferences</button></div>' +
+    '<p class="page-sub">Participants matched two-way on your preferences — what they <b>Look For</b> vs your <b>Offering</b>, and what they <b>Offer</b> vs what you <b>Look For</b>. Request a meeting directly from a match.</p>' +
+    tabs + (window.__b2bTab === 'meetings' ? b2bMeetingsBody() : b2bPrefsStrip() + b2bMatchesBody());
 }
 
 window.__b2bView = window.__b2bView || 'grid';
@@ -241,12 +428,6 @@ function b2bMatchPill(p) {
 const b2bScoreColor = (pct) => pct >= 60 ? 'var(--green)' : pct >= 30 ? 'var(--amber)' : 'var(--muted)';
 
 function b2bMatchesBody() {
-  const off = flatSubs(S.profile.matchmaking.offering);
-  if (!off.length) {
-    return '<div class="card"><div class="empty"><span class="material-symbols-outlined">hub</span>' +
-      '<h3>Set up your Offering first</h3><p>Matches are computed from your matchmaking Offering. Select the products &amp; capabilities you offer, then come back here.</p>' +
-      '<a class="btn btn-primary" href="#/profile/matchmaking">Open Matchmaking</a></div></div>';
-  }
   const q = window.__b2bQ.toLowerCase();
   let list = PARTICIPANTS.map((p) => ({ p: p, m: b2bMatchInfo(p) }));
   if (q) list = list.filter((x) => (x.p.name + ' ' + x.p.company + ' ' + x.p.country + ' ' + x.p.city).toLowerCase().includes(q));
@@ -292,9 +473,12 @@ function b2bMatchesBody() {
     '<button class="' + (window.__b2bView === 'list' ? 'on' : '') + '" onclick="window.__b2bView=\'list\';render()"><span class="material-symbols-outlined">view_list</span>List</button></div>';
   const hasFlt = window.__b2bCat || window.__b2bSub || window.__b2bCountry || window.__b2bState || window.__b2bCity || window.__b2bMin || window.__b2bQ;
 
-  const chipsOf = (m, max) =>
-    m.offHit.slice(0, max).map((s) => '<span class="tagchip" style="margin:0 4px 4px 0">' + esc(s) + '</span>').join('') +
-    (m.offHit.length + m.catHit.length > max ? '<span class="tagchip" style="margin:0 4px 4px 0;background:#F1F4FA;color:var(--muted)">+' + (m.offHit.length + m.catHit.length - max) + '</span>' : '');
+  const chipsOf = (m, max) => {
+    const hits = m.offHit.concat(m.lfHit.filter((s) => !m.offHit.includes(s)));
+    const more = hits.length + m.catHit.length + m.lfCatHit.length - Math.min(max, hits.length);
+    return hits.slice(0, max).map((s) => '<span class="tagchip" style="margin:0 4px 4px 0">' + esc(s) + '</span>').join('') +
+      (more > 0 ? '<span class="tagchip" style="margin:0 4px 4px 0;background:#F1F4FA;color:var(--muted)">+' + more + '</span>' : '');
+  };
 
   /* GRID view — networking-platform card (photo, dot, bookmark,
      % Profile Match pill + calendar & chat quick actions) */
@@ -377,6 +561,14 @@ function viewB2BProfile(partId) {
           (hit ? '<span class="material-symbols-outlined" style="font-size:12px">check</span> ' : '') + esc(s) + '</span>';
       }).join('') + '</div></div>').join('');
 
+  const offeringBlocks = Object.keys(p.offering || {}).map((cat) =>
+    '<div style="margin-bottom:12px"><b style="font-size:0.84rem">' + esc(cat) + '</b><div style="margin-top:6px">' +
+      p.offering[cat].map((s) => {
+        const hit = m.lfHit.includes(s) || m.lfCatHit.includes(s);
+        return '<span class="tagchip" style="margin:0 6px 6px 0;' + (hit ? '' : 'background:#F1F4FA;color:var(--muted)') + '">' +
+          (hit ? '<span class="material-symbols-outlined" style="font-size:12px">check</span> ' : '') + esc(s) + '</span>';
+      }).join('') + '</div></div>').join('');
+
   const meetRows = meetings.map((mt) =>
     '<div class="action-row"><span class="aicon" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">event</span></span>' +
     '<div class="atext"><b>' + esc(mt.date) + ' · ' + esc(mt.slot) + '</b><span>' + esc(mt.venue) + (mt.note ? ' — “' + esc(mt.note) + '”' : '') + '</span></div>' +
@@ -402,15 +594,23 @@ function viewB2BProfile(partId) {
     '<div class="prof-layout" style="margin-top:16px"><div>' +
       pcard('travel_explore', '#FFF4E0', 'var(--amber)', 'I am Looking For', null,
         '<div class="hint" style="margin:0 0 10px">✓ ticked subcategories match your Offering / Exhibition Categories.</div>' + lookingBlocks) +
+      pcard('volunteer_activism', '#E6F4EC', 'var(--green)', 'Offering', null,
+        '<div class="hint" style="margin:0 0 10px">✓ ticked subcategories match what you are Looking For.</div>' + (offeringBlocks || '<p style="color:var(--muted);font-size:0.84rem">No offering listed.</p>')) +
       (meetRows ? pcard('event', 'var(--blue-soft)', 'var(--blue)', 'Meetings with ' + esc(p.name.split(' ')[0]), null, meetRows) : '') +
     '</div>' +
-    '<div class="card"><h2 class="card-title">Match Summary</h2>' +
+    '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2 class="card-title" style="margin:0">Match Summary</h2>' +
+      '<button class="btn-link" style="padding:0;font-size:0.78rem" onclick="b2bEditPrefs()"><span class="material-symbols-outlined" style="font-size:15px;vertical-align:-3px">tune</span> Edit my preferences</button></div>' +
       '<div class="prog-row" style="margin-top:10px"><div class="pr-head"><span>Overall Match</span><span>' + m.pct + '%</span></div>' +
         '<div class="prog-bar"><i style="width:' + m.pct + '%"></i></div></div>' +
+      (m.demandPct !== null ? '<div class="prog-row" style="margin-top:12px"><div class="pr-head"><span>They look for · You offer</span><span>' + m.demandPct + '%</span></div>' +
+        '<div class="prog-bar"><i style="width:' + m.demandPct + '%"></i></div></div>' : '') +
+      (m.supplyPct !== null ? '<div class="prog-row" style="margin-top:8px"><div class="pr-head"><span>They offer · You look for</span><span>' + m.supplyPct + '%</span></div>' +
+        '<div class="prog-bar"><i style="width:' + m.supplyPct + '%"></i></div></div>' : '') +
       '<div style="font-size:0.8rem;color:var(--muted);font-weight:600;margin-top:8px">' +
         '<b style="color:var(--ink)">' + m.offHit.length + '</b> matched with your Offering · ' +
-        '<b style="color:var(--ink)">' + m.catHit.length + '</b> with your Exhibition Categories</div>' +
-      (m.offHit.length ? '<div style="margin-top:10px">' + m.offHit.map((s) => '<span class="tagchip" style="margin:0 5px 5px 0">' + esc(s) + '</span>').join('') + '</div>' : '') +
+        '<b style="color:var(--ink)">' + m.catHit.length + '</b> with your Exhibition Categories · ' +
+        '<b style="color:var(--ink)">' + m.lfHit.length + '</b> with your Looking For</div>' +
+      (m.offHit.length + m.lfHit.length ? '<div style="margin-top:10px">' + m.offHit.concat(m.lfHit).map((s) => '<span class="tagchip" style="margin:0 5px 5px 0">' + esc(s) + '</span>').join('') + '</div>' : '') +
     '</div></div>';
 }
 
@@ -420,7 +620,7 @@ function openMeetingModal(partId) {
   const m = b2bMatchInfo(p);
   openModal('Request B2B Meeting — ' + esc(p.name),
     '<div class="note" style="margin-top:0"><b class="title">' + esc(p.company) + ' · ' + m.pct + '% match</b>' +
-      'Matched on: ' + (m.offHit.concat(m.catHit).slice(0, 4).map(esc).join(', ') || 'general networking') + '</div>' +
+      'Matched on: ' + (m.offHit.concat(m.lfHit, m.catHit).slice(0, 4).map(esc).join(', ') || 'general networking') + '</div>' +
     '<div class="form-grid">' +
       '<div class="field"><label>Event Date <span class="req">*</span></label><select id="mtDate">' +
         EVENT.eventDays.map((d) => '<option>' + d + '</option>').join('') + '</select></div>' +

@@ -77,6 +77,9 @@
     };
     save();
   }
+  // Migration: exhibitors also state what THEY are looking for — B2B
+  // match % is two-way (my Looking For ↔ their Offering and vice versa).
+  if (!S.profile.matchmaking.lookingFor) { S.profile.matchmaking.lookingFor = {}; save(); }
   // Migration: booth brand material (videos & documents per booth)
   if (!S.booth) {
     S.booth = {
@@ -116,10 +119,10 @@ function profileSectionPct(section) {
     return pctOf(P.documents.filter((d) => d.file).length, P.documents.length);
   }
   if (section === 'matchmaking') {
-    // Exhibitor-side matchmaking = OFFERING only ("I am Looking For" is
-    // visitor-side; keywords & categories moved to Products → Product Profile).
-    const m = P.matchmaking.offering;
-    return Object.keys(m).some((k) => m[k].length) ? 100 : 0;
+    // Matchmaking = I am Looking For + Offering (keywords & categories
+    // live under Products → Product Profile).
+    const has = (m) => Object.keys(m || {}).some((k) => m[k].length);
+    return (has(P.matchmaking.lookingFor) ? 50 : 0) + (has(P.matchmaking.offering) ? 50 : 0);
   }
   return 0;
 }
@@ -493,9 +496,10 @@ function editBilling() { profileEditModal('Edit — Billing Address', ADDR_FIELD
    Four separate sections: Keywords · Exhibition Categories ·
    I am Looking For · Offering — each with multi-select subs.
    ============================================================ */
-const MM_FIELDS = { ex: 'exCats', of: 'offering' };
-window.__mmOpen = window.__mmOpen || { ex: {}, of: {} };
-window.__mmQ = window.__mmQ || { ex: '', of: '' };
+const MM_FIELDS = { ex: 'exCats', lf: 'lookingFor', of: 'offering' };
+window.__mmOpen = window.__mmOpen || {};
+window.__mmQ = window.__mmQ || {};
+Object.keys(MM_FIELDS).forEach((f) => { window.__mmOpen[f] = window.__mmOpen[f] || {}; window.__mmQ[f] = window.__mmQ[f] || ''; });
 
 function mmField(f) { return S.profile.matchmaking[MM_FIELDS[f]]; }
 function mmCount(f) { return Object.values(mmField(f)).reduce((a, x) => a + x.length, 0); }
@@ -536,19 +540,32 @@ function mmTree(f) {
   return '<input type="text" id="mmq_' + f + '" value="' + esc(window.__mmQ[f]) + '" placeholder="Search category or subcategory.." ' +
       'oninput="mmSetQ(\'' + f + '\', this.value)" ' +
       'style="width:100%;border:1px solid #CFD7E4;border-radius:8px;padding:8px 12px;font-family:inherit;font-size:0.86rem;margin-bottom:10px">' +
-    '<div style="max-height:420px;overflow-y:auto;padding-right:4px">' + blocks + '</div>';
+    '<div class="mm-scroll" data-f="' + f + '" style="max-height:420px;overflow-y:auto;padding-right:4px">' + blocks + '</div>';
+}
+
+/* Re-render after a tick WITHOUT jumping: render() scrolls the window to
+   the top and rebuilds the tree, so keep the page scroll and each tree's
+   inner scroll, and refresh the B2B preferences drawer if it is open. */
+function mmRerender() {
+  const y = window.scrollY;
+  const tops = {};
+  document.querySelectorAll('.mm-scroll').forEach((el) => { tops[el.dataset.f] = el.scrollTop; });
+  render();
+  if (typeof b2bPrefsDrawerRefresh === 'function') b2bPrefsDrawerRefresh();
+  window.scrollTo(0, y);
+  document.querySelectorAll('.mm-scroll').forEach((el) => { if (tops[el.dataset.f] !== undefined) el.scrollTop = tops[el.dataset.f]; });
 }
 
 function mmSetQ(f, v) {
   window.__mmQ[f] = v;
-  render();
+  mmRerender();
   const el = $('mmq_' + f);
   if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
 }
 function mmToggleOpen(f, ci) {
   const name = MM_CATS[ci].name;
   window.__mmOpen[f][name] = !window.__mmOpen[f][name];
-  render();
+  mmRerender();
 }
 function mmToggleSub(f, ci, si) {
   const cat = MM_CATS[ci].name, sub = MM_CATS[ci].subs[si];
@@ -558,7 +575,7 @@ function mmToggleSub(f, ci, si) {
   a.includes(sub) ? a.splice(a.indexOf(sub), 1) : a.push(sub);
   if (!a.length) delete map[cat];
   window.__mmOpen[f][cat] = true;
-  save(); render();
+  save(); mmRerender();
 }
 function mmToggleParent(f, ci) {
   const c = MM_CATS[ci];
@@ -567,7 +584,7 @@ function mmToggleParent(f, ci) {
   if (allOn) delete map[c.name];
   else map[c.name] = c.subs.slice();
   window.__mmOpen[f][c.name] = true;
-  save(); render();
+  save(); mmRerender();
 }
 
 const mmSecTitle = (t, f) => t + (f && mmCount(f) ? ' <span class="pill blue" style="margin-left:6px">' + mmCount(f) + ' selected</span>' : '');
@@ -580,14 +597,17 @@ function kwBlock() {
       '<button class="btn btn-outline btn-sm" onclick="addKeyword()">+ Add</button></div>';
 }
 
-/* Matchmaking = OFFERING only. Keywords & Exhibition Categories are
+/* Matchmaking = I am Looking For + Offering. Keywords & Exhibition Categories are
    product-side classification (app-level filters) — they live on the
    Products page under the "Product Profile" tab. */
 function profTabMatchmaking() {
-  return '<div style="margin-bottom:16px"><h2 class="card-title" style="margin:0">Matchmaking</h2>' +
+  return '<div style="margin-bottom:16px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap"><div style="flex:1;min-width:260px"><h2 class="card-title" style="margin:0">Matchmaking</h2>' +
     '<p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0">Powers B2B recommendations in the networking platform. Multi-select — tick a category to select all its subcategories, or pick subcategories individually. Keywords &amp; exhibition categories are managed under <a class="btn-link" style="padding:0" href="#/digital-showcase" onclick="window.__prodTab=\'pprofile\'">Digital Showcase → Product Profile</a>.</p></div>' +
+      '<a class="btn btn-primary btn-sm" href="#/b2b-matchmaking" onclick="window.__b2bTab=\'matches\'"><span class="material-symbols-outlined" style="font-size:16px">hub</span>View My B2B Matches</a></div>' +
+    pcard('travel_explore', '#FFF4E0', 'var(--amber)', mmSecTitle('I am Looking For <span class="req">*</span>', 'lf'), null,
+      '<div class="hint" style="margin:0 0 8px">Products, services &amp; partners you want to source or meet. Matched against what other participants offer.</div>' + mmTree('lf')) +
     pcard('volunteer_activism', '#E6F4EC', 'var(--green)', mmSecTitle('Offering <span class="req">*</span>', 'of'), null,
-      '<div class="hint" style="margin:0 0 8px">Products &amp; capabilities you offer. Visitors pick "I am Looking For" on their side — matchmaking pairs their demand with your offering.</div>' + mmTree('of'));
+      '<div class="hint" style="margin:0 0 8px">Products &amp; capabilities you offer. Matched against what other participants are looking for.</div>' + mmTree('of'));
 }
 
 function addKeyword() {
