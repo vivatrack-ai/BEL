@@ -208,9 +208,11 @@ function viewBookingDashboard() {
     const st = active.flatMap((b) => b.stalls).filter((s) => s.scheme === sc);
     return [sc.startsWith('chalet') ? lbl : lbl + ' Space', st.length, st.reduce((a, s) => a + s.sqm, 0).toLocaleString('en-IN') + ' sqm'];
   });
-  const sizeRows = [108, 54, 36, 100].map((q) => {
-    const st = active.flatMap((b) => b.stalls).filter((s) => s.sqm === q);
-    return [q === 100 ? 'Chalet 10X10 (100 sqm)' : SBD_SIZE[q] + ' (' + q + ' sqm)', st.length, money(st.reduce((a, s) => a + s.price, 0))];
+  /* same size buckets as the Space Requirement dashboard, counted on booked units */
+  const bookedUnits = active.flatMap((b) => b.stalls);
+  const sizeRows = SIZE_BUCKETS.map((bk) => {
+    const st = bookedUnits.filter((s) => bk.test(s.sqm));
+    return [bk.label, st.length, st.reduce((a, s) => a + s.sqm, 0).toLocaleString('en-IN') + ' sqm'];
   });
   const statusRows = Object.keys(SBD_STATUS).map((k) => [SBD_STATUS[k][1], by(k).length, '', SBD_STATUS[k][2]]);
 
@@ -235,7 +237,7 @@ function viewBookingDashboard() {
       hallRows + '</div>' +
     '<div class="form-grid section-gap">' +
       '<div class="card" style="margin-top:0"><h2 class="card-title">Booked Units by Space Type</h2>' + sbdBarRows(schemeRows, (v) => v + ' units') + '</div>' +
-      '<div class="card" style="margin-top:0"><h2 class="card-title">Booked Units by Size</h2>' + sbdBarRows(sizeRows, (v) => v + ' units') + '</div>' +
+      '<div class="card" style="margin-top:0"><h2 class="card-title">By Size (Shell · Raw · Chalet)</h2>' + sbdBarRows(sizeRows, (v) => String(v)) + '</div>' +
     '</div>' +
     '<div class="card section-gap"><h2 class="card-title">Applications by Status</h2>' + sbdBarRows(statusRows, (v) => String(v)) + '</div>' +
     footerTools();
