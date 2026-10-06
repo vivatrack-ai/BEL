@@ -929,3 +929,17 @@ table.grid.sba-table th { font-size: 0.72rem; } .sba-table .td-strong { max-widt
 .sba-table .sba-type { white-space: normal; } table.grid.sba-table td:first-child, table.grid.sba-table th:first-child { padding-left: 16px; }
 .sba-sum small { color: var(--muted); font-size: 0.74rem; margin-left: 4px; }
 .sba-sum.line { border-top: 1px solid var(--line); margin: 6px 0; padding: 0; }
+
+/* ============ Booking Dashboard · booked area by space type ============ */
+.tile .t-sub { font-size: 0.74rem; color: var(--muted); font-weight: 600; margin-top: 4px; }
+.area-blks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 6px 0 14px; }
+.area-blk { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+.area-k { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.area-k i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.area-v { font-size: 1.6rem; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+.area-v small { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+.area-s { font-size: 0.78rem; color: var(--ink); }
+.area-p { font-size: 0.74rem; color: #A86A06; font-weight: 600; }
+.area-bar { height: 12px; }
+.area-total td { font-weight: 800; background: #F4F7FC; }
+@media (max-width: 760px) { .area-blks { grid-template-columns: 1fr; } }

@@ -232,6 +232,50 @@ function viewBookingDashboard() {
   });
   const statusRows = Object.keys(SBD_STATUS).map((k) => [SBD_STATUS[k][1], by(k).length, '', SBD_STATUS[k][2]]);
 
+  /* booked area (sq.m) split by space type — Shell · Raw · Chalet */
+  const typeOf = (s) => (s.scheme === 'raw' ? 'raw' : s.scheme === 'shell' ? 'shell' : 'chalet');
+  const stallsOf = (list) => list.flatMap((b) => b.stalls).filter((s) => !SBDF.scheme || s.scheme === SBDF.scheme);
+  const bookedSt = stallsOf(active);
+  const pendingSt = stallsOf(by('pending'));
+  const sqmOf = (list, t, h) => list.filter((s) => typeOf(s) === t && (!h || s.hall === h)).reduce((a, s) => a + s.sqm, 0);
+  const AREA_TYPES = [['shell', 'Shell Space', '#2F62D8'], ['raw', 'Raw Space', '#1E8E5A'], ['chalet', 'Chalet', '#C98514']];
+  const areaTotal = bookedSt.reduce((a, s) => a + s.sqm, 0);
+  const fmtSq = (n) => n.toLocaleString('en-IN');
+  const areaBlocks = AREA_TYPES.map(([t, lbl, col]) => {
+    const sq = sqmOf(bookedSt, t);
+    const n = bookedSt.filter((s) => typeOf(s) === t).length;
+    const pq = sqmOf(pendingSt, t);
+    const share = areaTotal ? Math.round((sq / areaTotal) * 100) : 0;
+    const sub = t === 'chalet'
+      ? ' · ' + bookedSt.filter((s) => s.scheme === 'chalet1').length + ' × 1 Floor, ' + bookedSt.filter((s) => s.scheme === 'chalet2').length + ' × 2 Floor'
+      : '';
+    return '<div class="area-blk"><span class="area-k"><i style="background:' + col + '"></i>' + lbl + '</span>' +
+      '<b class="area-v">' + fmtSq(sq) + ' <small>sq.m</small></b>' +
+      '<span class="area-s">' + n + ' unit(s)' + sub + ' · ' + share + '% of booked area</span>' +
+      (pq ? '<span class="area-p">+ ' + fmtSq(pq) + ' sq.m waiting for approval</span>' : '') + '</div>';
+  }).join('');
+  const areaBar = '<div class="stack-bar area-bar">' + AREA_TYPES.map(([t, lbl, col]) => {
+    const sq = sqmOf(bookedSt, t);
+    return sq ? '<i style="flex:' + sq + ';background:' + col + '" title="' + lbl + ': ' + fmtSq(sq) + ' sq.m"></i>' : '';
+  }).join('') + '</div>';
+  const areaRows = halls.map((h) => {
+    const v = AREA_TYPES.map(([t]) => sqmOf(bookedSt, t, h));
+    const tot = v.reduce((a, x) => a + x, 0);
+    const cap = sbdZoneSqm(h);
+    const cell = (x, ok) => '<td class="num">' + (ok ? (x ? fmtSq(x) : '<span style="color:var(--muted)">0</span>') : '<span style="color:var(--muted)">—</span>') + '</td>';
+    return '<tr><td class="td-strong">' + sbdZoneLabel(h) + '</td>' +
+      cell(v[0], h !== 'CH') + cell(v[1], h !== 'CH') + cell(v[2], h === 'CH') +
+      '<td class="num"><b>' + fmtSq(tot) + '</b></td><td class="num">' + fmtSq(cap) + '</td>' +
+      '<td class="num">' + Math.round((tot / cap) * 100) + '%</td></tr>';
+  }).join('');
+  const areaFoot = '<tr class="area-total"><td>Total</td>' + AREA_TYPES.map(([t]) => '<td class="num">' + fmtSq(sqmOf(bookedSt, t)) + '</td>').join('') +
+    '<td class="num">' + fmtSq(areaTotal) + '</td><td class="num">' + fmtSq(capacity) + '</td><td class="num">' + (capacity ? Math.round((areaTotal / capacity) * 100) : 0) + '%</td></tr>';
+  const areaCard = '<div class="card"><div class="card-head-row"><h2 class="card-title">Booked Area by Space Type (sq.m)</h2>' +
+      '<span class="result-count">Approved + Confirmed · ' + fmtSq(areaTotal) + ' sq.m booked</span></div>' +
+    '<div class="area-blks">' + areaBlocks + '</div>' + areaBar +
+    '<div class="tablewrap" style="margin-top:16px"><table class="grid"><tr><th>Hall / Zone</th><th class="num">Shell (sq.m)</th><th class="num">Raw (sq.m)</th>' +
+      '<th class="num">Chalet (sq.m)</th><th class="num">Total Booked</th><th class="num">Capacity</th><th class="num">Occupancy</th></tr>' + areaRows + areaFoot + '</table></div></div>';
+
 
   return '<div class="card-head-row" style="margin-bottom:4px"><div><h1 class="page-title">Space Booking Dashboard</h1>' +
       '<p class="page-sub" style="margin-bottom:0">Stall &amp; chalet applications raised from Book Space, their approval status and hall occupancy.</p></div>' +
@@ -244,12 +288,14 @@ function viewBookingDashboard() {
       '<div class="tile"><div class="t-label">Rejected</div><div class="t-value">' + by('rejected').length + '</div></div>' +
     '</div>' +
     '<div class="tiles">' +
-      '<div class="tile"><div class="t-label">Booked Area</div><div class="t-value">' + bookedSqm.toLocaleString('en-IN') + '<span style="font-size:0.85rem;color:var(--muted);font-weight:600"> / ' + capacity.toLocaleString('en-IN') + ' sqm</span></div></div>' +
+      '<div class="tile"><div class="t-label">Booked Area</div><div class="t-value">' + bookedSqm.toLocaleString('en-IN') + '<span style="font-size:0.85rem;color:var(--muted);font-weight:600"> / ' + capacity.toLocaleString('en-IN') + ' sqm</span></div>' +
+        '<div class="t-sub">Shell ' + fmtSq(sqmOf(bookedSt, 'shell')) + ' · Raw ' + fmtSq(sqmOf(bookedSt, 'raw')) + ' · Chalet ' + fmtSq(sqmOf(bookedSt, 'chalet')) + ' sq.m</div></div>' +
       '<div class="tile"><div class="t-label">Occupancy</div><div class="t-value">' + occ + '%</div>' +
         '<div class="prog-bar" style="margin-top:6px" title="' + occ + '% of capacity booked"><i style="width:' + occ + '%"></i></div></div>' +
       '<div class="tile accent"><div class="t-label">Booking Value (Approved + Confirmed)</div><div class="t-value">' + sbdCompact(value) + '</div></div>' +
     '</div>' +
-    '<div class="card"><div class="card-head-row"><h2 class="card-title">Hall &amp; Chalet Occupancy</h2>' + sbdLegend(['confirmed', 'approved', 'pending', 'available']) + '</div>' +
+    areaCard +
+    '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Hall &amp; Chalet Occupancy</h2>' + sbdLegend(['confirmed', 'approved', 'pending', 'available']) + '</div>' +
       hallRows + '</div>' +
     '<div class="form-grid section-gap">' +
       '<div class="card" style="margin-top:0"><h2 class="card-title">Booked Units by Space Type</h2>' + sbdBarRows(schemeRows, (v) => v + ' units') + '</div>' +
