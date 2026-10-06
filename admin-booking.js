@@ -225,7 +225,8 @@ function sbdFilterBar(extra) {
    VIEW · Space Booking Dashboard
    ============================================================ */
 function viewBookingDashboard() {
-  const all = sbdFilter(sbdBookings());
+  // direct booking — no approval queue on the dashboard
+  const all = sbdFilter(sbdBookings()).filter((b) => b.status !== 'pending');
   const by = (st) => all.filter((b) => b.status === st);
   const active = all.filter((b) => b.status === 'approved' || b.status === 'confirmed');
   const bookedSqm = active.reduce((a, b) => a + sbdSqm(b), 0);
@@ -235,17 +236,17 @@ function viewBookingDashboard() {
   /* hall-wise occupancy — stacked by status, counted in stalls */
   const halls = SBDF.hall ? [SBDF.hall] : SBD_ZONES;
   const hallRows = halls.map((h) => {
-    const seg = { confirmed: 0, approved: 0, pending: 0 };
+    const seg = { confirmed: 0, approved: 0 };
     all.forEach((b) => { if (seg[b.status] != null) b.stalls.forEach((s) => { if (s.hall === h) seg[b.status]++; }); });
-    const used = seg.confirmed + seg.approved + seg.pending;
+    const used = seg.confirmed + seg.approved;
     const units = sbdZoneUnits(h);
     const unit = h === 'CH' ? 'chalet(s)' : 'stall(s)';
     const avail = Math.max(0, units - used);
     const part = (k, n) => n ? '<i style="flex:' + n + ';background:' + (k === 'available' ? '#E3E8F1' : SBD_STATUS[k][2]) + '" title="' + sbdZoneLabel(h) + ' · ' +
       (k === 'available' ? 'Available' : SBD_STATUS[k][1]) + ': ' + n + ' ' + unit + '"></i>' : '';
     return '<div class="occ-row"><b>' + sbdZoneLabel(h) + '</b>' +
-      '<div class="stack-bar">' + part('confirmed', seg.confirmed) + part('approved', seg.approved) + part('pending', seg.pending) + part('available', avail) + '</div>' +
-      '<span class="occ-val">' + (seg.confirmed + seg.approved) + ' / ' + units + ' booked · ' + seg.pending + ' pending</span></div>';
+      '<div class="stack-bar">' + part('confirmed', seg.confirmed) + part('approved', seg.approved) + part('available', avail) + '</div>' +
+      '<span class="occ-val">' + (seg.confirmed + seg.approved) + ' / ' + units + ' booked</span></div>';
   }).join('');
 
   const schemeRows = SBD_SCHEMES.map(([sc, lbl]) => {
@@ -258,13 +259,12 @@ function viewBookingDashboard() {
     const st = bookedUnits.filter((s) => bk.test(s.sqm));
     return [bk.label, st.length, st.reduce((a, s) => a + s.sqm, 0).toLocaleString('en-IN') + ' sqm'];
   });
-  const statusRows = Object.keys(SBD_STATUS).map((k) => [SBD_STATUS[k][1], by(k).length, '', SBD_STATUS[k][2]]);
+  const statusRows = Object.keys(SBD_STATUS).filter((k) => k !== 'pending').map((k) => [SBD_STATUS[k][1], by(k).length, '', SBD_STATUS[k][2]]);
 
   /* booked area (sq.m) split by space type — Shell · Raw · Chalet */
   const typeOf = (s) => (s.scheme === 'raw' ? 'raw' : s.scheme === 'shell' ? 'shell' : 'chalet');
   const stallsOf = (list) => list.flatMap((b) => b.stalls).filter((s) => !SBDF.scheme || s.scheme === SBDF.scheme);
   const bookedSt = stallsOf(active);
-  const pendingSt = stallsOf(by('pending'));
   const sqmOf = (list, t, h) => list.filter((s) => typeOf(s) === t && (!h || s.hall === h)).reduce((a, s) => a + s.sqm, 0);
   const AREA_TYPES = [['shell', 'Shell Space', '#2F62D8'], ['raw', 'Raw Space', '#1E8E5A'], ['chalet', 'Chalet', '#C98514']];
   const areaTotal = bookedSt.reduce((a, s) => a + s.sqm, 0);
@@ -272,15 +272,13 @@ function viewBookingDashboard() {
   const areaBlocks = AREA_TYPES.map(([t, lbl, col]) => {
     const sq = sqmOf(bookedSt, t);
     const n = bookedSt.filter((s) => typeOf(s) === t).length;
-    const pq = sqmOf(pendingSt, t);
     const share = areaTotal ? Math.round((sq / areaTotal) * 100) : 0;
     const sub = t === 'chalet'
       ? ' · ' + bookedSt.filter((s) => s.scheme === 'chalet1').length + ' × 1 Floor, ' + bookedSt.filter((s) => s.scheme === 'chalet2').length + ' × 2 Floor'
       : '';
     return '<div class="area-blk"><span class="area-k"><i style="background:' + col + '"></i>' + lbl + '</span>' +
       '<b class="area-v">' + fmtSq(sq) + ' <small>sq.m</small></b>' +
-      '<span class="area-s">' + n + ' unit(s)' + sub + ' · ' + share + '% of booked area</span>' +
-      (pq ? '<span class="area-p">+ ' + fmtSq(pq) + ' sq.m waiting for approval</span>' : '') + '</div>';
+      '<span class="area-s">' + n + ' unit(s)' + sub + ' · ' + share + '% of booked area</span></div>';
   }).join('');
   const areaBar = '<div class="stack-bar area-bar">' + AREA_TYPES.map(([t, lbl, col]) => {
     const sq = sqmOf(bookedSt, t);
@@ -306,11 +304,10 @@ function viewBookingDashboard() {
 
 
   return '<div class="card-head-row" style="margin-bottom:4px"><div><h1 class="page-title">Space Booking Dashboard</h1>' +
-      '<p class="page-sub" style="margin-bottom:0">Stall &amp; chalet applications raised from Book Space, their approval status and hall occupancy.</p></div>' +
+      '<p class="page-sub" style="margin-bottom:0">Stall &amp; chalet bookings made directly from Book Space, their payment status and hall occupancy.</p></div>' +
       sbdFilterBar() + '</div>' +
     '<div class="tiles" style="margin-top:16px">' +
       '<div class="tile blue"><div class="t-label">Total Applications</div><div class="t-value">' + all.length + '</div></div>' +
-      '<div class="tile"><div class="t-label">Waiting for Approval</div><div class="t-value">' + by('pending').length + '</div></div>' +
       '<div class="tile"><div class="t-label">Approved · Payment Due</div><div class="t-value">' + by('approved').length + '</div></div>' +
       '<div class="tile accent"><div class="t-label">Confirmed</div><div class="t-value">' + by('confirmed').length + '</div></div>' +
       '<div class="tile"><div class="t-label">Rejected</div><div class="t-value">' + by('rejected').length + '</div></div>' +
@@ -325,7 +322,7 @@ function viewBookingDashboard() {
         '<div class="t-cur"><span class="cur-tag usd">USD</span><b>' + sbdUsd(active.filter((b) => b.origin === 'international').reduce((a, b) => a + b.total, 0)) + '</b></div></div>' +
     '</div>' +
     areaCard +
-    '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Hall &amp; Chalet Occupancy</h2>' + sbdLegend(['confirmed', 'approved', 'pending', 'available']) + '</div>' +
+    '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Hall &amp; Chalet Occupancy</h2>' + sbdLegend(['confirmed', 'approved', 'available']) + '</div>' +
       hallRows + '</div>' +
     '<div class="form-grid section-gap">' +
       '<div class="card" style="margin-top:0"><h2 class="card-title">Booked Units by Space Type</h2>' + sbdBarRows(schemeRows, (v) => v + ' units') + '</div>' +
