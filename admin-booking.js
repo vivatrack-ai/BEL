@@ -24,6 +24,13 @@ const SBD_OFFLINE = ['NEFT / RTGS', 'Cheque / DD', 'Wire Transfer (SWIFT)'];
 const sbdMode = (m) => (SBD_OFFLINE.includes(m) ? 'offline' : 'online');
 /* exhibitor origin from the registered phone's country code (+91 = India) */
 const sbdOrigin = (phone) => (phone && !/^\+?91/.test(String(phone).replace(/\s/g, '')) ? 'international' : 'national');
+/* International exhibitors are billed in USD — tariff converted at the
+   organiser's fixed event rate; mixed national + international totals
+   stay in INR. */
+const SBD_USD_RATE = 88;
+const sbdUsd = (inr) => '$' + (inr / SBD_USD_RATE).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const sbdAmt = (inr, origin) => (origin === 'international' ? sbdUsd(inr) : money(inr));
+const sbdAmtXls = (inr, origin) => (origin === 'international' ? Math.round((inr / SBD_USD_RATE) * 100) / 100 : inr);
 function sbdPickMethod(origin, h, i) {
   const p = SBD_PAY[origin];
   const mode = ((h >>> (i * 3 + 1)) % 10) < 7 ? 'online' : 'offline'; // ≈70% pay online
@@ -342,8 +349,8 @@ function sbdTransactions(bookings) {
 function exportSbdTransactions(list) {
   exportWorkbook('Space-Booking-Transactions-' + exportStamp(), [{
     name: 'Transactions',
-    headers: ['Txn ID', 'Paid At', 'Application No', 'Exhibitor', 'National / International', 'Hall / Chalet Line', 'Stall / Chalet', 'Slab', 'Online / Offline', 'Method', 'Amount (INR)', 'Status'],
-    rows: list.map((t) => [t.txn, sbdFmt(t.at), t.no, t.company, SBDT_ORIGIN[t.origin], t.hall.split(', ').map(sbdZoneLabel).join(', '), t.stalls, t.slabLabel, SBDT_MODE[t.mode], t.method, t.amount, 'Success']),
+    headers: ['Txn ID', 'Paid At', 'Application No', 'Exhibitor', 'National / International', 'Hall / Chalet Line', 'Stall / Chalet', 'Slab', 'Online / Offline', 'Method', 'Currency', 'Amount', 'Amount (INR equiv.)', 'Status'],
+    rows: list.map((t) => [t.txn, sbdFmt(t.at), t.no, t.company, SBDT_ORIGIN[t.origin], t.hall.split(', ').map(sbdZoneLabel).join(', '), t.stalls, t.slabLabel, SBDT_MODE[t.mode], t.method, t.origin === 'international' ? 'USD' : 'INR', sbdAmtXls(t.amount, t.origin), t.amount, 'Success']),
   }]);
 }
 
@@ -393,13 +400,15 @@ function viewBookingTransactions() {
     const on = sumTx((t) => t.origin === o && t.mode === 'online');
     const off = sumTx((t) => t.origin === o && t.mode === 'offline');
     const pc = (x) => (tot.amt ? Math.round((x / tot.amt) * 100) : 0);
+    const cur = (n) => sbdAmt(n, o);
     const line = (k, ic, v, cls) => '<div class="split-line ' + cls + '"><span><span class="material-symbols-outlined">' + ic + '</span>' + k + '</span>' +
-      '<b>' + money(v.amt) + '</b><small>' + v.n + ' txn' + (v.n === 1 ? '' : 's') + ' · ' + pc(v.amt) + '%</small></div>';
+      '<b>' + cur(v.amt) + '</b><small>' + v.n + ' txn' + (v.n === 1 ? '' : 's') + ' · ' + pc(v.amt) + '%</small></div>';
     return '<div class="split-blk">' +
       '<div class="split-h"><span class="material-symbols-outlined">' + (o === 'national' ? 'flag' : 'public') + '</span>' + SBDT_ORIGIN[o] +
         '<span class="split-share">' + (grandTx.amt ? Math.round((tot.amt / grandTx.amt) * 100) : 0) + '% of collections</span></div>' +
-      '<div class="split-total"><small>TOTAL</small><b>' + money(tot.amt) + '</b><span>' + tot.n + ' transaction' + (tot.n === 1 ? '' : 's') + '</span></div>' +
-      '<div class="stack-bar split-bar" title="Online ' + money(on.amt) + ' · Offline ' + money(off.amt) + '">' +
+      '<div class="split-total"><small>TOTAL' + (o === 'international' ? ' (USD)' : ' (INR)') + '</small><b>' + cur(tot.amt) + '</b><span>' + tot.n + ' transaction' + (tot.n === 1 ? '' : 's') +
+        (o === 'international' ? ' · ≈ ' + money(tot.amt) + ' @ ₹' + SBD_USD_RATE + '/$' : '') + '</span></div>' +
+      '<div class="stack-bar split-bar" title="Online ' + cur(on.amt) + ' · Offline ' + cur(off.amt) + '">' +
         (on.amt ? '<i style="flex:' + on.amt + ';background:#2F62D8"></i>' : '') + (off.amt ? '<i style="flex:' + off.amt + ';background:#C98514"></i>' : '') +
         (!tot.amt ? '<i style="flex:1;background:#E3E8F1"></i>' : '') + '</div>' +
       line('Online', 'language', on, 'online') + line('Offline', 'account_balance', off, 'offline') +
@@ -437,7 +446,8 @@ function viewBookingTransactions() {
     '<td style="white-space:nowrap">Slab ' + t.slab + '<span class="td-sub">' + Math.round(SBD_SLABS[t.slab - 1][1] * 100) + '%</span></td>' +
     '<td><span class="mode-chip ' + t.mode + '"><span class="material-symbols-outlined">' + (t.mode === 'online' ? 'language' : 'account_balance') + '</span>' + SBDT_MODE[t.mode] + '</span>' +
       '<span class="td-sub">' + esc(t.method) + '</span></td>' +
-    '<td class="money">' + money(t.amount) + '</td><td><span class="pill green">Success</span></td></tr>').join('') ||
+    '<td class="money">' + sbdAmt(t.amount, t.origin) + (t.origin === 'international' ? '<span class="td-sub">≈ ' + money(t.amount) + '</span>' : '') + '</td>' +
+    '<td><span class="pill green">Success</span></td></tr>').join('') ||
     '<tr><td colspan="10" style="color:var(--muted)">No transactions for the selected filters.</td></tr>';
 
   return '<div class="card-head-row" style="margin-bottom:4px"><div><h1 class="page-title">Space Booking Transactions</h1>' +
@@ -536,12 +546,13 @@ function viewSpaceApprovals() {
     const rc = sbaReceived(b);
     return '<tr class="sba-row" onclick="sbaOpen(\'' + b.id + '\')">' +
       '<td><i class="sba-no">' + esc(b.no.replace('#', '')) + '</i></td>' +
-      '<td><span class="td-strong">' + esc(b.company) + '</span>' + (b.regNo ? '<span class="td-sub">' + esc(b.regNo) + '</span>' : '') + '</td>' +
+      '<td><span class="td-strong">' + esc(b.company) + '</span>' + (b.regNo ? '<span class="td-sub">' + esc(b.regNo) + '</span>' : '') +
+        (b.origin === 'international' ? '<span class="pill blue" style="margin-top:4px">International · USD</span>' : '') + '</td>' +
       '<td>' + sbaTypeChip(b) + '</td>' +
       '<td>' + b.stalls.map((s) => esc(sbdZoneLabel(s.hall))).join('<br>') + '</td>' +
       '<td class="sba-area">' + b.stalls.map((s) => 'Area: ' + s.sqm + 'm²<br>Size: ' + esc(s.size)).join('<br>') + '</td>' +
       '<td>' + b.stalls.map((s) => esc(sbaDesign(s))).join('<br>') + '</td>' +
-      '<td><div class="sba-recv" title="' + money(rc.paid) + ' received of ' + money(b.total) + '"><span class="sba-bar"><i style="width:' + rc.pct + '%"></i></span>' +
+      '<td><div class="sba-recv" title="' + sbdAmt(rc.paid, b.origin) + ' received of ' + sbdAmt(b.total, b.origin) + '"><span class="sba-bar"><i style="width:' + rc.pct + '%"></i></span>' +
         '<b>' + rc.pct + '%</b><span class="material-symbols-outlined">info</span></div></td>' +
       '<td>' + sbaStatus(b.status) + '</td>' +
       '<td style="white-space:nowrap">' + sbaDate(b.createdAt) + '</td>' +
@@ -611,11 +622,12 @@ function exportSbaApplications() {
   exportWorkbook('Space-Applications-' + exportStamp(), [{
     name: 'Applications',
     headers: ['Application No', 'Exhibitor', 'Reg No', 'Application Type', 'Hall / Chalet Line', 'Stall / Chalet', 'Area (sqm)', 'Size', 'Stall Design',
-      'Total (INR)', 'Received (INR)', 'Received %', 'Status', 'Created At'],
+      'Exhibitor Type', 'Currency', 'Total', 'Received', 'Received %', 'Total (INR equiv.)', 'Status', 'Created At'],
     rows: list.map((b) => {
       const rc = sbaReceived(b);
       return [b.no, b.company, b.regNo, sbaTypeLabel(b), b.stalls.map((s) => sbdZoneLabel(s.hall)).join(', '), b.stalls.map((s) => s.name).join(', '),
-        sbdSqm(b), b.stalls.map((s) => s.size).join(', '), b.stalls.map(sbaDesign).join(', '), b.total, rc.paid, rc.pct + '%', SBA_STATUS[b.status][2], sbdFmt(b.createdAt)];
+        sbdSqm(b), b.stalls.map((s) => s.size).join(', '), b.stalls.map(sbaDesign).join(', '), SBDT_ORIGIN[b.origin || 'national'], b.origin === 'international' ? 'USD' : 'INR',
+        sbdAmtXls(b.total, b.origin), sbdAmtXls(rc.paid, b.origin), rc.pct + '%', b.total, SBA_STATUS[b.status][2], sbdFmt(b.createdAt)];
     }),
   }]);
 }
@@ -627,6 +639,7 @@ function sbaOpen(id) {
   const b = sbdBookings().find((x) => x.id === id);
   if (!b) return;
   const rc = sbaReceived(b);
+  const money = (n) => sbdAmt(n, b.origin); // USD for international exhibitors
   let exId = b.exId;
   if (!exId && typeof A !== 'undefined' && A.exhibitors) {
     const m = A.exhibitors.find((e) => /hindustan aeronautics/i.test(e.company));
@@ -673,7 +686,8 @@ function sbaOpen(id) {
     (p.credit ? sum('Registration Amount <small>already paid · adjusted</small>', '− ' + money(p.credit)) : '') +
     '<div class="sba-sum line"></div>' +
     sum('<b>Net Payable</b>', money(p.payable)) +
-    sum('Total Paid', money(rc.paid), 'color:var(--green)');
+    sum('Total Paid', money(rc.paid), 'color:var(--green)') +
+    (b.origin === 'international' ? '<div class="sba-sum"><span><small style="margin:0">Converted at ₹' + SBD_USD_RATE + ' = $1 · INR equivalent ' + sbdAmt(p.payable, 'national') + '</small></span></div>' : '');
 
   const html =
     '<div class="sba-drawer-bg" onclick="sbaClose()"></div>' +
@@ -685,6 +699,7 @@ function sbaOpen(id) {
             (b.regNo ? ' · <span class="regno">' + esc(b.regNo) + '</span>' : '') + '</div></div>' +
           (exId ? '<a class="btn btn-primary sba-profile" href="#/exhibitor/' + exId + '"><span class="material-symbols-outlined">person</span>Profile</a>' : '') + '</div>' +
         '<div class="sba-chips">' + sbaTypeChip(b) +
+          (b.origin === 'international' ? '<span class="sba-chip blue"><span class="material-symbols-outlined">public</span>International · Billed in USD</span>' : '') +
           '<span class="sba-chip ' + SBA_STATUS[b.status][3] + '"><span class="material-symbols-outlined">' + SBA_STATUS[b.status][0] + '</span>' + SBA_STATUS[b.status][2] + '</span></div>' +
         (b.approvedBy ? '<p class="sba-meta">' + (b.status === 'rejected' ? 'Rejected' : 'Approved') + ' by ' + esc(b.approvedBy) + (b.approvedAt ? ' · ' + esc(b.approvedAt) : '') + '</p>' : '') +
 
@@ -717,7 +732,7 @@ window.addEventListener('hashchange', sbaClose);
 function sbaApprove(id) {
   const b = sbdBookings().find((x) => x.id === id);
   if (!b || b.status !== 'pending') return;
-  if (!confirm('Approve application ' + b.no + ' (' + b.stalls.map((s) => s.name).join(', ') + ' · ' + money(b.total) + ')?\nThe slab payment schedule will be issued to the exhibitor.')) return;
+  if (!confirm('Approve application ' + b.no + ' (' + b.stalls.map((s) => s.name).join(', ') + ' · ' + sbdAmt(b.total, b.origin) + ')?\nThe slab payment schedule will be issued to the exhibitor.')) return;
   if (b.source === 'live') {
     const ex = loadExState();
     const a = ex && ex.spaceBooking && ex.spaceBooking.applications.find((x) => x.id === id);
