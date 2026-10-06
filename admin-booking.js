@@ -368,6 +368,22 @@ function viewBookingTransactions() {
   let tx = sbdTransactions(books);
   const allTx = tx;
 
+  /* headline figures per billing currency — INR (national) and USD
+     (international) are never added together in a tile */
+  const cur = (o) => {
+    const bk = books.filter((b) => (b.origin || 'national') === o);
+    const val = bk.reduce((a, b) => a + b.total, 0);
+    const col = bk.reduce((a, b) => a + sbdPaid(b), 0);
+    let due = 0;
+    bk.forEach((b) => b.slabs.forEach((sl) => { const d = parseTs(sl.due); if (!sl.paidAt && d && d <= soon) due += sl.amount; }));
+    return { value: val, collected: col, outstanding: val - col, due: due, tx: allTx.filter((t) => t.origin === o).length };
+  };
+  const INR = cur('national');
+  const USD = cur('international');
+  const curTile = (label, k, cls) => '<div class="tile' + (cls ? ' ' + cls : '') + '"><div class="t-label">' + label + '</div>' +
+    '<div class="t-cur"><span class="cur-tag">INR</span><b>' + sbdCompact(INR[k]) + '</b></div>' +
+    '<div class="t-cur"><span class="cur-tag usd">USD</span><b>' + sbdUsd(USD[k]) + '</b></div></div>';
+
   /* slab-wise expected vs collected */
   const slabRows = SBD_SLABS.map(([label], i) => {
     const exp = books.reduce((a, b) => a + (b.slabs[i] ? b.slabs[i].amount : 0), 0);
@@ -454,21 +470,22 @@ function viewBookingTransactions() {
       '<p class="page-sub" style="margin-bottom:0">Slab payments (25% · 50% · 25%) collected against approved and confirmed stall &amp; chalet bookings.</p></div>' +
       sbdFilterBar() + '</div>' +
     '<div class="tiles" style="margin-top:16px">' +
-      '<div class="tile blue"><div class="t-label">Total Booking Value</div><div class="t-value">' + sbdCompact(value) + '</div></div>' +
-      '<div class="tile accent"><div class="t-label">Collected</div><div class="t-value">' + sbdCompact(collected) + '</div></div>' +
-      '<div class="tile"><div class="t-label">Outstanding</div><div class="t-value">' + sbdCompact(outstanding) + '</div></div>' +
-      '<div class="tile"><div class="t-label">Due in Next 30 Days</div><div class="t-value">' + sbdCompact(dueSoon) + '</div></div>' +
-      '<div class="tile"><div class="t-label">Transactions</div><div class="t-value">' + allTx.length + '</div></div>' +
+      curTile('Total Booking Value', 'value', 'blue') +
+      curTile('Collected', 'collected', 'accent') +
+      curTile('Outstanding', 'outstanding') +
+      curTile('Due in Next 30 Days', 'due') +
+      '<div class="tile"><div class="t-label">Transactions</div><div class="t-value">' + allTx.length + '</div>' +
+        '<div class="t-sub">' + INR.tx + ' in INR · ' + USD.tx + ' in USD</div></div>' +
     '</div>' +
     splitCard +
-    '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Collection Progress</h2><span class="result-count">' + rate + '% of booking value collected</span></div>' +
+    '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Collection Progress</h2><span class="result-count">' + rate + '% of booking value collected · combined in INR (USD @ ₹' + SBD_USD_RATE + '/$)</span></div>' +
       '<div class="prog-bar" style="height:12px" title="' + money(collected) + ' of ' + money(value) + '"><i style="width:' + rate + '%"></i></div>' +
       '<div style="margin-top:18px">' + slabRows + '</div></div>' +
     '<div class="form-grid section-gap">' +
-      '<div class="card" style="margin-top:0"><h2 class="card-title">Daily Collections — Last 14 Days</h2>' + trend + '</div>' +
-      '<div class="card" style="margin-top:0"><h2 class="card-title">Collections by Payment Method</h2>' + sbdBarRows(methodRows, sbdCompact) + '</div>' +
+      '<div class="card" style="margin-top:0"><h2 class="card-title">Daily Collections — Last 14 Days <small class="inr-eq">INR equiv.</small></h2>' + trend + '</div>' +
+      '<div class="card" style="margin-top:0"><h2 class="card-title">Collections by Payment Method <small class="inr-eq">INR equiv.</small></h2>' + sbdBarRows(methodRows, sbdCompact) + '</div>' +
     '</div>' +
-    '<div class="card section-gap"><h2 class="card-title">Collections by Hall</h2>' + sbdBarRows(hallRows, sbdCompact) + '</div>' +
+    '<div class="card section-gap"><h2 class="card-title">Collections by Hall <small class="inr-eq">INR equiv.</small></h2>' + sbdBarRows(hallRows, sbdCompact) + '</div>' +
     '<div class="card section-gap"><div class="card-head-row" style="flex-wrap:wrap;gap:10px"><h2 class="card-title">Transactions</h2>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">' +
         '<span class="result-count">' + tx.length + ' of ' + allTx.length + '</span>' +
