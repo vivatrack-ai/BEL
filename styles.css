@@ -975,3 +975,10 @@ table.grid.sbdt-table th, table.grid.sbdt-table td { padding: 11px 8px; }
 .cur-tag { font-size: 0.64rem; font-weight: 800; letter-spacing: 0.06em; padding: 2px 6px; border-radius: 5px; background: #EEF2F8; color: #4A5568; min-width: 30px; text-align: center; }
 .cur-tag.usd { background: #EAF0FC; color: var(--blue); }
 .inr-eq { font-size: 0.7rem; font-weight: 700; color: var(--muted); background: #F1F4FA; border-radius: 5px; padding: 2px 6px; margin-left: 6px; vertical-align: 2px; }
+
+/* ============ Booking Transactions · chart currency switch ============ */
+.cur-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.cur-note { display: block; font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
+.cur-seg button { padding: 8px 16px; gap: 8px; }
+.cur-seg button b { font-size: 0.7rem; letter-spacing: 0.06em; padding: 2px 6px; border-radius: 5px; background: #EEF2F8; color: #4A5568; }
+.cur-seg button.on b { background: rgba(255, 255, 255, 0.22); color: #fff; }

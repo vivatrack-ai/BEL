@@ -30,6 +30,13 @@ const sbdOrigin = (phone) => (phone && !/^\+?91/.test(String(phone).replace(/\s/
 const SBD_USD_RATE = 88;
 const sbdUsd = (inr) => '$' + (inr / SBD_USD_RATE).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const sbdAmt = (inr, origin) => (origin === 'international' ? sbdUsd(inr) : money(inr));
+function sbdUsdCompact(inr) {
+  const v = inr / SBD_USD_RATE;
+  if (v >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
+  if (v >= 1e4) return '$' + (v / 1e3).toFixed(1) + 'K';
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+const sbdCompactBy = (inr, origin) => (origin === 'international' ? sbdUsdCompact(inr) : sbdCompact(inr));
 const sbdAmtXls = (inr, origin) => (origin === 'international' ? Math.round((inr / SBD_USD_RATE) * 100) / 100 : inr);
 function sbdPickMethod(origin, h, i) {
   const p = SBD_PAY[origin];
@@ -224,7 +231,6 @@ function viewBookingDashboard() {
   const bookedSqm = active.reduce((a, b) => a + sbdSqm(b), 0);
   const capacity = SBDF.hall ? sbdZoneSqm(SBDF.hall) : SBD_CAPACITY_SQM;
   const occ = Math.round((bookedSqm / capacity) * 100);
-  const value = active.reduce((a, b) => a + b.total, 0);
 
   /* hall-wise occupancy — stacked by status, counted in stalls */
   const halls = SBDF.hall ? [SBDF.hall] : SBD_ZONES;
@@ -314,7 +320,9 @@ function viewBookingDashboard() {
         '<div class="t-sub">Shell ' + fmtSq(sqmOf(bookedSt, 'shell')) + ' · Raw ' + fmtSq(sqmOf(bookedSt, 'raw')) + ' · Chalet ' + fmtSq(sqmOf(bookedSt, 'chalet')) + ' sq.m</div></div>' +
       '<div class="tile"><div class="t-label">Occupancy</div><div class="t-value">' + occ + '%</div>' +
         '<div class="prog-bar" style="margin-top:6px" title="' + occ + '% of capacity booked"><i style="width:' + occ + '%"></i></div></div>' +
-      '<div class="tile accent"><div class="t-label">Booking Value (Approved + Confirmed)</div><div class="t-value">' + sbdCompact(value) + '</div></div>' +
+      '<div class="tile accent"><div class="t-label">Booking Value (Approved + Confirmed)</div>' +
+        '<div class="t-cur"><span class="cur-tag">INR</span><b>' + sbdCompact(active.filter((b) => (b.origin || 'national') === 'national').reduce((a, b) => a + b.total, 0)) + '</b></div>' +
+        '<div class="t-cur"><span class="cur-tag usd">USD</span><b>' + sbdUsd(active.filter((b) => b.origin === 'international').reduce((a, b) => a + b.total, 0)) + '</b></div></div>' +
     '</div>' +
     areaCard +
     '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Hall &amp; Chalet Occupancy</h2>' + sbdLegend(['confirmed', 'approved', 'pending', 'available']) + '</div>' +
@@ -330,7 +338,7 @@ function viewBookingDashboard() {
 /* ============================================================
    VIEW · Space Booking Transaction Dashboard
    ============================================================ */
-const SBDT = { origin: '', mode: '', method: '', dateMode: '', from: '', to: '', q: '', page: 1 };
+const SBDT = { cur: 'national', origin: '', mode: '', method: '', dateMode: '', from: '', to: '', q: '', page: 1 };
 const SBDT_ORIGIN = { national: 'National', international: 'International' };
 const SBDT_MODE = { online: 'Online', offline: 'Offline' };
 function sbdtSet(k, v) { SBDT[k] = v; SBDT.page = 1; render(); }
@@ -356,14 +364,8 @@ function exportSbdTransactions(list) {
 
 function viewBookingTransactions() {
   const books = sbdFilter(sbdBookings()).filter((b) => b.status === 'approved' || b.status === 'confirmed');
-  const value = books.reduce((a, b) => a + b.total, 0);
-  const collected = books.reduce((a, b) => a + sbdPaid(b), 0);
-  const outstanding = value - collected;
-  const rate = value ? Math.round((collected / value) * 100) : 0;
   const now = new Date();
   const soon = new Date(now.getTime() + 30 * 864e5);
-  let dueSoon = 0;
-  books.forEach((b) => b.slabs.forEach((s) => { const d = parseTs(s.due); if (!s.paidAt && d && d <= soon) dueSoon += s.amount; }));
 
   let tx = sbdTransactions(books);
   const allTx = tx;
@@ -384,27 +386,43 @@ function viewBookingTransactions() {
     '<div class="t-cur"><span class="cur-tag">INR</span><b>' + sbdCompact(INR[k]) + '</b></div>' +
     '<div class="t-cur"><span class="cur-tag usd">USD</span><b>' + sbdUsd(USD[k]) + '</b></div></div>';
 
+  /* ---- charts are single-currency: INR (national) or USD (international) ---- */
+  const C = SBDT.cur;
+  const isUsd = C === 'international';
+  const cBooks = books.filter((b) => (b.origin || 'national') === C);
+  const cTx = allTx.filter((t) => t.origin === C);
+  const cFmt = (n) => sbdCompactBy(n, C);
+  const cAmt = (n) => sbdAmt(n, C);
+  const cValue = cBooks.reduce((a, b) => a + b.total, 0);
+  const cCollected = cBooks.reduce((a, b) => a + sbdPaid(b), 0);
+  const cRate = cValue ? Math.round((cCollected / cValue) * 100) : 0;
+  const curSeg = '<div class="seg cur-seg">' +
+    [['national', 'INR', 'National'], ['international', 'USD', 'International']].map(([v, c, l]) =>
+      '<button class="' + (C === v ? 'on' : '') + '" onclick="SBDT.cur=\'' + v + '\';render()"><b>' + c + '</b>' + l + '</button>').join('') + '</div>';
+  const curNote = '<span class="cur-note">' + (isUsd ? 'International exhibitors · amounts in USD' : 'National exhibitors · amounts in INR') +
+    ' · ' + cBooks.length + ' bookings · ' + cTx.length + ' transactions</span>';
+
   /* slab-wise expected vs collected */
   const slabRows = SBD_SLABS.map(([label], i) => {
-    const exp = books.reduce((a, b) => a + (b.slabs[i] ? b.slabs[i].amount : 0), 0);
-    const got = books.reduce((a, b) => a + (b.slabs[i] && b.slabs[i].paidAt ? b.slabs[i].amount : 0), 0);
+    const exp = cBooks.reduce((a, b) => a + (b.slabs[i] ? b.slabs[i].amount : 0), 0);
+    const got = cBooks.reduce((a, b) => a + (b.slabs[i] && b.slabs[i].paidAt ? b.slabs[i].amount : 0), 0);
     const p = exp ? Math.round((got / exp) * 100) : 0;
-    return '<div class="prog-row" title="' + esc(label) + ': ' + money(got) + ' collected of ' + money(exp) + '">' +
+    return '<div class="prog-row" title="' + esc(label) + ': ' + cAmt(got) + ' collected of ' + cAmt(exp) + '">' +
       '<div class="pr-head"><span>' + esc(label) + ' <span style="color:var(--muted);font-weight:600">· due ' + SBD_SLABS[i][2] + '</span></span>' +
-      '<span>' + sbdCompact(got) + ' / ' + sbdCompact(exp) + ' (' + p + '%)</span></div>' +
+      '<span>' + (exp ? cFmt(got) + ' / ' + cFmt(exp) + ' (' + p + '%)' : '<span style="color:var(--muted);font-weight:600">Adjusted against registration</span>') + '</span></div>' +
       '<div class="prog-bar"><i style="width:' + p + '%"></i></div></div>';
   }).join('');
 
   /* 14-day collection trend (single series → no legend; hover = exact value) */
   const days = [];
   for (let i = 13; i >= 0; i--) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i); days.push(d); }
-  const perDay = days.map((d) => allTx.filter((t) => { const x = new Date(t.at); x.setHours(0, 0, 0, 0); return x.getTime() === d.getTime(); })
+  const perDay = days.map((d) => cTx.filter((t) => { const x = new Date(t.at); x.setHours(0, 0, 0, 0); return x.getTime() === d.getTime(); })
     .reduce((a, t) => a + t.amount, 0));
   const dMax = Math.max(...perDay, 1);
   const peak = perDay.indexOf(Math.max(...perDay));
   const trend = '<div class="col-chart">' + days.map((d, i) =>
-    '<div class="col" title="' + sbdDay(d) + ': ' + money(perDay[i]) + '">' +
-      (i === peak && perDay[i] ? '<span class="col-lbl">' + sbdCompact(perDay[i]) + '</span>' : '') +
+    '<div class="col" title="' + sbdDay(d) + ': ' + cAmt(perDay[i]) + '">' +
+      (i === peak && perDay[i] ? '<span class="col-lbl">' + cFmt(perDay[i]) + '</span>' : '') +
       '<i style="height:' + Math.max(perDay[i] ? 3 : 0, Math.round((perDay[i] / dMax) * 100)) + '%"></i>' +
       '<span class="col-x">' + (i % 2 === 0 ? sbdDay(d) : '') + '</span></div>').join('') + '</div>';
 
@@ -421,7 +439,7 @@ function viewBookingTransactions() {
       '<b>' + cur(v.amt) + '</b><small>' + v.n + ' txn' + (v.n === 1 ? '' : 's') + ' · ' + pc(v.amt) + '%</small></div>';
     return '<div class="split-blk">' +
       '<div class="split-h"><span class="material-symbols-outlined">' + (o === 'national' ? 'flag' : 'public') + '</span>' + SBDT_ORIGIN[o] +
-        '<span class="split-share">' + (grandTx.amt ? Math.round((tot.amt / grandTx.amt) * 100) : 0) + '% of collections</span></div>' +
+        '<span class="split-share">' + tot.n + ' of ' + grandTx.n + ' transactions</span></div>' +
       '<div class="split-total"><small>TOTAL' + (o === 'international' ? ' (USD)' : ' (INR)') + '</small><b>' + cur(tot.amt) + '</b><span>' + tot.n + ' transaction' + (tot.n === 1 ? '' : 's') +
         (o === 'international' ? ' · ≈ ' + money(tot.amt) + ' @ ₹' + SBD_USD_RATE + '/$' : '') + '</span></div>' +
       '<div class="stack-bar split-bar" title="Online ' + cur(on.amt) + ' · Offline ' + cur(off.amt) + '">' +
@@ -434,10 +452,11 @@ function viewBookingTransactions() {
       '<div class="sbd-legend"><span><i style="background:#2F62D8"></i>Online</span><span><i style="background:#C98514"></i>Offline</span></div></div>' +
     '<div class="split-grid">' + splitBlock('national') + splitBlock('international') + '</div></div>';
 
-  const methodRows = SBD_METHODS.map((m) => [m, allTx.filter((t) => t.method === m).reduce((a, t) => a + t.amount, 0),
-    allTx.filter((t) => t.method === m).length + ' txns']);
+  const cMethods = SBD_PAY[C].online.concat(SBD_PAY[C].offline);
+  const methodRows = cMethods.map((m) => [m + (sbdMode(m) === 'offline' ? ' (Offline)' : ' (Online)'),
+    cTx.filter((t) => t.method === m).reduce((a, t) => a + t.amount, 0), cTx.filter((t) => t.method === m).length + ' txns']);
   const hallRows = SBD_ZONES.filter((h) => !SBDF.hall || h === SBDF.hall).map((h) =>
-    [ sbdZoneLabel(h), allTx.filter((t) => t.hall.split(', ').includes(h)).reduce((a, t) => a + t.amount, 0), '' ]);
+    [ sbdZoneLabel(h), cTx.filter((t) => t.hall.split(', ').includes(h)).reduce((a, t) => a + t.amount, 0), '' ]);
 
   /* table filters */
   if (SBDT.origin) tx = tx.filter((t) => t.origin === SBDT.origin);
@@ -478,14 +497,16 @@ function viewBookingTransactions() {
         '<div class="t-sub">' + INR.tx + ' in INR · ' + USD.tx + ' in USD</div></div>' +
     '</div>' +
     splitCard +
-    '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Collection Progress</h2><span class="result-count">' + rate + '% of booking value collected · combined in INR (USD @ ₹' + SBD_USD_RATE + '/$)</span></div>' +
-      '<div class="prog-bar" style="height:12px" title="' + money(collected) + ' of ' + money(value) + '"><i style="width:' + rate + '%"></i></div>' +
+    '<div class="cur-head section-gap"><div><h2 class="card-title" style="margin:0">Collection Analytics</h2>' + curNote + '</div>' + curSeg + '</div>' +
+    '<div class="card"><div class="card-head-row"><h2 class="card-title">Collection Progress <small class="inr-eq">' + (isUsd ? 'USD' : 'INR') + '</small></h2>' +
+      '<span class="result-count">' + cFmt(cCollected) + ' of ' + cFmt(cValue) + ' collected · ' + cRate + '%</span></div>' +
+      '<div class="prog-bar" style="height:12px" title="' + cAmt(cCollected) + ' of ' + cAmt(cValue) + '"><i style="width:' + cRate + '%"></i></div>' +
       '<div style="margin-top:18px">' + slabRows + '</div></div>' +
     '<div class="form-grid section-gap">' +
-      '<div class="card" style="margin-top:0"><h2 class="card-title">Daily Collections — Last 14 Days <small class="inr-eq">INR equiv.</small></h2>' + trend + '</div>' +
-      '<div class="card" style="margin-top:0"><h2 class="card-title">Collections by Payment Method <small class="inr-eq">INR equiv.</small></h2>' + sbdBarRows(methodRows, sbdCompact) + '</div>' +
+      '<div class="card" style="margin-top:0"><h2 class="card-title">Daily Collections — Last 14 Days <small class="inr-eq">' + (isUsd ? 'USD' : 'INR') + '</small></h2>' + trend + '</div>' +
+      '<div class="card" style="margin-top:0"><h2 class="card-title">Collections by Payment Method <small class="inr-eq">' + (isUsd ? 'USD' : 'INR') + '</small></h2>' + sbdBarRows(methodRows, cFmt) + '</div>' +
     '</div>' +
-    '<div class="card section-gap"><h2 class="card-title">Collections by Hall <small class="inr-eq">INR equiv.</small></h2>' + sbdBarRows(hallRows, sbdCompact) + '</div>' +
+    '<div class="card section-gap"><h2 class="card-title">Collections by Hall <small class="inr-eq">' + (isUsd ? 'USD' : 'INR') + '</small></h2>' + sbdBarRows(hallRows, cFmt) + '</div>' +
     '<div class="card section-gap"><div class="card-head-row" style="flex-wrap:wrap;gap:10px"><h2 class="card-title">Transactions</h2>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">' +
         '<span class="result-count">' + tx.length + ' of ' + allTx.length + '</span>' +
