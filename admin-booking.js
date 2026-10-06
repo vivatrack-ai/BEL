@@ -385,6 +385,30 @@ function viewBookingTransactions() {
       '<i style="height:' + Math.max(perDay[i] ? 3 : 0, Math.round((perDay[i] / dMax) * 100)) + '%"></i>' +
       '<span class="col-x">' + (i % 2 === 0 ? sbdDay(d) : '') + '</span></div>').join('') + '</div>';
 
+  /* National / International collections, each split Online / Offline */
+  const sumTx = (f) => { const l = allTx.filter(f); return { amt: l.reduce((a, t) => a + t.amount, 0), n: l.length }; };
+  const grandTx = sumTx(() => true);
+  const splitBlock = (o) => {
+    const tot = sumTx((t) => t.origin === o);
+    const on = sumTx((t) => t.origin === o && t.mode === 'online');
+    const off = sumTx((t) => t.origin === o && t.mode === 'offline');
+    const pc = (x) => (tot.amt ? Math.round((x / tot.amt) * 100) : 0);
+    const line = (k, ic, v, cls) => '<div class="split-line ' + cls + '"><span><span class="material-symbols-outlined">' + ic + '</span>' + k + '</span>' +
+      '<b>' + money(v.amt) + '</b><small>' + v.n + ' txn' + (v.n === 1 ? '' : 's') + ' · ' + pc(v.amt) + '%</small></div>';
+    return '<div class="split-blk">' +
+      '<div class="split-h"><span class="material-symbols-outlined">' + (o === 'national' ? 'flag' : 'public') + '</span>' + SBDT_ORIGIN[o] +
+        '<span class="split-share">' + (grandTx.amt ? Math.round((tot.amt / grandTx.amt) * 100) : 0) + '% of collections</span></div>' +
+      '<div class="split-total"><small>TOTAL</small><b>' + money(tot.amt) + '</b><span>' + tot.n + ' transaction' + (tot.n === 1 ? '' : 's') + '</span></div>' +
+      '<div class="stack-bar split-bar" title="Online ' + money(on.amt) + ' · Offline ' + money(off.amt) + '">' +
+        (on.amt ? '<i style="flex:' + on.amt + ';background:#2F62D8"></i>' : '') + (off.amt ? '<i style="flex:' + off.amt + ';background:#C98514"></i>' : '') +
+        (!tot.amt ? '<i style="flex:1;background:#E3E8F1"></i>' : '') + '</div>' +
+      line('Online', 'language', on, 'online') + line('Offline', 'account_balance', off, 'offline') +
+    '</div>';
+  };
+  const splitCard = '<div class="card"><div class="card-head-row"><h2 class="card-title">National &amp; International Collections</h2>' +
+      '<div class="sbd-legend"><span><i style="background:#2F62D8"></i>Online</span><span><i style="background:#C98514"></i>Offline</span></div></div>' +
+    '<div class="split-grid">' + splitBlock('national') + splitBlock('international') + '</div></div>';
+
   const methodRows = SBD_METHODS.map((m) => [m, allTx.filter((t) => t.method === m).reduce((a, t) => a + t.amount, 0),
     allTx.filter((t) => t.method === m).length + ' txns']);
   const hallRows = SBD_ZONES.filter((h) => !SBDF.hall || h === SBDF.hall).map((h) =>
@@ -426,7 +450,8 @@ function viewBookingTransactions() {
       '<div class="tile"><div class="t-label">Due in Next 30 Days</div><div class="t-value">' + sbdCompact(dueSoon) + '</div></div>' +
       '<div class="tile"><div class="t-label">Transactions</div><div class="t-value">' + allTx.length + '</div></div>' +
     '</div>' +
-    '<div class="card"><div class="card-head-row"><h2 class="card-title">Collection Progress</h2><span class="result-count">' + rate + '% of booking value collected</span></div>' +
+    splitCard +
+    '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Collection Progress</h2><span class="result-count">' + rate + '% of booking value collected</span></div>' +
       '<div class="prog-bar" style="height:12px" title="' + money(collected) + ' of ' + money(value) + '"><i style="width:' + rate + '%"></i></div>' +
       '<div style="margin-top:18px">' + slabRows + '</div></div>' +
     '<div class="form-grid section-gap">' +
