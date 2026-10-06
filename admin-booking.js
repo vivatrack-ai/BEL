@@ -13,7 +13,22 @@ const SBD_HALLS = ['A', 'B', 'C', 'D', 'E'];
 const SBD_RATE = { 108: { shell: 125000, raw: 250000 }, 54: { shell: 65000, raw: 130000 }, 36: { shell: 45000, raw: 90000 } };
 const SBD_SIZE = { 108: '12X9', 54: '9X6', 36: '6X6' };
 const SBD_SLABS = [['Slab 1 — 25% Advance', 0.25, '15 Oct 2026'], ['Slab 2 — 50%', 0.5, '15 Dec 2026'], ['Slab 3 — 25% Balance', 0.25, '15 Jan 2027']];
-const SBD_METHODS = ['Card', 'Net Banking', 'UPI', 'RTGS'];
+/* payment channels — online = payment gateway, offline = bank transfer /
+   instrument reconciled by the organiser's finance team */
+const SBD_PAY = {
+  national: { online: ['Card', 'Net Banking', 'UPI'], offline: ['NEFT / RTGS', 'Cheque / DD'] },
+  international: { online: ['International Card'], offline: ['Wire Transfer (SWIFT)'] },
+};
+const SBD_METHODS = ['Card', 'Net Banking', 'UPI', 'International Card', 'NEFT / RTGS', 'Cheque / DD', 'Wire Transfer (SWIFT)'];
+const SBD_OFFLINE = ['NEFT / RTGS', 'Cheque / DD', 'Wire Transfer (SWIFT)'];
+const sbdMode = (m) => (SBD_OFFLINE.includes(m) ? 'offline' : 'online');
+/* exhibitor origin from the registered phone's country code (+91 = India) */
+const sbdOrigin = (phone) => (phone && !/^\+?91/.test(String(phone).replace(/\s/g, '')) ? 'international' : 'national');
+function sbdPickMethod(origin, h, i) {
+  const p = SBD_PAY[origin];
+  const mode = ((h >>> (i * 3 + 1)) % 10) < 7 ? 'online' : 'offline'; // ≈70% pay online
+  return p[mode][(h >>> (i * 3)) % p[mode].length];
+}
 const SBD_STALLS_PER_HALL = 12;
 /* Chalet Line 1 — 10 chalets × 100 sqm, booked as 1 Floor / 2 Floor */
 const SBD_CHALETS = 10;
@@ -65,7 +80,7 @@ function sbdBookings() {
         method: o ? 'Card' : '', txn: o ? o.orderNo : '' };
     });
     if (a.status !== 'rejected') a.stalls.forEach((s) => { taken[s.hall + '|' + s.name] = true; });
-    out.push({ id: a.id, no: a.no, company: EX_COMPANY, regNo: 'EXHC00001', source: 'live',
+    out.push({ id: a.id, no: a.no, company: EX_COMPANY, regNo: 'EXHC00001', origin: 'national', source: 'live',
       stalls: a.stalls.map((s) => ({ hall: s.hall, name: s.name, sqm: s.sqm, size: s.size, scheme: s.scheme, price: s.price, sides: s.sides })),
       total: a.total, status: a.status, createdAt: parseTs(a.createdAt) || new Date(), slabs: slabs,
       remark: a.remark || '', approvedBy: a.approvedBy || '', approvedAt: a.approvedAt || '' });
@@ -94,10 +109,10 @@ function sbdBookings() {
         if (ago < 1) ago = 1 + ((h >>> (i + 5)) % 6); // spread recent payments, no false spike on today
         return { label: label, amount: Math.round(price * pct), due: due,
           paidAt: paid ? sbdDaysAgo(ago, h >>> (i + 1)) : null,
-          method: paid ? SBD_METHODS[(h >>> (i * 3)) % SBD_METHODS.length] : '',
+          method: paid ? sbdPickMethod(sbdOrigin(company.phone), h, i) : '',
           txn: paid ? 'TXN' + String(sbdHash(name + i)).slice(0, 9) : '' };
       });
-      out.push({ id: 'sbd_' + name, no: '#' + String(40000000 + (h % 59999999)), company: company.company, regNo: company.regNo || '',
+      out.push({ id: 'sbd_' + name, no: '#' + String(40000000 + (h % 59999999)), company: company.company, regNo: company.regNo || '', origin: sbdOrigin(company.phone),
         exId: company.id, source: 'demo', stalls: [{ hall: hall, name: name, sqm: sqm, size: SBD_SIZE[sqm], scheme: scheme, price: price, sides: n % 2 ? '2 Sides' : '1 Side' }],
         total: price, status: status, createdAt: sbdDaysAgo(age, h), slabs: (status === 'approved' || status === 'confirmed') ? slabs : [] });
       k++;
@@ -121,10 +136,10 @@ function sbdBookings() {
       if (ago < 1) ago = 1 + ((h >>> (i + 5)) % 6);
       return { label: label, amount: Math.round(price * pct), due: due,
         paidAt: paid ? sbdDaysAgo(ago, h >>> (i + 1)) : null,
-        method: paid ? SBD_METHODS[(h >>> (i * 3)) % SBD_METHODS.length] : '',
+        method: paid ? sbdPickMethod(sbdOrigin(company.phone), h, i) : '',
         txn: paid ? 'TXN' + String(sbdHash(name + i)).slice(0, 9) : '' };
     });
-    out.push({ id: 'sbd_' + name, no: '#' + String(40000000 + (h % 59999999)), company: company.company, regNo: company.regNo || '',
+    out.push({ id: 'sbd_' + name, no: '#' + String(40000000 + (h % 59999999)), company: company.company, regNo: company.regNo || '', origin: sbdOrigin(company.phone),
       exId: company.id, source: 'demo', stalls: [{ hall: 'CH', name: name, sqm: 100, size: '10X10', scheme: scheme, price: price, sides: '4 Sides' }],
       total: price, status: status, createdAt: sbdDaysAgo(age, h), slabs: (status === 'approved' || status === 'confirmed') ? slabs : [] });
     k++;
@@ -308,7 +323,9 @@ function viewBookingDashboard() {
 /* ============================================================
    VIEW · Space Booking Transaction Dashboard
    ============================================================ */
-const SBDT = { method: '', dateMode: '', from: '', to: '', q: '', page: 1 };
+const SBDT = { origin: '', mode: '', method: '', dateMode: '', from: '', to: '', q: '', page: 1 };
+const SBDT_ORIGIN = { national: 'National', international: 'International' };
+const SBDT_MODE = { online: 'Online', offline: 'Offline' };
 function sbdtSet(k, v) { SBDT[k] = v; SBDT.page = 1; render(); }
 function sbdtSetQ(v) { SBDT.q = v; SBDT.page = 1; render(); const el = $('sbdtQ'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
 
@@ -317,7 +334,7 @@ function sbdTransactions(bookings) {
   bookings.forEach((b) => b.slabs.forEach((s, i) => {
     if (!s.paidAt) return;
     tx.push({ txn: s.txn, at: s.paidAt, no: b.no, company: b.company, hall: b.stalls.map((x) => x.hall).join(', '),
-      stalls: b.stalls.map((x) => x.name).join(', '), slab: i + 1, slabLabel: s.label, method: s.method || 'Card', amount: s.amount });
+      stalls: b.stalls.map((x) => x.name).join(', '), slab: i + 1, slabLabel: s.label, method: s.method || 'Card', mode: sbdMode(s.method || 'Card'), origin: b.origin || 'national', amount: s.amount });
   }));
   return tx.sort((a, b) => b.at - a.at);
 }
@@ -325,8 +342,8 @@ function sbdTransactions(bookings) {
 function exportSbdTransactions(list) {
   exportWorkbook('Space-Booking-Transactions-' + exportStamp(), [{
     name: 'Transactions',
-    headers: ['Txn ID', 'Paid At', 'Application No', 'Exhibitor', 'Hall / Chalet Line', 'Stall / Chalet', 'Slab', 'Method', 'Amount (INR)', 'Status'],
-    rows: list.map((t) => [t.txn, sbdFmt(t.at), t.no, t.company, t.hall.split(', ').map(sbdZoneLabel).join(', '), t.stalls, t.slabLabel, t.method, t.amount, 'Success']),
+    headers: ['Txn ID', 'Paid At', 'Application No', 'Exhibitor', 'National / International', 'Hall / Chalet Line', 'Stall / Chalet', 'Slab', 'Online / Offline', 'Method', 'Amount (INR)', 'Status'],
+    rows: list.map((t) => [t.txn, sbdFmt(t.at), t.no, t.company, SBDT_ORIGIN[t.origin], t.hall.split(', ').map(sbdZoneLabel).join(', '), t.stalls, t.slabLabel, SBDT_MODE[t.mode], t.method, t.amount, 'Success']),
   }]);
 }
 
@@ -374,23 +391,30 @@ function viewBookingTransactions() {
     [ sbdZoneLabel(h), allTx.filter((t) => t.hall.split(', ').includes(h)).reduce((a, t) => a + t.amount, 0), '' ]);
 
   /* table filters */
+  if (SBDT.origin) tx = tx.filter((t) => t.origin === SBDT.origin);
+  if (SBDT.mode) tx = tx.filter((t) => t.mode === SBDT.mode);
   if (SBDT.method) tx = tx.filter((t) => t.method === SBDT.method);
   const r = dateFilterRange(SBDT);
   if (r.from || r.to) tx = tx.filter((t) => inDateRange(sbdFmt(t.at), r.from, r.to));
   const q = SBDT.q.toLowerCase();
   if (q) tx = tx.filter((t) => (t.txn + ' ' + t.no + ' ' + t.company + ' ' + t.stalls).toLowerCase().includes(q));
   window.__sbdtList = tx;
+  const sel = (k, opts, all) => '<select onchange="sbdtSet(\'' + k + '\', this.value)" style="' + dateInputStyle + ';cursor:pointer"><option value="">' + all + '</option>' +
+    opts.map(([v, l]) => '<option value="' + esc(v) + '"' + (SBDT[k] === v ? ' selected' : '') + '>' + esc(l) + '</option>').join('') + '</select>';
   const rows = 10;
   const pages = Math.max(1, Math.ceil(tx.length / rows));
   if (SBDT.page > pages) SBDT.page = pages;
   const st = (SBDT.page - 1) * rows;
   const trs = tx.slice(st, st + rows).map((t) =>
-    '<tr><td><span class="regno">' + esc(t.txn) + '</span></td><td>' + sbdFmt(t.at) + '</td>' +
+    '<tr><td><span class="regno">' + esc(t.txn) + '</span></td><td style="white-space:nowrap">' + sbaDate(t.at) + '<span class="td-sub">' + sbaTime(t.at) + '</span></td>' +
     '<td><span class="regno">' + esc(t.no) + '</span></td><td class="td-strong">' + esc(t.company) + '</td>' +
+    '<td><span class="pill ' + (t.origin === 'international' ? 'blue' : 'gray') + '">' + SBDT_ORIGIN[t.origin] + '</span></td>' +
     '<td>' + esc(t.hall.split(', ').map(sbdZoneLabel).join(', ')) + '<span class="td-sub">' + esc(t.stalls) + '</span></td>' +
-    '<td>' + esc(t.slabLabel) + '</td><td>' + esc(t.method) + '</td>' +
+    '<td style="white-space:nowrap">Slab ' + t.slab + '<span class="td-sub">' + Math.round(SBD_SLABS[t.slab - 1][1] * 100) + '%</span></td>' +
+    '<td><span class="mode-chip ' + t.mode + '"><span class="material-symbols-outlined">' + (t.mode === 'online' ? 'language' : 'account_balance') + '</span>' + SBDT_MODE[t.mode] + '</span>' +
+      '<span class="td-sub">' + esc(t.method) + '</span></td>' +
     '<td class="money">' + money(t.amount) + '</td><td><span class="pill green">Success</span></td></tr>').join('') ||
-    '<tr><td colspan="9" style="color:var(--muted)">No transactions for the selected filters.</td></tr>';
+    '<tr><td colspan="10" style="color:var(--muted)">No transactions for the selected filters.</td></tr>';
 
   return '<div class="card-head-row" style="margin-bottom:4px"><div><h1 class="page-title">Space Booking Transactions</h1>' +
       '<p class="page-sub" style="margin-bottom:0">Slab payments (25% · 50% · 25%) collected against approved and confirmed stall &amp; chalet bookings.</p></div>' +
@@ -414,12 +438,13 @@ function viewBookingTransactions() {
       '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">' +
         '<span class="result-count">' + tx.length + ' of ' + allTx.length + '</span>' +
         '<input type="text" id="sbdtQ" value="' + esc(SBDT.q) + '" placeholder="Search txn, application, exhibitor" oninput="sbdtSetQ(this.value)" style="' + dateInputStyle + ';min-width:220px">' +
-        '<select onchange="sbdtSet(\'method\', this.value)" style="' + dateInputStyle + ';cursor:pointer"><option value="">Method: All</option>' +
-          SBD_METHODS.map((m) => '<option' + (SBDT.method === m ? ' selected' : '') + '>' + m + '</option>').join('') + '</select>' +
+        sel('origin', [['national', 'National'], ['international', 'International']], 'Exhibitor: All') +
+        sel('mode', [['online', 'Online'], ['offline', 'Offline']], 'Mode: All') +
+        sel('method', SBD_METHODS.filter((m) => !SBDT.mode || sbdMode(m) === SBDT.mode).map((m) => [m, m]), 'Method: All') +
         toolbarDateSel(SBDT, 'sbdtDateMode', 'sbdtFrom', 'sbdtTo') +
         '<button class="btn btn-outline btn-sm" onclick="exportSbdTransactions(window.__sbdtList)"' + (tx.length ? '' : ' disabled') + '><span class="material-symbols-outlined" style="font-size:16px">download</span>Export to Excel</button>' +
       '</div></div>' +
-      '<div class="tablewrap"><table class="grid"><tr><th>Txn ID</th><th>Paid At</th><th>Application</th><th>Exhibitor</th><th>Hall / Stall</th><th>Slab</th><th>Method</th><th>Amount</th><th>Status</th></tr>' +
+      '<div class="tablewrap"><table class="grid sbdt-table"><tr><th>Txn ID</th><th>Paid At</th><th>Application</th><th>Exhibitor</th><th>Exhibitor Type</th><th>Hall / Stall</th><th>Slab</th><th>Payment Mode</th><th>Amount</th><th>Status</th></tr>' +
       trs + '</table></div>' +
       '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:12px;font-size:0.8rem;color:var(--muted)">' +
         '<span>Total: <b>' + tx.length + '</b> · Rows ' + rows + '</span>' +
