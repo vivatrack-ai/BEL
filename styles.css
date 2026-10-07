@@ -982,3 +982,17 @@ table.grid.sbdt-table th, table.grid.sbdt-table td { padding: 11px 8px; }
 .cur-seg button { padding: 8px 16px; gap: 8px; }
 .cur-seg button b { font-size: 0.7rem; letter-spacing: 0.06em; padding: 2px 6px; border-radius: 5px; background: #EEF2F8; color: #4A5568; }
 .cur-seg button.on b { background: rgba(255, 255, 255, 0.22); color: #fff; }
+
+/* ============ Space Requirement · sq.m by setup type ============ */
+.area-blks.cols-1 { grid-template-columns: 1fr; }
+.area-blks.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.area-blks.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.sq-summary { display: flex; gap: 14px; align-items: stretch; margin-bottom: 16px; flex-wrap: wrap; }
+.sq-total-blk { flex: 0 0 220px; background: linear-gradient(135deg, #EAF0FC, #F3F7FE); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; justify-content: center; }
+.sq-total-blk small { font-size: 0.7rem; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
+.sq-total-blk b { font-size: 1.6rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.sq-total-blk b span { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+.sq-total-blk > span { font-size: 0.78rem; color: var(--muted); }
+.sq-types { flex: 1; min-width: 280px; }
+.sq-types .area-blks { margin: 0 0 10px; }
+@media (max-width: 900px) { .area-blks.cols-4 { grid-template-columns: repeat(2, 1fr); } .sq-total-blk { flex-basis: 100%; } }

@@ -324,6 +324,30 @@ function render() {
 }
 window.addEventListener('hashchange', render);
 
+/* Requested area split by setup type (Chalet is counted in units — no sqm) */
+function sqmByType(list) {
+  return SIZE_TYPES.map((t) => {
+    const l = list.filter((r) => r.setupType === t);
+    return { type: t, n: l.length, sqm: l.reduce((a, r) => a + (r.sqm || 0), 0) };
+  });
+}
+const SQ_COLORS = { Shell: '#2F62D8', Raw: '#1E8E5A', Pavilion: '#C98514', Outdoor: '#8E44C9' };
+/* Block cards (one per setup type) + a share bar — same look as the
+   Booking Dashboard's "Booked Area by Space Type". */
+function sqmBlocksHtml(list, types) {
+  const rows = sqmByType(list).filter((x) => !types || types.includes(x.type));
+  const total = rows.reduce((a, x) => a + x.sqm, 0);
+  const blocks = rows.map((x) => {
+    const share = total ? Math.round((x.sqm / total) * 100) : 0;
+    return '<div class="area-blk"><span class="area-k"><i style="background:' + SQ_COLORS[x.type] + '"></i>' + esc(x.type) + '</span>' +
+      '<b class="area-v">' + x.sqm.toLocaleString('en-IN') + ' <small>sq.m</small></b>' +
+      '<span class="area-s">' + x.n + ' requirement' + (x.n === 1 ? '' : 's') + ' · ' + share + '% of requested area</span></div>';
+  }).join('');
+  const bar = '<div class="stack-bar area-bar">' + rows.map((x) => x.sqm
+    ? '<i style="flex:' + x.sqm + ';background:' + SQ_COLORS[x.type] + '" title="' + esc(x.type) + ': ' + x.sqm.toLocaleString('en-IN') + ' sq.m"></i>' : '').join('') + '</div>';
+  return '<div class="area-blks cols-' + Math.min(4, Math.max(1, rows.length)) + '">' + blocks + '</div>' + (rows.length > 1 ? bar : '');
+}
+
 /* ============================================================
    VIEW · Space Requirement Dashboard
    ============================================================ */
@@ -367,12 +391,16 @@ function viewDashboard() {
     '<div class="tiles">' +
       '<div class="tile blue"><div class="t-label">Total Requirements</div><div class="t-value">' + reqs.length + '</div></div>' +
       '<div class="tile"><div class="t-label">Exhibitors</div><div class="t-value">' + exWithReqs + '</div></div>' +
-      '<div class="tile"><div class="t-label">Total Space Requested</div><div class="t-value">' + totalSqm.toLocaleString('en-IN') + '<span style="font-size:0.85rem;color:var(--muted);font-weight:600"> sqm</span></div></div>' +
+      '<div class="tile"><div class="t-label">Total Space Requested</div><div class="t-value">' + totalSqm.toLocaleString('en-IN') + '<span style="font-size:0.85rem;color:var(--muted);font-weight:600"> sqm</span></div>' +
+        '<div class="t-sub">Shell · Raw · Pavilion · Outdoor</div></div>' +
       '<div class="tile accent"><div class="t-label">Multi-Requirement Companies</div><div class="t-value">' + multiCompanies + '</div></div>' +
       '<div class="tile"><div class="t-label">Chalet Requests</div><div class="t-value">' + chalets + '</div></div>' +
     '</div>' +
-    '<div class="form-grid">' +
-      '<div class="card"><h2 class="card-title">By Space Setup Type</h2><div class="bar-rows">' + typeBars + '</div></div>' +
+    '<div class="card"><div class="card-head-row"><h2 class="card-title">Space Requested by Setup Type (sq.m)</h2>' +
+      '<span class="result-count">' + totalSqm.toLocaleString('en-IN') + ' sq.m across ' + reqs.filter((r) => SIZE_TYPES.includes(r.setupType)).length + ' requirements · Chalet counted in units</span></div>' +
+      sqmBlocksHtml(reqs) + '</div>' +
+    '<div class="form-grid section-gap">' +
+      '<div class="card" style="margin-top:0"><h2 class="card-title">By Space Setup Type</h2><div class="bar-rows">' + typeBars + '</div></div>' +
       '<div class="card" style="margin-top:0"><h2 class="card-title">By Size (Shell · Raw · Pavilion · Outdoor)</h2><div class="bar-rows">' + sizeRows + '</div></div>' +
     '</div>' +
     '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Recent Submissions</h2>' +
@@ -468,6 +496,15 @@ function viewSpaceRequirements() {
         '<button class="btn btn-primary btn-sm" onclick="openBulkEmail()"' + (list.length || SEL.size ? '' : ' disabled') + '>' +
           '<span class="material-symbols-outlined" style="font-size:16px">mail</span>' + emailBtnLabel + '</button>' +
       '</div></div>' +
+      (() => {
+        const sel = F.types.filter((t) => SIZE_TYPES.includes(t));
+        const types = sel.length ? sel : (F.types.length ? [] : SIZE_TYPES);
+        const tot = list.reduce((a, r) => a + (r.sqm || 0), 0);
+        const ch = list.filter((r) => r.setupType === 'Chalet').length;
+        return '<div class="sq-summary"><div class="sq-total-blk"><small>TOTAL SPACE (FILTERED)</small><b>' + tot.toLocaleString('en-IN') + ' <span>sq.m</span></b>' +
+            '<span>' + list.length + ' requirement' + (list.length === 1 ? '' : 's') + (ch ? ' · ' + ch + ' chalet (units)' : '') + '</span></div>' +
+          (types.length ? '<div class="sq-types">' + sqmBlocksHtml(list, types) + '</div>' : '') + '</div>';
+      })() +
       '<div class="tablewrap"><table class="grid">' +
       '<tr><th><input type="checkbox" ' + (allChecked ? 'checked ' : '') + 'onchange="toggleSelAll(this.checked)" title="Select all filtered (across pages)" aria-label="Select all filtered"></th>' +
       '<th>Profile Info</th><th>Contact Info</th><th>Reg. No.</th><th>Setup Type</th><th>Size</th><th>Floors</th><th>Open Sides</th><th>Action</th></tr>' +
