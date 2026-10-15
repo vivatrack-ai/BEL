@@ -14,7 +14,7 @@
 
 /* ---------------- state ---------------- */
 /* bump to wipe every portal's demo applications on the next load */
-const SB_CLEAR_SEQ = 3;
+const SB_CLEAR_SEQ = 4;
 (function migrateSpaceBooking() {
   if (!S.spaceBooking) S.spaceBooking = {};
   if (!S.spaceBooking.reservations) {
@@ -464,36 +464,15 @@ function viewBookingSuccess() {
     '</div></div>';
 }
 
-/* ---------------- 21-day validity timeline ---------------- */
-function sbTimeline(r, compact) {
-  const start = new Date(r.createdAtIso || Date.now()).getTime();
-  const end = new Date(r.holdUntil).getTime();
-  const paused = r.status === 'payment_under_verification';
-  const now = paused && r.pausedAt ? new Date(r.pausedAt).getTime() : (r.status === 'confirmed' && r.paidAtIso ? new Date(r.paidAtIso).getTime() : Date.now());
-  const total = Math.max(1, end - start);
-  const totalDays = Math.max(1, Math.round(total / 864e5));
-  const pct = Math.min(100, Math.max(0, Math.round(((now - start) / total) * 100)));
-  const left = sbpDaysLeft(r.holdUntil, now);
-  const dayNo = Math.min(totalDays, Math.max(1, Math.floor((now - start) / 864e5) + 1));
-  const cls = r.status === 'confirmed' ? 'done' : r.status === 'expired' || r.status === 'released' ? 'over'
-    : paused ? 'paused' : left <= 1 ? 'late' : left <= 7 ? 'warn' : 'ok';
-  const headL = r.status === 'confirmed' ? 'Paid on day ' + dayNo + ' of ' + totalDays
-    : r.status === 'expired' ? 'Expired on ' + sbpDate(r.holdUntil)
-    : r.status === 'released' ? 'Released' + (r.releasedAt ? ' ' + r.releasedAt : '')
-    : 'Day ' + dayNo + ' of ' + totalDays + (paused ? ' · clock paused' : '');
-  const headR = r.status === 'confirmed' ? 'Confirmed' : r.status === 'expired' || r.status === 'released' ? ''
-    : (left <= 0 ? 'Expires today' : left + ' day' + (left === 1 ? '' : 's') + ' left') + ' · till ' + sbpDate(r.holdUntil);
-  const ticks = [7, 3, 1].map((d) => {
-    const p = Math.max(0, Math.min(100, Math.round((1 - d / totalDays) * 100)));
-    return '<b class="tick' + (r.reminders && r.reminders[d] ? ' hit' : '') + '" style="left:' + p + '%" title="Reminder T−' + d + ' · ' + sbpDate(new Date(end - d * 864e5).toISOString()) + '"></b>' +
-      (compact ? '' : '<em class="tlbl" style="left:' + p + '%">T−' + d + '</em>');
-  }).join('');
-  return '<div class="sb-tl ' + cls + (compact ? ' compact' : '') + '">' +
-    '<div class="sb-tl-head"><span>' + headL + '</span><span>' + headR + '</span></div>' +
-    '<div class="sb-tl-track"><i class="fill" style="width:' + (cls === 'done' || cls === 'over' ? 100 : pct) + '%"></i>' + ticks +
-      (cls === 'ok' || cls === 'warn' || cls === 'late' || cls === 'paused' ? '<span class="now" style="left:' + pct + '%" title="' + (paused ? 'Paused' : 'Today') + '"></span>' : '') + '</div>' +
-    (compact ? '' : '<div class="sb-tl-foot"><span>Cart created ' + sbpDate(r.createdAtIso) + '</span><span>Expires ' + sbpDate(r.holdUntil) + ' · 23:59 IST</span></div>') +
-  '</div>';
+/* ---------------- 21-day validity (static text) ---------------- */
+function sbValidity(r, compact) {
+  const left = sbpDaysLeft(r.holdUntil);
+  if (r.status === 'confirmed') return '<span class="sb-val"><b style="color:var(--green)">Paid</b><small>' + sbpDate(r.paidAtIso) + '</small></span>';
+  if (r.status === 'expired') return '<span class="sb-val"><b style="color:var(--red)">Expired</b><small>' + sbpDate(r.holdUntil) + '</small></span>';
+  if (r.status === 'released') return '<span class="sb-val"><b style="color:var(--muted)">Released</b><small>' + esc(r.releasedAt || '') + '</small></span>';
+  if (r.status === 'payment_under_verification') return '<span class="sb-val"><b style="color:var(--blue)">Clock paused</b><small>valid till ' + sbpDate(r.holdUntil) + '</small></span>';
+  const col = left <= 1 ? 'var(--red)' : left <= 7 ? 'var(--amber)' : 'var(--ink)';
+  return '<span class="sb-val"><b style="color:' + col + '">' + (left <= 0 ? 'Expires today' : left + ' day' + (left === 1 ? '' : 's') + ' left') + '</b><small>valid till ' + sbpDate(r.holdUntil) + (r.extensions && r.extensions.length ? ' · extended' : '') + '</small></span>';
 }
 
 /* ---------------- payment outcomes ---------------- */
@@ -712,7 +691,11 @@ function viewApplication(id) {
     '<div class="card" style="margin-bottom:16px">' + sbStepper(r) + '</div>' +
     '<div class="prof-layout" style="grid-template-columns:minmax(0,1fr) 340px"><div>' +
       '<div class="card" style="margin-bottom:16px"><div class="card-head-row"><h2 class="card-title">Validity — ' + SBP_HOLD_DAYS + '-day hold</h2>' +
-          (r.extensions && r.extensions.length ? '<span class="pill blue">Extended by DEO</span>' : '') + '</div>' + sbTimeline(r, false) +
+          (r.extensions && r.extensions.length ? '<span class="pill blue">Extended by DEO</span>' : '') + '</div>' +
+        '<div class="pkv" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">' +
+          '<div class="cell"><div class="k">Cart created</div><div class="v">' + sbpDate(r.createdAtIso) + '</div></div>' +
+          '<div class="cell"><div class="k">Valid till</div><div class="v">' + sbpDate(r.holdUntil) + ' · 23:59 IST</div></div>' +
+          '<div class="cell"><div class="k">Status</div><div class="v">' + sbValidity(r) + '</div></div></div>' +
         (r.extensions && r.extensions.length ? '<div style="margin-top:10px;font-size:0.8rem;color:var(--muted)">' + r.extensions.map((e) => 'Extended to <b>' + sbpDate(e.to) + '</b>' + (e.reason ? ' — ' + esc(e.reason) : '') + ' <span style="opacity:.7">(' + esc(e.at || '') + ')</span>').join('<br>') + '</div>' : '') + '</div>' +
       '<div class="card" style="margin-bottom:16px"><div class="pcard-head" style="margin-bottom:10px"><span class="icon-sq" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">storefront</span></span><h2 class="card-title">Stall Details</h2></div>' +
         '<div class="pkv" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">' +
@@ -762,7 +745,7 @@ function viewMySpaces() {
       '<td><span class="regno" style="color:var(--blue);font-weight:800">' + esc(r.no) + '</span><span class="td-sub">' + esc(r.piNo) + ' · ' + esc(r.createdAt.split(',')[0]) + '</span></td>' +
       '<td><span class="td-strong">' + sbStallTitle(r) + '</span><span class="td-sub">' + sbStallMeta(r) + '</span></td>' +
       '<td class="money">' + money(r.amount) + '<span class="td-sub">100% · single payment</span></td>' +
-      '<td style="min-width:230px">' + sbTimeline(r, true) + '</td>' +
+      '<td style="white-space:nowrap">' + sbValidity(r, true) + '</td>' +
       '<td>' + sbStatusPill(r.status) + '</td>' +
       '<td onclick="event.stopPropagation()" style="white-space:nowrap">' + sbActions(r, false) + '</td></tr>').join('') ||
     '<tr><td colspan="6" style="color:var(--muted);padding:26px;text-align:center">' + (all.length ? 'No applications with this status.' : 'No applications yet — select stalls from Book Space; each stall becomes its own application held in your cart for ' + SBP_HOLD_DAYS + ' days.') + '</td></tr>';
@@ -771,7 +754,7 @@ function viewMySpaces() {
     '<div class="card-head-row" style="padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:10px"><div class="filter-chips" style="margin:0">' + chips + '</div>' +
       '<a class="btn btn-primary btn-sm" href="#/space-booking/book"><span class="material-symbols-outlined" style="font-size:16px">add</span>Book Space</a></div>' +
     '<div class="tablewrap"><table class="grid sb-table"><tr><th>Application</th><th>Stall</th><th>Net Payable</th><th>' + SBP_HOLD_DAYS + '-day Validity</th><th>Status</th><th>Action</th></tr>' + rows + '</table></div>' +
-    '<div style="padding:10px 16px;font-size:0.76rem;color:var(--muted);border-top:1px solid var(--line)">Timeline: <i class="sb-key ok"></i> on track · <i class="sb-key warn"></i> within 7 days of expiry · <i class="sb-key late"></i> expires within a day · <i class="sb-key paused"></i> paused (proof under verification) · ticks = reminders at T−7 / T−3 / T−1</div></div>';
+    '</div>';
 
   /* summary tiles */
   const outstanding = all.filter((r) => r.status === 'reserved').reduce((x, r) => x + r.amount, 0);

@@ -1645,7 +1645,6 @@ function openCart() {
       '<div class="cc-top"><span class="cc-ic"><span class="material-symbols-outlined">storefront</span></span>' +
         '<div class="cc-main"><b>' + esc(s.name) + ' · ' + esc(sbZoneLabel(s.hall)) + '</b><small>' + esc(sbSchemeLabel(s.scheme)) + ' · ' + s.sqm + ' sq.m · Application ' + esc(r.no) + '</small></div>' +
         '<span class="cc-amt">' + money(i.amount) + '</span></div>' +
-      '<div class="cc-valid' + (left <= 1 ? ' late' : left <= 7 ? ' warn' : '') + '"><i style="width:' + Math.min(100, Math.max(3, Math.round((1 - left / SBP_HOLD_DAYS) * 100))) + '%"></i></div>' +
       '<div class="cc-foot"><span><span class="material-symbols-outlined">timer</span>Valid till ' + sbpDate(r.holdUntil) + ' · ' + (left <= 0 ? 'expires today' : left + ' day' + (left === 1 ? '' : 's') + ' left') + '</span>' +
         '<span class="cc-links" onclick="event.stopPropagation()"><button class="btn-link" onclick="closeCart();location.hash=\'#/space-booking/application/' + r.id + '\'">View &amp; pay</button>' +
         '<button class="btn-link danger" onclick="removeCartItem(\'' + i.id + '\')">Remove</button></span></div></div>';
