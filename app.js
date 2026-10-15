@@ -248,6 +248,7 @@ function render() {
       (r === 'b2b-matchmaking' && route.indexOf('b2b-matchmaking') === 0));
   });
 
+  if (typeof sbTick === 'function') sbTick(); // space-booking validity clock (expiry + reminders)
   $('view').innerHTML = view(arg);
   updateCartBadge();
   if (typeof updateNotifBadge === 'function') updateNotifBadge();
@@ -1630,8 +1631,13 @@ function updateCartBadge() {
 function openCart() {
   closeCart();
   const fmtItem = (i) => i.currency === 'USD' ? '$' + Number(i.amount).toLocaleString('en-US') : money(i.amount);
+  const spaceActions = (i) => i.type !== 'space' ? '' :
+    '<div class="cart-actions">' +
+      '<button class="btn-link" onclick="downloadProformaInvoice(\'' + i.refId + '\')"><span class="material-symbols-outlined" style="font-size:14px;vertical-align:-2px">description</span> Proforma Invoice</button>' +
+      '<button class="btn-link" onclick="sbOpenOfflineForm(\'' + i.refId + '\')"><span class="material-symbols-outlined" style="font-size:14px;vertical-align:-2px">upload_file</span> Pay offline — upload proof</button>' +
+    '</div>';
   const items = S.cart.map((i) =>
-    '<div class="cart-item"><div><b>' + esc(i.label) + '</b><small>' + esc(i.sub) + '</small></div>' +
+    '<div class="cart-item"><div><b>' + esc(i.label) + '</b><small>' + esc(i.sub) + '</small>' + spaceActions(i) + '</div>' +
     '<div style="text-align:right"><span class="money">' + fmtItem(i) + '</span><br>' +
     '<button class="btn-link danger" onclick="removeCartItem(\'' + i.id + '\')">Remove</button></div></div>').join('') ||
     '<div class="empty" style="padding:30px 10px"><span class="material-symbols-outlined">shopping_cart</span><h3>Cart is empty</h3></div>';
@@ -1649,7 +1655,8 @@ function openCart() {
     '<div class="drawer-body">' + items + '</div>' +
     '<div class="drawer-foot"><div class="cart-total"><span>Total (incl. GST)</span><span class="money">' + totalStr + '</span></div>' +
     '<button class="btn btn-primary" style="width:100%;justify-content:center" ' + (S.cart.length ? '' : 'disabled') + ' onclick="payCart()">' +
-    '<span class="material-symbols-outlined">lock</span>Pay Now</button>' +
+    '<span class="material-symbols-outlined">lock</span>Pay Now' + (S.cart.some((i) => i.type === 'space') ? ' (100%)' : '') + '</button>' +
+    (S.cart.some((i) => i.type === 'space') ? '<p style="font-size:0.72rem;color:var(--muted);text-align:center;margin:8px 0 0">Space reservations: pay the full amount online here, or offline (NEFT / RTGS / Cheque / SWIFT) against the proforma invoice and upload the proof.</p>' : '') +
     '<p style="font-size:0.72rem;color:var(--muted);text-align:center;margin:8px 0 0">Demo checkout — integrate your payment gateway here.</p></div></div>';
   document.body.appendChild(wrap);
 }
@@ -1665,6 +1672,11 @@ function removeCartItem(id) {
     toast('Registration fee can’t be removed while the aircraft exists. Delete the aircraft instead.', 'error');
     return;
   }
+  if (item.type === 'space') {
+    // removing a stall reservation releases the stalls (handled in spacebooking.js)
+    if (typeof sbCancelReservation === 'function' && sbCancelReservation(item.refId)) { openCart(); render(); }
+    return;
+  }
   // vehicle: drop the pending pass too
   S.passes = S.passes.filter((p) => p.id !== item.refId);
   S.cart = S.cart.filter((i) => i.id !== id);
@@ -1677,6 +1689,16 @@ function payCart() {
   if (!S.orders) S.orders = [];
   if (!S.seq.order) S.seq.order = 0;
   S.cart.forEach((i) => {
+    // Payment ledger record (Orders page reads this)
+    const order = {
+      id: uid('order'),
+      orderNo: 'ORD-2027-' + pad(S.seq.order, 4),
+      type: i.type, label: i.label, sub: i.sub || '', refId: i.refId,
+      amount: i.amount, currency: i.currency || 'INR',
+      status: 'success', method: 'Card', mode: 'online',
+      paidAt: nowStr(), paidAtIso: new Date().toISOString(),
+      payer: EVENT.exhibitor,
+    };
     if (i.type === 'coex_reg') {
       const c = coexById(i.refId);
       if (c) { c.status = 'active'; paidCoex.push(c); }
@@ -1686,17 +1708,10 @@ function payCart() {
     } else if (i.type === 'aircraft_reg') {
       const a = (S.aircraft || []).find((x) => x.id === i.refId);
       if (a) { a.status = 'registered'; a.paidAt = nowStr(); }
+    } else if (i.type === 'space' && typeof sbOnlinePaid === 'function') {
+      sbOnlinePaid(i.refId, order); // 100% paid online → reservation confirmed
     }
-    // Payment ledger record (Orders page reads this)
-    S.orders.push({
-      id: uid('order'),
-      orderNo: 'ORD-2027-' + pad(S.seq.order, 4),
-      type: i.type, label: i.label, sub: i.sub || '', refId: i.refId,
-      amount: i.amount, currency: i.currency || 'INR',
-      status: 'success',
-      paidAt: nowStr(), paidAtIso: new Date().toISOString(),
-      payer: EVENT.exhibitor,
-    });
+    S.orders.push(order);
   });
   S.cart = [];
   save(); closeCart(); render();
@@ -1757,7 +1772,7 @@ function viewExhibitorDashboard() {
         '<div class="hero-flex"><div style="flex:1;min-width:260px">' +
           '<span class="hero-eyebrow"><span class="material-symbols-outlined" style="font-size:13px">hourglass_top</span>Aero Space · Booking Pending</span>' +
           '<h2>' + esc(EVENT.exhibitor) + '</h2>' +
-          '<p style="margin:10px 0 0;font-size:0.86rem;color:#FBE9C8;max-width:520px">Your space booking is not confirmed yet. Submit your space requirement — booked stalls will appear here once the organiser confirms your space.</p>' +
+          '<p style="margin:10px 0 0;font-size:0.86rem;color:#FBE9C8;max-width:520px">Your space booking is not confirmed yet. Reserve stalls from Book Space and pay 100% within 21 days — confirmed stalls will appear here.</p>' +
         '</div>' +
         '<div class="hero-actions">' +
           '<a class="btn-hero" href="#/space-requirement"><span class="material-symbols-outlined" style="font-size:17px">design_services</span>Submit Requirement</a>' +
@@ -1765,8 +1780,23 @@ function viewExhibitorDashboard() {
 
   /* --- Pending actions (only what actually needs attention) --- */
   const actions = [];
-  if (S.cart.length) actions.push({
-    icon: 'shopping_cart', title: S.cart.length + ' item(s) in cart awaiting payment',
+  ((S.spaceBooking && S.spaceBooking.reservations) || []).forEach((r) => {
+    if (r.status === 'reserved') {
+      const left = sbpDaysLeft(r.holdUntil);
+      actions.push({
+        icon: 'timer', title: 'Stall reservation ' + r.piNo + ' valid till ' + sbpDate(r.holdUntil) + (left <= 0 ? ' (expires today)' : ' (' + left + ' day' + (left === 1 ? '' : 's') + ' left)'),
+        sub: 'Pay ' + money(r.amount) + ' (100%) online or upload offline payment proof to confirm ' + r.stalls.map((s) => s.name).join(', ') + '.',
+        btn: '<button class="btn btn-primary btn-sm" onclick="openCart()">Pay Now</button>',
+      });
+    } else if (r.status === 'payment_under_verification') actions.push({
+      icon: 'hourglass_top', title: 'Offline payment for ' + r.piNo + ' under verification',
+      sub: r.payment.method + ' · Ref ' + r.payment.ref + ' · ' + money(r.payment.amount) + ' — the validity clock is paused until DEO verifies the receipt.',
+      btn: '<a class="btn btn-outline btn-sm" href="#/space-booking/my">View</a>',
+    });
+  });
+  const otherCart = S.cart.filter((i) => i.type !== 'space').length;
+  if (otherCart) actions.push({
+    icon: 'shopping_cart', title: otherCart + ' item(s) in cart awaiting payment',
     sub: 'Complete the payment to activate registrations & passes.',
     btn: '<button class="btn btn-primary btn-sm" onclick="openCart()">Pay Now</button>',
   });
@@ -1836,7 +1866,7 @@ function viewExhibitorDashboard() {
       feat('#/profile', 'fc-slate', 'account_circle', 'Exhibitor Profile',
         (typeof profileOverallPct === 'function' ? profileOverallPct() + '% profile complete' : '')) +
       feat('#/space-booking/my', 'fc-blue', 'view_comfy_alt', 'Space Booking',
-        ((S.spaceBooking && S.spaceBooking.applications.length) || 0) + ' application(s) · ' + S.stalls.length + ' stall(s) booked') +
+        ((S.spaceBooking && S.spaceBooking.reservations && S.spaceBooking.reservations.length) || 0) + ' reservation(s) · ' + S.stalls.length + ' stall(s) booked') +
       feat('#/aircraft', 'fc-cyan', 'flight', 'Aircraft Registration',
         aircraft.length + ' application(s)') +
       feat('#/orders', 'fc-orange', 'receipt_long', 'My Orders',
@@ -1951,11 +1981,86 @@ function downloadOrderInvoice(orderNo) {
       (o.sub ? '<br><span class="muted">' + esc(o.sub) + '</span>' : '') + '</td>' +
       '<td class="right">' + esc(amt) + '</td></tr>' +
     '<tr class="total"><td>Total (' + (o.currency === 'USD' ? 'USD' : 'INR, incl. GST') + ')</td><td class="right">' + esc(amt) + '</td></tr></table>' +
-    '<div class="foot">This is a computer-generated invoice for the payment collected on behalf of the organiser · ' + esc(EVENT.name) + ' · Payment method: CARD.</div>' +
+    '<div class="foot">This is a computer-generated invoice for the payment collected on behalf of the organiser · ' + esc(EVENT.name) + ' · Payment method: ' + esc((o.mode === 'offline' ? 'OFFLINE · ' : '') + (o.method || 'Card').toUpperCase()) + (o.ref ? ' · Ref ' + esc(o.ref) : '') + '.</div>' +
     '<div class="noprint"><button onclick="window.print()" style="background:#2F62D8;color:#fff;border:none;border-radius:8px;padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer">Print / Save as PDF</button></div>' +
     '</body></html>';
   const w = window.open('', '_blank');
   if (!w) { toast('Pop-up blocked — allow pop-ups to view the invoice.', 'error'); return; }
+  w.document.write(html);
+  w.document.close();
+}
+
+/* ---- Proforma invoice for a stall reservation (AERO-245) ----
+   Generated at cart creation; downloadable while the cart is valid,
+   under verification and after confirmation (for records). Carries
+   DEO's bank details for NEFT / RTGS / SWIFT. Not a tax invoice. */
+const DEO_BANK = {
+  beneficiary: 'Defence Exhibition Organisation (DEO)',
+  bank: 'State Bank of India', branch: 'DRDO Bhawan Branch, Rajaji Marg, New Delhi – 110011',
+  account: '40123456789', ifsc: 'SBIN0001234', swift: 'SBININBB104', accountType: 'Current',
+  pan: 'AAAGD0123F', gstin: '07AAAGD0123F1Z5',
+};
+function downloadProformaInvoice(resId) {
+  const r = S.spaceBooking && S.spaceBooking.reservations.find((x) => x.id === resId);
+  if (!r) { toast('Reservation not found.', 'error'); return; }
+  const p = r.pricing || { lines: [], base: r.amount, side: 0, subtotal: r.amount, gst: 0, grand: r.amount, credit: 0, payable: r.amount };
+  const zone = (h) => (h === 'CH' ? 'Chalet Line 1' : 'Hall ' + h);
+  const scheme = { shell: 'Shell Space', raw: 'Raw Space', chalet1: 'Chalet · 1 Floor', chalet2: 'Chalet · 2 Floor' };
+  const stamp = r.status === 'confirmed' ? '<span class="stamp">PAID · ' + esc(r.paidAt || '') + '</span>'
+    : r.status === 'payment_under_verification' ? '<span class="stamp blue">PAYMENT UNDER VERIFICATION</span>'
+    : r.status === 'expired' ? '<span class="stamp red">EXPIRED</span>'
+    : r.status === 'released' ? '<span class="stamp red">RELEASED</span>'
+    : '<span class="stamp amber">VALID TILL ' + esc(sbpDate(r.holdUntil).toUpperCase()) + '</span>';
+  const lines = r.stalls.map((s, i) => {
+    const l = p.lines[i] || { base: s.price, side: 0, sidePct: 0 };
+    return '<tr><td>' + esc(s.name) + '<br><span class="muted">' + esc(zone(s.hall)) + ' · ' + esc(scheme[s.scheme] || s.scheme) + ' · ' + s.sqm + ' sq.m (' + esc(s.size) + ') · ' + esc(s.sides || '1 Side') + ' open</span></td>' +
+      '<td class="right">' + money(l.base) + '</td></tr>' +
+      (l.side ? '<tr><td class="sub">Corner / open-side charges — ' + esc(s.name) + ' (' + Math.round(l.sidePct * 100) + '% of base)</td><td class="right">' + money(l.side) + '</td></tr>' : '');
+  }).join('');
+  const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + esc(r.piNo) + '</title><style>' +
+    'body{font-family:Segoe UI,Arial,sans-serif;color:#212B36;margin:0;padding:40px;font-size:14px}' +
+    '.top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #2F62D8;padding-bottom:16px}' +
+    '.logo{font-size:26px;font-weight:800;color:#2F62D8}' +
+    'h1{font-size:20px;margin:0;text-align:right}.muted{color:#6B7686;font-size:12px}' +
+    '.grid{display:flex;justify-content:space-between;margin:24px 0;gap:24px}' +
+    'table{width:100%;border-collapse:collapse;margin-top:8px}' +
+    'th{background:#F1F4F9;text-align:left;padding:10px 12px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em}' +
+    'td{padding:9px 12px;border-bottom:1px solid #E6EAF2;vertical-align:top}td.sub{color:#6B7686;font-size:12px;padding-left:28px}' +
+    'tr.tot td{font-weight:700;border-bottom:none;padding:5px 12px}tr.total td{font-weight:800;font-size:16px;border-top:2px solid #212B36;border-bottom:none;padding-top:10px}' +
+    '.right{text-align:right}.stamp{display:inline-block;margin-top:8px;padding:4px 14px;border:2px solid #1E8E5A;color:#1E8E5A;font-weight:800;border-radius:6px;transform:rotate(-4deg)}' +
+    '.stamp.amber{border-color:#B97A0F;color:#B97A0F}.stamp.blue{border-color:#2F62D8;color:#2F62D8}.stamp.red{border-color:#C6432E;color:#C6432E}' +
+    '.bank{margin-top:28px;border:1px solid #E6EAF2;border-radius:10px;padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;font-size:13px}' +
+    '.bank h3{grid-column:1/-1;margin:0 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:#2F62D8}.bank b{display:inline-block;min-width:150px;color:#6B7686;font-weight:600}' +
+    '.terms{margin-top:22px;font-size:12px;color:#4A5568}.terms li{margin:3px 0}' +
+    '.foot{margin-top:28px;font-size:11px;color:#6B7686;border-top:1px solid #E6EAF2;padding-top:12px}' +
+    '.noprint{margin-top:24px}@media print{.noprint{display:none}}' +
+    '</style></head><body>' +
+    '<div class="top"><div><div class="logo">evenuefy</div><div class="muted">' + esc(EVENT.name) + ' · ' + esc(EVENT.dates) + '<br>Organiser: Defence Exhibition Organisation (DEO), Ministry of Defence</div></div>' +
+    '<div><h1>PROFORMA INVOICE</h1><div class="muted right">PI No: <b>' + esc(r.piNo) + '</b><br>Cart created: ' + esc(r.createdAt) + '<br>Valid till: <b>' + esc(sbpDate(r.holdUntil)) + '</b> (' + SBP_HOLD_DAYS + ' days)</div></div></div>' +
+    '<div class="grid"><div><div class="muted">BILLED TO</div><b>' + esc(EVENT.exhibitor) + '</b><br>' + esc(EVENT.exhibitorCountry) + '<br><span class="muted">Reservation ' + esc(r.no) + ' · ' + esc(r.type) + '</span></div>' +
+    '<div class="right"><div class="muted">STATUS</div>' + stamp + '</div></div>' +
+    '<table><tr><th>Description</th><th class="right">Amount (INR)</th></tr>' + lines +
+    '<tr class="tot"><td class="right">Subtotal</td><td class="right">' + money(p.subtotal) + '</td></tr>' +
+    '<tr class="tot"><td class="right">GST @ 18%</td><td class="right">' + money(p.gst) + '</td></tr>' +
+    '<tr class="tot"><td class="right">Grand Total</td><td class="right">' + money(p.grand) + '</td></tr>' +
+    (p.credit ? '<tr class="tot"><td class="right">Less: Registration amount already paid (adjusted)</td><td class="right">− ' + money(p.credit) + '</td></tr>' : '') +
+    '<tr class="total"><td class="right">Net Payable (100% within validity)</td><td class="right">' + money(p.payable) + '</td></tr></table>' +
+    '<div class="bank"><h3>Remit to — DEO bank details (NEFT / RTGS / SWIFT)</h3>' +
+      '<div><b>Beneficiary</b>' + esc(DEO_BANK.beneficiary) + '</div><div><b>Bank</b>' + esc(DEO_BANK.bank) + '</div>' +
+      '<div><b>Account No.</b>' + esc(DEO_BANK.account) + ' (' + esc(DEO_BANK.accountType) + ')</div><div><b>Branch</b>' + esc(DEO_BANK.branch) + '</div>' +
+      '<div><b>IFSC</b>' + esc(DEO_BANK.ifsc) + '</div><div><b>SWIFT (international)</b>' + esc(DEO_BANK.swift) + '</div>' +
+      '<div><b>PAN</b>' + esc(DEO_BANK.pan) + '</div><div><b>GSTIN</b>' + esc(DEO_BANK.gstin) + '</div>' +
+      '<div style="grid-column:1/-1"><b>Payment reference</b>Quote <b>' + esc(r.piNo) + '</b> in the remittance narration. Cheque / DD in favour of “' + esc(DEO_BANK.beneficiary) + '”, payable at New Delhi.</div></div>' +
+    '<ul class="terms">' +
+      '<li>The stalls listed above are held in your cart till <b>' + esc(sbpDate(r.holdUntil)) + '</b>. 100% of the Net Payable must reach DEO’s account within this period; part payments are not accepted.</li>' +
+      '<li>Payment may be made online through the exhibitor portal or offline by NEFT / RTGS / Cheque / DD / SWIFT. For offline payments, upload the proof in the portal — the validity clock pauses until DEO verifies the receipt.</li>' +
+      '<li>If the amount is not received within the validity period the reservation expires and the stalls are released. DEO may extend validity case by case before expiry.</li>' +
+      '<li>A tax invoice is issued on confirmation of payment.</li></ul>' +
+    '<div class="foot"><b>This is a proforma invoice — not a tax invoice.</b> Computer-generated for the organiser · ' + esc(EVENT.name) + ' · ' + esc(r.piNo) + '.</div>' +
+    '<div class="noprint"><button onclick="window.print()" style="background:#2F62D8;color:#fff;border:none;border-radius:8px;padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer">Print / Save as PDF</button></div>' +
+    '</body></html>';
+  const w = window.open('', '_blank');
+  if (!w) { toast('Pop-up blocked — allow pop-ups to view the proforma invoice.', 'error'); return; }
   w.document.write(html);
   w.document.close();
 }
@@ -1971,7 +2076,7 @@ function viewMyOrders() {
     currency: i.currency || 'INR', method: '—', status: 'pending', date: '',
   })).concat(S.orders.slice().reverse().map((o) => ({
     id: o.orderNo, type: o.type, label: o.label, sub: o.sub || '', amount: o.amount,
-    currency: o.currency || 'INR', method: 'CARD', status: 'success', date: o.paidAt,
+    currency: o.currency || 'INR', method: (o.mode === 'offline' ? 'OFFLINE · ' : '') + (o.method || 'CARD').toUpperCase(), status: 'success', date: o.paidAt,
   })));
 
   const q = window.__moQ.toLowerCase();
@@ -1992,7 +2097,7 @@ function viewMyOrders() {
       esc(MY_ORDER_TYPE[o.type] || o.type) + '</span>' +
       '<span class="td-sub">' + esc(o.label) + (o.sub ? ' · ' + esc(o.sub) : '') + '</span></td>' +
     '<td class="money">' + (o.currency === 'USD' ? '$' + Number(o.amount).toLocaleString('en-US') : money(o.amount)) + '</td>' +
-    '<td>' + (o.status === 'success' ? 'CARD' : '<span style="color:var(--muted)">—</span>') + '</td>' +
+    '<td>' + (o.status === 'success' ? esc(o.method) : '<span style="color:var(--muted)">—</span>') + '</td>' +
     '<td>' + (o.status === 'success'
       ? '<span class="pill green"><span class="material-symbols-outlined" style="font-size:12px;vertical-align:-2px">check_circle</span> Success</span>'
       : '<span class="pill amber">Pending</span>') + '</td>' +
@@ -2047,7 +2152,7 @@ function viewMyOrders() {
 (function migrateNotifs() {
   if (!S.notifications) {
     S.notifications = [
-      { id: 'nt1', icon: 'check_circle', color: 'var(--green)', text: 'Your space booking application has been received.', time: '2 days ago', read: false },
+      { id: 'nt1', icon: 'check_circle', color: 'var(--green)', text: 'Stall inventory for Halls A–E and Chalet Line 1 is open for reservation.', time: '2 days ago', read: false },
       { id: 'nt2', icon: 'warning', color: 'var(--amber)', text: 'Exhibition forms are due by 31 Dec 2026 — 5 forms pending.', time: '3 days ago', read: false },
       { id: 'nt3', icon: 'campaign', color: 'var(--blue)', text: 'New circular released: Exhibitor Guidelines.', time: '1 week ago', read: true },
       { id: 'nt4', icon: 'flight', color: 'var(--blue)', text: 'Aircraft registration window is open for Static & Flying Display.', time: '1 week ago', read: true },

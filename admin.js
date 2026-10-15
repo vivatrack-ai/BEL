@@ -308,7 +308,7 @@ function render() {
   else if (route === 'aircraft-approvals') html = viewAircraftApprovals();
   else if (route === 'aggregator-approvals') html = viewAggregatorApprovals();
   else if (route === 'orders') html = viewOrders();
-  else if (route === 'space-approvals') html = viewSpaceApprovals();
+  else if (route === 'space-reservations' || route === 'space-approvals') html = viewSpaceReservations();
   else if (route === 'booking-dashboard') html = viewBookingDashboard();
   else if (route === 'booking-transactions') html = viewBookingTransactions();
   else if (route.indexOf('aircraft-application/') === 0) html = viewAircraftApplication(route.split('/')[1]);
@@ -814,12 +814,12 @@ function exportAircraftApps() {
 }
 
 /* ============================================================
-   VIEW · Space Booking Approvals — the organiser reviews stall
-   applications raised from the exhibitor app (Book Space flow).
-   Approve generates the slab payment schedule; Reject releases
-   the stalls back to inventory.
+   VIEW · Space Reservations — stalls reserved from the exhibitor
+   app (Book Space → cart, 21-day validity, 100% payment). DEO can
+   extend validity, verify / reject offline payment proofs and
+   release stalls. Screen (list + detail drawer) lives in
+   admin-booking.js.
    ============================================================ */
-/* Space Applications screen (list + detail drawer) lives in admin-booking.js */
 
 /* ============================================================
    VIEW · Orders — the full payment ledger of the exhibitor app.

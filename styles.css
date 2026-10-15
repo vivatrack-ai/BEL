@@ -1012,3 +1012,17 @@ table.grid.sbdt-table th, table.grid.sbdt-table td { padding: 11px 8px; }
 .sq-types { flex: 1; min-width: 280px; }
 .sq-types .area-blks { margin: 0 0 10px; }
 @media (max-width: 900px) { .area-blks.cols-4 { grid-template-columns: repeat(2, 1fr); } .sq-total-blk { flex-basis: 100%; } }
+
+/* ---- cart-based reservation (AERO-245): stall states ---- */
+.stall-tile.reserved { background: #F1EBFB; border-color: #D9CBF3; color: #6C47C9; opacity: 0.85; cursor: not-allowed; }
+.stall-tile.mine { background: var(--blue); border-color: var(--blue-dark); color: #fff; cursor: pointer; }
+.stall-tile.mine span { color: #DCE6FB; }
+.sba-chip.gray { background: #EEF1F6; color: var(--muted); }
+.sba-chip.purple { background: #F1EBFB; color: #6C47C9; }
+.sba-hold { display: inline-flex; flex-direction: column; font-size: 0.8rem; white-space: nowrap; }
+.sba-hold b { font-variant-numeric: tabular-nums; }
+.sba-hold.warn b { color: var(--amber); }
+.sba-hold.late b { color: var(--red); }
+.sba-hold small { color: var(--muted); font-size: 0.72rem; }
+.cart-item .cart-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.cart-item .cart-actions .btn-link { padding: 0; font-size: 0.78rem; }
