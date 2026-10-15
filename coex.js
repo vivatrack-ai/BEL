@@ -5,9 +5,11 @@
    to it: its registration profile, allocated stall space and
    pass quotas — and can fill passes against those quotas.
    Business rules (same as the main app):
-     · Subsidiary — profile only; NOT entitled to passes & services
-     · Separate  — stall space & pass quotas unlock only after the
+     · Subsidiary  — profile only; NOT entitled to passes & services
+     · Separate   — stall space & pass quotas unlock only after the
        ₹40,000 registration payment is completed by the main exhibitor
+     · Aggregator — login is created when the ORGANISER approves the
+       company (credentials emailed); then same entitlements as Separate
    Reads/writes the exhibitor app's state (same-origin localStorage);
    in production this is the co-exhibitor API with role-based access.
    ============================================================ */
@@ -83,10 +85,14 @@ function currentCoex() {
   } catch (e) { return null; }
 }
 
-/* LOGIN RULE: only Separate co-exhibitors whose registration payment is
-   complete get a working login. Subsidiary companies have no login. */
+/* LOGIN RULE: Separate co-exhibitors whose registration payment is complete,
+   and Aggregator companies approved by the organiser, get a working login.
+   Subsidiary companies have no login. */
+const isAgg = (c) => !!c && c.type === 'aggregator';
+const typeLabel = (c) => isAgg(c) ? 'Aggregator Company' : c.type === 'separate' ? 'Separate Company' : 'Subsidiary Company';
+const roleLabel = (c) => isAgg(c) ? 'Aggregator' : 'Co-Exhibitor';
 function loginEligible(ex) {
-  return (ex && ex.coexhibitors || []).filter((c) => c.type === 'separate' && c.status === 'active');
+  return (ex && ex.coexhibitors || []).filter((c) => c.status === 'active' && (c.type === 'separate' || c.type === 'aggregator'));
 }
 
 function fillLoginOptions() {
@@ -102,7 +108,7 @@ function fillLoginOptions() {
   $('noCoexNote').style.display = 'none';
   $('loginForm').style.display = '';
   sel.innerHTML = list.map((c) =>
-    '<option value="' + c.id + '">' + esc(c.company) + '</option>').join('');
+    '<option value="' + c.id + '">' + esc(c.company) + (isAgg(c) ? ' — Aggregator' : ' — Co-Exhibitor') + '</option>').join('');
   syncLoginEmail();
 }
 function syncLoginEmail() {
@@ -117,15 +123,15 @@ function coexLogin(e) {
   if (!$('lgPassword').value) { setErr('lgPassword', 'Password is required'); return false; }
   const id = $('lgCoex').value;
   if (!id) return false;
-  // Guard: login works only for paid Separate co-exhibitors
+  // Guard: login works only for paid Separate co-exhibitors / approved Aggregators
   if (!loginEligible(loadExState()).some((c) => c.id === id)) {
-    toast('Login is enabled only after the registration payment is completed by the main exhibitor.', 'error');
+    toast('Login is enabled only after the registration payment is completed by the main exhibitor (co-exhibitor) or organiser approval (aggregator).', 'error');
     return false;
   }
   try { sessionStorage.setItem(SESSION_KEY, id); } catch (err) { /* ignore */ }
   enterApp();
   const c = currentCoex();
-  toast('Logged in as ' + (c ? c.company : 'co-exhibitor'), 'success');
+  toast('Logged in as ' + (c ? c.company : 'company'), 'success');
   return false;
 }
 
@@ -134,13 +140,14 @@ function coexLogout() {
   location.hash = '';
   $('appShell').style.display = 'none';
   $('loginScreen').style.display = 'flex';
-  document.title = 'Co-Exhibitor · Evenuefy';
+  document.title = 'Co-Exhibitor / Aggregator · Evenuefy';
   fillLoginOptions();
 }
 
-/* A co-exhibitor gets stall space & passes only when it is a Separate
-   company whose registration payment is complete. */
-const entitled = (c) => c.type === 'separate' && c.status === 'active';
+/* A company gets stall space & passes only when it is a Separate
+   co-exhibitor whose registration payment is complete, or an Aggregator
+   company approved by the organiser. */
+const entitled = (c) => c.status === 'active' && (c.type === 'separate' || c.type === 'aggregator');
 
 function enterApp() {
   const c = currentCoex();
@@ -149,12 +156,13 @@ function enterApp() {
   $('appShell').style.display = 'flex';
   $('chipCoex').textContent = c.company;
   $('navCompanyName').textContent = c.company;
+  const roleTag = $('portalRole'); if (roleTag) roleTag.textContent = roleLabel(c).toUpperCase();
   // Stall & pass navigation only for entitled (Separate + paid) companies
   const show = entitled(c) ? '' : 'none';
   $('navStall').style.display = show;
   $('navPassLabel').style.display = show;
   $('navPassGroup').style.display = show;
-  document.title = c.company + ' · Co-Exhibitor · Evenuefy';
+  document.title = c.company + ' · ' + roleLabel(c) + ' · Evenuefy';
   if (!location.hash || (!entitled(c) && location.hash !== '#/dashboard')) location.hash = '#/dashboard';
   render();
 }
@@ -203,6 +211,11 @@ window.addEventListener('storage', (e) => {
    VIEW · Dashboard — registration profile + assignment summary
    ============================================================ */
 function statusPill(c) {
+  if (isAgg(c)) {
+    if (c.status === 'active') return '<span class="pill green">Approved by Organiser</span>';
+    if (c.status === 'rejected') return '<span class="pill red">Rejected</span>';
+    return '<span class="pill amber">Pending Organiser Approval</span>';
+  }
   if (c.status === 'active') return '<span class="pill green">Active</span>';
   return '<span class="pill amber">Registration Payment Pending</span>';
 }
@@ -220,6 +233,10 @@ function viewDashboard() {
     note = '<div class="note"><b class="title">Subsidiary company</b>' +
       'As a Subsidiary of ' + esc(MAIN_EXHIBITOR) + ', this login can view and maintain the company profile. ' +
       'Subsidiary companies are <b>not entitled</b> to separate stall space, passes &amp; services.</div>';
+  } else if (isAgg(c) && c.status === 'active' && totalSqm === 0 && totalQuota === 0) {
+    note = '<div class="note green"><b class="title">Approved by the organiser</b>' +
+      'Your aggregator registration was approved on ' + esc(c.approvedAt || '') + ' and login credentials were emailed to ' + esc(c.email) + '. ' +
+      'Stall space and pass quotas will appear here once ' + esc(MAIN_EXHIBITOR) + ' allots them.</div>';
   } else if (c.status !== 'active') {
     note = '<div class="note amber"><b class="title">Registration payment pending</b>' +
       'Your ' + money(40000) + ' registration fee has not been paid yet by the main exhibitor. ' +
@@ -232,7 +249,7 @@ function viewDashboard() {
 
   const tiles =
     '<div class="tiles">' +
-      '<div class="tile blue"><div class="t-label">Company Type</div><div class="t-value" style="font-size:1.15rem">' + (c.type === 'separate' ? 'Separate' : 'Subsidiary') + '</div></div>' +
+      '<div class="tile blue"><div class="t-label">Company Type</div><div class="t-value" style="font-size:1.15rem">' + (isAgg(c) ? 'Aggregator' : c.type === 'separate' ? 'Separate' : 'Subsidiary') + '</div></div>' +
       '<div class="tile"><div class="t-label">Registration Status</div><div class="t-value" style="font-size:1rem;padding-top:6px">' + statusPill(c) + '</div></div>' +
       (entitled(c)
         ? '<div class="tile accent"><div class="t-label">Allocated Space</div><div class="t-value">' + totalSqm + '<span style="font-size:0.85rem;color:var(--muted);font-weight:600"> sqm</span></div></div>' +
@@ -248,7 +265,7 @@ function viewDashboard() {
       '<div class="field"><label>Company Name</label><input type="text" value="' + esc(c.company) + '" readonly><div class="hint">Set at registration — contact the organiser to change.</div></div>' +
       '<div class="field"><label>Registration Number</label><input type="text" value="' + esc(c.regNo || '—') + '" readonly></div>' +
       '<div class="field"><label>Login Email</label><input type="email" value="' + esc(c.email) + '" readonly><div class="hint">This is your login identity.</div></div>' +
-      '<div class="field"><label>Company Type</label><input type="text" value="' + (c.type === 'separate' ? 'Separate Company' : 'Subsidiary Company') + '" readonly></div>' +
+      '<div class="field"><label>Company Type</label><input type="text" value="' + typeLabel(c) + '" readonly></div>' +
       '<div class="field"><label>Nodal Person — First Name <span class="req">*</span></label><input type="text" id="pfFirst" value="' + esc(c.nodalFirst || '') + '"><div class="error"></div></div>' +
       '<div class="field"><label>Nodal Person — Last Name <span class="req">*</span></label><input type="text" id="pfLast" value="' + esc(c.nodalLast || '') + '"><div class="error"></div></div>' +
       '<div class="field"><label>Nodal Contact Number</label><input type="tel" id="pfMobile" value="' + esc(c.nodalMobile || '') + '" placeholder="10-digit mobile"><div class="error"></div></div>' +
@@ -258,8 +275,8 @@ function viewDashboard() {
       '<button class="btn btn-primary" type="submit"><span class="material-symbols-outlined">save</span>Save Profile</button>' +
     '</div></form></div>';
 
-  return '<h1 class="page-title">Co-Exhibitor Dashboard</h1>' +
-    '<p class="page-sub">Welcome, <b>' + esc(c.company) + '</b> — co-exhibitor of ' + esc(MAIN_EXHIBITOR) + '.</p>' +
+  return '<h1 class="page-title">' + roleLabel(c) + ' Dashboard</h1>' +
+    '<p class="page-sub">Welcome, <b>' + esc(c.company) + '</b> — ' + (isAgg(c) ? 'aggregator company' : 'co-exhibitor') + ' of ' + esc(MAIN_EXHIBITOR) + '.</p>' +
     tiles + note + profile;
 }
 

@@ -16,7 +16,7 @@ const EVENT = {
 };
 
 const SEED = {
-  seq: { coex: 0, pass: 0, alloc: 0, quota: 0, cart: 0, invite: 0, sreq: 0, order: 0 },
+  seq: { coex: 0, agg: 0, pass: 0, alloc: 0, quota: 0, cart: 0, invite: 0, sreq: 0, order: 0 },
   orders: [], // payment ledger — one record per paid cart item
   /* Space requirements. The exhibitor already filled these during
      REGISTRATION (source: 'registration') — this page lets them modify
@@ -41,8 +41,14 @@ const SEED = {
     { id: 'cat_veh',      kind: 'vehicle', name: 'Vehicle Pass',                  free: 2,   paid: 0 },
     { id: 'cat_veh12',    kind: 'vehicle', name: 'Vehicle Pass (Above 12 Seater)',free: 0,   paid: 2 },
   ],
-  coexhibitors: [],   // {id,type,company,email,nodalFirst,nodalLast,regNo,status,createdAt}
-  allocations: [],    // {id,coexId,stallId,sqm}
+  /* Companies added by the exhibitor. `type` decides the flow:
+       subsidiary | separate  → Co-Exhibitor (status: active | payment_pending)
+       aggregator             → Aggregator company (status: pending_approval | active | rejected)
+     Aggregators need ORGANISER (admin) approval; on approval the company
+     receives its login credentials by email. Stall allotment, pass quotas,
+     badges & vehicle passes then work exactly like a Separate co-exhibitor. */
+  coexhibitors: [],   // {id,type,company,email,nodalFirst,nodalLast,nodalMobile,regNo,status,createdAt,approvedAt,remark}
+  allocations: [],    // {id,coexId,stallId,sqm}  (coexId may point to an aggregator)
   quotas: [],         // {id,coexId,catId,quota}
   passes: [],         // {id,catId,coexId|null,data:{...},status,createdAt,amount}
   invites: [],        // {id,catId,coexId|null,firstName,lastName,email,sentAt}
@@ -62,6 +68,8 @@ function load() {
       if (!parsed.seq.sreq) parsed.seq.sreq = 0;
       if (!parsed.orders) parsed.orders = [];
       if (!parsed.seq.order) parsed.seq.order = 0;
+      // Migration: Aggregator companies (own reg-no sequence)
+      if (!parsed.seq.agg) parsed.seq.agg = 0;
       // Migration: inject the registration-time requirements once
       if (!parsed.srRegSeeded) {
         SEED.spaceRequirements.forEach((seedReq) => {
@@ -124,11 +132,26 @@ function stallAvailable(stallId, excludeAllocId) {
 }
 function coexSqm(coexId) { return S.allocations.filter((a) => a.coexId === coexId).reduce((s, a) => s + a.sqm, 0); }
 
-/* Separate co-exhibitors that are eligible for pass quotas.
+/* ----- Company groups: Co-Exhibitor vs Aggregator ----- */
+const COMPANY_TYPE_LABEL = { subsidiary: 'Subsidiary', separate: 'Separate', aggregator: 'Aggregator' };
+const GROUP_LABEL = { coex: 'Co-Exhibitor', aggregator: 'Aggregator Company' };
+function isAggregator(c) { return !!c && c.type === 'aggregator'; }
+function groupOf(c) { return isAggregator(c) ? 'aggregator' : 'coex'; }
+function coexOnly() { return S.coexhibitors.filter((c) => !isAggregator(c)); }
+function aggregators() { return S.coexhibitors.filter(isAggregator); }
+
+/* Companies that may receive stall space & pass quotas, per group:
+     coex       → Separate co-exhibitors whose registration payment is complete
+     aggregator → Aggregator companies approved by the organiser
    Subsidiaries are NOT entitled to passes/services (business rule). */
-function quotaEligibleCoex() {
-  return S.coexhibitors.filter((c) => c.type === 'separate' && c.status === 'active');
+function activeOfGroup(group) {
+  return S.coexhibitors.filter((c) => c.status === 'active' &&
+    (group === 'aggregator' ? c.type === 'aggregator' : c.type === 'separate'));
 }
+function quotaEligibleCoex() {
+  return S.coexhibitors.filter((c) => c.status === 'active' && (c.type === 'separate' || c.type === 'aggregator'));
+}
+function isEntitled(c) { return !!c && c.status === 'active' && (c.type === 'separate' || c.type === 'aggregator'); }
 
 /* ---------------- Toast ---------------- */
 function toast(msg, type) {
@@ -175,6 +198,8 @@ const ROUTES = {
   'orders': viewMyOrders,
   'co-exhibitors': viewCoexList,
   'co-exhibitors/add': viewCoexAdd,
+  'aggregators': viewAggList,
+  'aggregators/add': viewAggAdd,
   'allocate-stall': viewAllocateStall,
   'space-requirement': viewSpaceRequirement,
   'passes/badges': viewBadges,
@@ -195,7 +220,14 @@ function render() {
   const mProf = route.match(/^profile(?:\/(.+))?$/);
   const mHall = route.match(/^space-booking\/hall\/(.+)$/);
   const mB2b = route.match(/^b2b-matchmaking\/profile\/(.+)$/);
+  const mAlloc = route.match(/^allocate-stall\/(coex|aggregator)$/);
   if (mCoex) { view = viewCatCoexPage; arg = mCoex[2]; }
+  else if (mAlloc) { view = viewAllocateStall; arg = mAlloc[1]; }
+  else if (route === 'aggregators/resubmit') {
+    // Resubmit a rejected aggregator company (edit id kept in page state)
+    if (window.__aggEditId && coexById(window.__aggEditId)) { view = () => viewAggAdd(false, window.__aggEditId); }
+    else { location.hash = '#/aggregators'; return; }
+  }
   else if (mProf) { view = viewProfile; arg = mProf[1] || 'company'; }
   else if (mHall) { view = viewHallStalls; arg = mHall[1]; }
   else if (mB2b) { view = viewB2BProfile; arg = mB2b[1]; }
@@ -205,6 +237,8 @@ function render() {
   document.querySelectorAll('.nav-item[data-route]').forEach((el) => {
     const r = el.getAttribute('data-route');
     el.classList.toggle('active', route === r || (mCoex && r === 'passes/' + mCoex[1]) ||
+      (r === 'aggregators' && route.indexOf('aggregators') === 0) ||
+      (r === 'co-exhibitors' && route.indexOf('co-exhibitors') === 0) ||
       (r === 'aircraft' && route.indexOf('aircraft') === 0) ||
       (r === 'profile' && route.indexOf('profile') === 0) ||
       (r === 'exhibition-forms' && route.indexOf('exhibition-forms') === 0) ||
@@ -226,21 +260,32 @@ window.addEventListener('hashchange', render);
    VIEW · Co-Exhibitors list
    ============================================================ */
 function coexStatusPill(c) {
+  if (isAggregator(c)) {
+    if (c.status === 'active') return '<span class="pill green">Approved</span>';
+    if (c.status === 'rejected') return '<span class="pill red">Rejected</span>';
+    return '<span class="pill amber">Pending Approval</span>';
+  }
   if (c.type === 'subsidiary') return '<span class="pill green">Active</span>';
   if (c.status === 'active') return '<span class="pill green">Active</span>';
   return '<span class="pill amber">Payment Pending</span>';
 }
 function coexTypePill(c) {
+  if (isAggregator(c)) return '<span class="pill purple">Aggregator</span>';
   return c.type === 'subsidiary'
     ? '<span class="pill gray">Subsidiary</span>'
     : '<span class="pill blue">Separate</span>';
 }
+/* Short label used in tables that mix both groups (allotment, quotas) */
+function companyGroupPill(c) {
+  return isAggregator(c) ? '<span class="pill purple">Aggregator</span>' : '<span class="pill blue">Co-Exhibitor</span>';
+}
 
 function viewCoexList() {
+  const list = coexOnly();
   // Rule: no co-exhibitors yet -> open the Add form directly
-  if (S.coexhibitors.length === 0) return viewCoexAdd(true);
+  if (list.length === 0) return viewCoexAdd(true);
 
-  const rows = S.coexhibitors.map((c, i) => {
+  const rows = list.map((c, i) => {
     const officer = c.type === 'separate' ? esc(c.nodalFirst + ' ' + c.nodalLast) : '—';
     const payBtn = (c.type === 'separate' && c.status === 'payment_pending')
       ? '<button class="btn-link" style="color:var(--amber)" onclick="openCart()">Complete Payment</button>'
@@ -260,7 +305,7 @@ function viewCoexList() {
       '</td></tr>';
   }).join('');
 
-  const pendingCount = S.coexhibitors.filter((c) => c.status === 'payment_pending').length;
+  const pendingCount = list.filter((c) => c.status === 'payment_pending').length;
   const pendingBanner = pendingCount
     ? '<div class="note amber"><b class="title">' + pendingCount + ' registration payment pending</b>' +
       'The Separate co-exhibitor cannot receive pass quotas until the ' + money(EVENT.coexRegFee) + ' registration fee is paid. ' +
@@ -295,14 +340,23 @@ function openCoexView(id) {
     return '<tr><td>' + esc(st.hall) + '</td><td>' + esc(st.stall) + '</td><td class="num">' + a.sqm + ' sqm</td></tr>';
   }).join('') || '<tr><td colspan="3" style="color:var(--muted)">No space allocated yet</td></tr>';
 
-  openModal('Co-Exhibitor · ' + esc(c.company),
+  const agg = isAggregator(c);
+  const approvalRow = agg
+    ? (c.status === 'active'
+        ? '<div class="full"><b>Approved by organiser:</b> ' + esc(c.approvedAt || '') + ' · login credentials emailed to ' + esc(c.email) + '</div>'
+        : c.status === 'rejected'
+          ? '<div class="full" style="color:var(--red)"><b>Rejected by organiser:</b> ' + esc(c.remark || '—') + '</div>'
+          : '<div class="full" style="color:var(--amber)"><b>Awaiting organiser approval</b> — login credentials will be emailed once approved.</div>')
+    : '';
+  openModal((agg ? 'Aggregator Company · ' : 'Co-Exhibitor · ') + esc(c.company),
     '<div class="form-grid">' +
       '<div><b>Type:</b> ' + coexTypePill(c) + '</div>' +
       '<div><b>Status:</b> ' + coexStatusPill(c) + '</div>' +
       '<div><b>Email:</b> ' + esc(c.email) + '</div>' +
       '<div><b>Reg. No.:</b> ' + (c.regNo ? '<code>' + esc(c.regNo) + '</code>' : '— (subsidiary)') + '</div>' +
-      (c.type === 'separate' ? '<div class="full"><b>Nodal Officer:</b> ' + esc(c.nodalFirst + ' ' + c.nodalLast) + '</div>' : '') +
+      (c.type === 'separate' || agg ? '<div class="full"><b>Nodal Officer:</b> ' + esc(c.nodalFirst + ' ' + c.nodalLast) + (c.nodalMobile ? ' · +91 ' + esc(c.nodalMobile) : '') + '</div>' : '') +
       '<div class="full"><b>Added:</b> ' + esc(c.createdAt) + '</div>' +
+      approvalRow +
     '</div>' +
     '<h3 style="margin:18px 0 6px;font-size:0.9rem">Space Allocations</h3>' +
     '<div class="tablewrap"><table class="grid"><tr><th>Hall</th><th>Stall</th><th>Area</th></tr>' + aRows + '</table></div>' +
@@ -312,18 +366,20 @@ function openCoexView(id) {
 }
 
 function deleteCoex(id) {
+  const c = coexById(id);
+  const label = isAggregator(c) ? 'aggregator company' : 'co-exhibitor';
   const hasAlloc = S.allocations.some((a) => a.coexId === id);
   const hasQuota = S.quotas.some((q) => q.coexId === id);
   const hasPasses = S.passes.some((p) => p.coexId === id);
   if (hasAlloc || hasQuota || hasPasses) {
-    toast('Cannot delete: remove this co-exhibitor’s space allocations and pass quotas first.', 'error');
+    toast('Cannot delete: remove this ' + label + '’s space allocations and pass quotas first.', 'error');
     return;
   }
-  if (!confirm('Delete this co-exhibitor?')) return;
-  S.coexhibitors = S.coexhibitors.filter((c) => c.id !== id);
+  if (!confirm('Delete this ' + label + '?')) return;
+  S.coexhibitors = S.coexhibitors.filter((x) => x.id !== id);
   S.cart = S.cart.filter((i) => !(i.type === 'coex_reg' && i.refId === id));
   save(); render();
-  toast('Co-exhibitor deleted', 'success');
+  toast(label.charAt(0).toUpperCase() + label.slice(1) + ' deleted', 'success');
 }
 
 /* ============================================================
@@ -472,22 +528,199 @@ function submitCoex(e) {
 }
 
 /* ============================================================
-   VIEW · Allocate Stall
+   VIEW · Aggregator Companies (list)
+   Same module shape as Co-Exhibitors, with these differences:
+     · no Subsidiary/Separate choice — the company is added directly
+     · no registration fee / cart item
+     · ORGANISER APPROVAL is required (admin portal › Aggregator Approvals)
+     · on approval the company receives login credentials by email and
+       becomes eligible for stall allotment & pass quotas
    ============================================================ */
-/* Stall space can be allotted ONLY to Separate co-exhibitors whose
-   registration payment is complete (business rule). */
-function stallEligibleCoex() {
-  return S.coexhibitors.filter((c) => c.type === 'separate' && c.status === 'active');
+function viewAggList() {
+  const list = aggregators();
+  // Rule (same as co-exhibitors): nothing added yet -> open the Add form directly
+  if (list.length === 0) return viewAggAdd(true);
+
+  const rows = list.map((c, i) => {
+    const remark = c.status === 'rejected' && c.remark
+      ? '<span class="td-sub" style="color:var(--red)">' + esc(c.remark) + '</span>' : '';
+    return '<tr>' +
+      '<td class="num">' + (i + 1) + '</td>' +
+      '<td><span class="td-strong">' + esc(c.company) + '</span><span class="td-sub">' + esc(c.email) + '</span></td>' +
+      '<td>' + esc(c.nodalFirst + ' ' + c.nodalLast) + (c.nodalMobile ? '<span class="td-sub">+91 ' + esc(c.nodalMobile) + '</span>' : '') + '</td>' +
+      '<td class="num"><code>' + esc(c.regNo) + '</code></td>' +
+      '<td>' + coexStatusPill(c) + remark + '</td>' +
+      '<td class="num">' + (coexSqm(c.id) ? coexSqm(c.id) + ' sqm' : '—') + '</td>' +
+      '<td class="td-actions">' +
+        '<button class="btn-link" onclick="openCoexView(\'' + c.id + '\')">View</button>' +
+        (c.status === 'rejected' ? '<button class="btn-link" onclick="resubmitAgg(\'' + c.id + '\')">Resubmit</button>' : '') +
+        '<button class="btn-link danger" onclick="deleteCoex(\'' + c.id + '\')">Delete</button>' +
+      '</td></tr>';
+  }).join('');
+
+  const pendingCount = list.filter((c) => c.status === 'pending_approval').length;
+  const rejectedCount = list.filter((c) => c.status === 'rejected').length;
+  const pendingBanner = pendingCount
+    ? '<div class="note amber"><b class="title">' + pendingCount + ' aggregator compan' + (pendingCount === 1 ? 'y' : 'ies') + ' awaiting organiser approval</b>' +
+      'Stall space and pass quotas can be allotted only after the organiser approves the company. ' +
+      'On approval, the company receives its login credentials by email.</div>'
+    : '';
+  const rejectedBanner = rejectedCount
+    ? '<div class="note" style="border-color:var(--red-soft)"><b class="title" style="color:var(--red)">' + rejectedCount + ' compan' + (rejectedCount === 1 ? 'y' : 'ies') + ' rejected by the organiser</b>' +
+      'See the remark in the list. You can correct the details and <b>Resubmit</b>, or delete the entry.</div>'
+    : '';
+
+  return '' +
+    '<h1 class="page-title">Aggregator Companies</h1>' +
+    '<p class="page-sub">Add aggregator companies participating under your space. After organiser approval you can allot stall space and pass quotas to them, exactly like a co-exhibitor.</p>' +
+    pendingBanner + rejectedBanner +
+    '<div class="card">' +
+      '<div class="card-head-row">' +
+        '<h2 class="card-title">Aggregator Company List</h2>' +
+        '<a class="btn btn-primary" href="#/aggregators/add"><span class="material-symbols-outlined">add</span>Add Aggregator Company</a>' +
+      '</div>' +
+      '<div class="tablewrap"><table class="grid">' +
+        '<tr><th>Sr.</th><th>Company</th><th>Nodal Officer</th><th>Reg. No.</th><th>Approval Status</th><th>Space</th><th>Action</th></tr>' +
+        rows +
+      '</table></div>' +
+    '</div>' +
+    footerTools();
 }
 
-function viewAllocateStall() {
+/* ============================================================
+   VIEW · Add Aggregator Company
+   ============================================================ */
+function viewAggAdd(isFirst, editId) {
+  const editing = editId ? coexById(editId) : null;
+  const back = isFirst ? '' : '<a class="back-link" href="#/aggregators"><span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>Back to list</a>';
+  const firstNote = isFirst
+    ? '<div class="note"><b class="title">No aggregator companies added yet.</b>Add your first aggregator company below. Once added, the listing view will appear here.</div>'
+    : '';
+  const v = (k) => esc(editing ? editing[k] || '' : '');
+
+  return '' +
+    back +
+    '<h1 class="page-title">' + (editing ? 'Resubmit Aggregator Company' : 'Add Aggregator Company') + '</h1>' +
+    '<p class="page-sub">Enter the aggregator company and its nodal officer details. The request goes to the organiser for approval.</p>' +
+    firstNote +
+    (editing ? '<div class="note" style="border-color:var(--red-soft)"><b class="title" style="color:var(--red)">Organiser remark</b>' + esc(editing.remark || '—') + '</div>' : '') +
+    '<div class="card">' +
+    '<form id="aggForm" onsubmit="return submitAgg(event, \'' + (editId || '') + '\')" novalidate>' +
+      '<div class="form-grid">' +
+        '<div class="field"><label>Aggregator Company Name <span class="req">*</span></label>' +
+          '<input type="text" id="aggCompany" value="' + v('company') + '" placeholder="e.g. SkyBridge Aerospace Consortium"><div class="error"></div></div>' +
+        '<div class="field"><label>Company Email <span class="req">*</span></label>' +
+          '<input type="email" id="aggEmail" value="' + v('email') + '" placeholder="name@company.com">' +
+          '<div class="hint">Login credentials will be emailed here after organiser approval.</div><div class="error"></div></div>' +
+        '<div class="field"><label>Nodal Officer First Name <span class="req">*</span></label>' +
+          '<input type="text" id="aggFirst" value="' + v('nodalFirst') + '"><div class="error"></div></div>' +
+        '<div class="field"><label>Nodal Officer Last Name <span class="req">*</span></label>' +
+          '<input type="text" id="aggLast" value="' + v('nodalLast') + '"><div class="error"></div></div>' +
+        '<div class="field"><label>Nodal Officer Mobile</label>' +
+          '<input type="tel" id="aggMobile" value="' + v('nodalMobile') + '" placeholder="10-digit mobile"><div class="error"></div></div>' +
+        '<div class="field"><label>Nodal Officer Designation</label>' +
+          '<input type="text" id="aggDesig" value="' + v('nodalDesig') + '" placeholder="e.g. Business Head"></div>' +
+      '</div>' +
+      '<div class="note"><b class="title">Note — Aggregator Company</b><ul>' +
+        '<li>No registration charges — nothing is added to your cart.</li>' +
+        '<li>A unique reference / registration number is generated on submission.</li>' +
+        '<li>The request is sent to the <b>organiser for approval</b>. Status shows as <i>Pending Approval</i> until then.</li>' +
+        '<li>On approval, a separate login is created and the <b>login credentials are emailed</b> to the company email above.</li>' +
+        '<li>Stall space &amp; pass quotas (badges, invitee, vehicle) can be allotted only after approval — same flow as a Separate co-exhibitor.</li>' +
+      '</ul></div>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">' +
+        (isFirst ? '' : '<a class="btn btn-outline" href="#/aggregators">Cancel</a>') +
+        '<button class="btn btn-primary" type="submit"><span class="material-symbols-outlined">' + (editing ? 'replay' : 'check') + '</span>' + (editing ? 'Resubmit for Approval' : 'Submit for Approval') + '</button>' +
+      '</div>' +
+    '</form>' +
+    '</div>' +
+    footerTools();
+}
+
+function submitAgg(e, editId) {
+  e.preventDefault();
+  clearErrs();
+  const company = $('aggCompany').value.trim();
+  const email = $('aggEmail').value.trim();
+  const first = $('aggFirst').value.trim();
+  const last = $('aggLast').value.trim();
+  const mobile = $('aggMobile').value.trim();
+  const desig = $('aggDesig').value.trim();
+  let ok = true;
+
+  // Email must be unique across co-exhibitors AND aggregator companies
+  const emailInUse = (em) =>
+    S.coexhibitors.some((c) => c.id !== editId && c.email.toLowerCase() === em.toLowerCase());
+
+  if (!company) { setErr('aggCompany', 'Company name is required'); ok = false; }
+  if (!email) { setErr('aggEmail', 'Email is required'); ok = false; }
+  else if (!EMAIL_RE.test(email)) { setErr('aggEmail', 'Enter a valid email address'); ok = false; }
+  else if (emailInUse(email)) { setErr('aggEmail', 'This email is already used by another company'); ok = false; }
+  if (!first) { setErr('aggFirst', 'First name is required'); ok = false; }
+  if (!last) { setErr('aggLast', 'Last name is required'); ok = false; }
+  if (mobile && !MOBILE_RE.test(mobile)) { setErr('aggMobile', 'Enter a valid 10-digit mobile number'); ok = false; }
+  if (!ok) return false;
+
+  if (editId) {
+    // Resubmit a rejected company with corrected details
+    const c = coexById(editId);
+    Object.assign(c, {
+      company: company, email: email, nodalFirst: first, nodalLast: last,
+      nodalMobile: mobile, nodalDesig: desig,
+      status: 'pending_approval', remark: '', submittedAt: nowStr(), approvedAt: '',
+    });
+    save();
+    toast('"' + company + '" resubmitted to the organiser for approval.', 'success');
+  } else {
+    const id = uid('coex');
+    const regNo = 'AGG-2027-' + pad(S.seq.agg + 1, 4);
+    S.seq.agg += 1;
+    S.coexhibitors.push({
+      id: id, type: 'aggregator', company: company, email: email,
+      nodalFirst: first, nodalLast: last, nodalMobile: mobile, nodalDesig: desig,
+      regNo: regNo, status: 'pending_approval', remark: '',
+      createdAt: nowStr(), submittedAt: nowStr(), approvedAt: '',
+    });
+    save();
+    toast('Reference ' + regNo + ' generated. "' + company + '" sent to the organiser for approval.', 'success');
+  }
+  location.hash = '#/aggregators'; render();
+  return false;
+}
+
+function resubmitAgg(id) {
+  const c = coexById(id);
+  if (!c || !isAggregator(c)) return;
+  window.__aggEditId = id;
+  location.hash = '#/aggregators/resubmit';
+  render();
+}
+
+/* ============================================================
+   VIEW · Allocate Stall
+   ============================================================ */
+/* Stall space can be allotted ONLY to:
+     · Separate co-exhibitors whose registration payment is complete
+     · Aggregator companies approved by the organiser          (business rule) */
+function stallEligibleCoex() {
+  return S.coexhibitors.filter(isEntitled);
+}
+
+/* Which company group the allotment form is targeting. Set from the
+   sidebar route (#/allocate-stall/aggregator) or the form's radio cards. */
+window.__allocGroup = window.__allocGroup || 'coex';
+
+function viewAllocateStall(group) {
+  if (group === 'coex' || group === 'aggregator') window.__allocGroup = group;
   if (stallEligibleCoex().length === 0) {
     return '<h1 class="page-title">Allocate Stall</h1>' +
-      '<p class="page-sub">Stall space can be allocated only to <b>Separate</b> co-exhibitors whose registration payment is complete.</p>' +
+      '<p class="page-sub">Stall space can be allocated only to <b>Separate</b> co-exhibitors whose registration payment is complete, or to <b>Aggregator</b> companies approved by the organiser.</p>' +
       '<div class="card"><div class="empty"><span class="material-symbols-outlined">group_add</span>' +
-      '<h3>No paid Separate co-exhibitors yet</h3><p>Add a Separate co-exhibitor and complete its registration payment first, then allocate stall space.</p>' +
+      '<h3>No eligible company yet</h3><p>Add a Separate co-exhibitor (and complete its registration payment) or an Aggregator company (and wait for organiser approval), then allocate stall space.</p>' +
+      '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">' +
       '<a class="btn btn-primary" href="#/co-exhibitors/add"><span class="material-symbols-outlined">add</span>Add Co-Exhibitor</a>' +
-      '</div></div>' + footerTools();
+      '<a class="btn btn-outline" href="#/aggregators/add"><span class="material-symbols-outlined">hub</span>Add Aggregator Company</a>' +
+      '</div></div></div>' + footerTools();
   }
 
   const stallChips = S.stalls.map((st) => {
@@ -504,6 +737,7 @@ function viewAllocateStall() {
     return '<tr>' +
       '<td class="num">' + (i + 1) + '</td>' +
       '<td><span class="td-strong">' + esc(c.company) + '</span><span class="td-sub">' + esc(c.email) + '</span></td>' +
+      '<td>' + companyGroupPill(c) + '</td>' +
       '<td>' + esc(st.hall) + '</td><td>' + esc(st.stall) + '</td>' +
       '<td class="num">' + a.sqm + ' sqm</td>' +
       '<td class="td-actions">' +
@@ -519,31 +753,70 @@ function viewAllocateStall() {
     ? '<div class="card"><div class="card-head-row"><h2 class="card-title">Allocated Stall List</h2>' +
       '<button class="btn btn-primary" onclick="openAllocForm()"><span class="material-symbols-outlined">add</span>Allocate Area</button></div>' +
       '<div class="tablewrap"><table class="grid">' +
-      '<tr><th>Sr.</th><th>Co-Exhibitor</th><th>Hall</th><th>Stall</th><th>Allocated Space</th><th>Action</th></tr>' + rows +
+      '<tr><th>Sr.</th><th>Company</th><th>Type</th><th>Hall</th><th>Stall</th><th>Allocated Space</th><th>Action</th></tr>' + rows +
       '</table></div></div>'
-    : '<div class="card"><h2 class="card-title">Allocate Space to Co-Exhibitor</h2>' +
-      '<p class="page-sub" style="margin-bottom:14px">No stall allocation yet — fill the form below to allocate area.</p>' +
+    : '<div class="card"><h2 class="card-title">Allocate Space</h2>' +
+      '<p class="page-sub" style="margin-bottom:14px">No stall allocation yet — choose the company type and fill the form below to allocate area.</p>' +
       allocFormHtml(null) + '</div>';
 
   return '<h1 class="page-title">Allocate Stall</h1>' +
-    '<p class="page-sub">Distribute your booked stall space among <b>Separate</b> co-exhibitors (registration payment complete). You cannot allocate more than the space you have booked.</p>' +
+    '<p class="page-sub">Distribute your booked stall space among <b>Separate</b> co-exhibitors (registration payment complete) and <b>approved Aggregator</b> companies. You cannot allocate more than the space you have booked.</p>' +
     '<div class="tiles">' + stallChips + '</div>' +
     listCard + footerTools();
 }
 
+/* Options for the company dropdown, per group (Co-Exhibitor | Aggregator). */
+function allocCompanyOptions(group, selectedId) {
+  const list = activeOfGroup(group);
+  if (!list.length) {
+    return '<option value="">No ' + (group === 'aggregator' ? 'approved aggregator company' : 'paid Separate co-exhibitor') + ' available</option>';
+  }
+  return list.map((c) =>
+    '<option value="' + c.id + '"' + (selectedId === c.id ? ' selected' : '') + '>' +
+    esc(c.company) + (group === 'aggregator' ? ' (Aggregator · Approved)' : ' (Separate · Paid)') + '</option>').join('');
+}
+
+/* Radio-card click: switch the group and refill the company dropdown
+   without re-rendering (keeps the modal open). */
+function setAllocGroup(group) {
+  window.__allocGroup = group;
+  const rcC = $('rc_al_coex'), rcA = $('rc_al_agg');
+  if (rcC) rcC.classList.toggle('selected', group === 'coex');
+  if (rcA) rcA.classList.toggle('selected', group === 'aggregator');
+  const radio = document.querySelector('input[name="allocGroup"][value="' + group + '"]');
+  if (radio) radio.checked = true;
+  const sel = $('alCoex');
+  if (sel) sel.innerHTML = allocCompanyOptions(group);
+  const lbl = $('alCoexLabel');
+  if (lbl) lbl.textContent = GROUP_LABEL[group];
+}
+
 function allocFormHtml(alloc) {
   const editing = !!alloc;
-  // Only PAID Separate co-exhibitors can be allotted stall space.
-  const coexOpts = stallEligibleCoex().map((c) =>
-    '<option value="' + c.id + '"' + (editing && alloc.coexId === c.id ? ' selected' : '') + '>' +
-    esc(c.company) + ' (Separate · Paid)</option>').join('');
+  // When editing, the group follows the allocation's company; otherwise the page state.
+  const group = editing ? groupOf(coexById(alloc.coexId)) : window.__allocGroup;
+  const coexOpts = allocCompanyOptions(group, editing ? alloc.coexId : null);
   const halls = [...new Set(S.stalls.map((s) => s.hall))];
   const selHall = editing ? stallById(alloc.stallId).hall : halls[0];
   const hallOpts = halls.map((h) => '<option' + (h === selHall ? ' selected' : '') + '>' + esc(h) + '</option>').join('');
+  const nCoex = activeOfGroup('coex').length, nAgg = activeOfGroup('aggregator').length;
 
   return '<form id="allocForm" onsubmit="return submitAlloc(event, \'' + (editing ? alloc.id : '') + '\')" novalidate>' +
+    '<div class="field full" style="margin-bottom:14px">' +
+      '<label>Allot To <span class="req">*</span></label>' +
+      '<div class="radio-cards">' +
+        '<label class="radio-card' + (group === 'coex' ? ' selected' : '') + '" id="rc_al_coex" onclick="setAllocGroup(\'coex\')">' +
+          '<input type="radio" name="allocGroup" value="coex"' + (group === 'coex' ? ' checked' : '') + '>' +
+          '<b>Co-Exhibitor</b><small>Separate co-exhibitors with completed registration payment · ' + nCoex + ' eligible</small>' +
+        '</label>' +
+        '<label class="radio-card' + (group === 'aggregator' ? ' selected' : '') + '" id="rc_al_agg" onclick="setAllocGroup(\'aggregator\')">' +
+          '<input type="radio" name="allocGroup" value="aggregator"' + (group === 'aggregator' ? ' checked' : '') + '>' +
+          '<b>Aggregator Company</b><small>Aggregator companies approved by the organiser · ' + nAgg + ' eligible</small>' +
+        '</label>' +
+      '</div>' +
+    '</div>' +
     '<div class="form-grid">' +
-      '<div class="field"><label>Co-Exhibitor <span class="req">*</span></label>' +
+      '<div class="field"><label><span id="alCoexLabel">' + GROUP_LABEL[group] + '</span> <span class="req">*</span></label>' +
         '<select id="alCoex">' + coexOpts + '</select><div class="error"></div></div>' +
       '<div class="field"><label>Hall <span class="req">*</span></label>' +
         '<select id="alHall" onchange="fillStallOptions()">' + hallOpts + '</select><div class="error"></div></div>' +
@@ -587,7 +860,7 @@ function openAllocForm(allocId) {
     fillStallOptions(alloc.stallId);
   } else {
     // inline form exists when list empty; when list present use modal
-    openModal('Allocate Space to Co-Exhibitor', allocFormHtml(null));
+    openModal('Allocate Space', allocFormHtml(null));
     fillStallOptions();
   }
 }
@@ -599,11 +872,18 @@ function submitAlloc(e, editId) {
   const stallId = $('alStall').value;
   const sqm = parseInt($('alSqm').value, 10);
   let ok = true;
-  if (!coexId) { setErr('alCoex', 'Select a co-exhibitor'); ok = false; }
+  const groupEl = document.querySelector('input[name="allocGroup"]:checked');
+  const group = groupEl ? groupEl.value : 'coex';
+  if (!coexId) { setErr('alCoex', 'Select ' + (group === 'aggregator' ? 'an aggregator company' : 'a co-exhibitor')); ok = false; }
   else {
     const c = coexById(coexId);
-    if (!c || c.type !== 'separate' || c.status !== 'active') {
-      setErr('alCoex', 'Stall space can be allocated only to Separate co-exhibitors with completed registration payment');
+    if (!isEntitled(c)) {
+      setErr('alCoex', isAggregator(c)
+        ? 'Stall space can be allocated only to Aggregator companies approved by the organiser'
+        : 'Stall space can be allocated only to Separate co-exhibitors with completed registration payment');
+      ok = false;
+    } else if (groupOf(c) !== group) {
+      setErr('alCoex', 'Selected company does not match the chosen type');
       ok = false;
     }
   }
@@ -771,7 +1051,7 @@ function catRow(cat, i, coexLabel) {
     '<td><div class="usage"><div class="bar"><i style="width:' + pct + '%"></i></div><span>' + bal + ' left</span></div></td>' +
     '<td class="td-actions">' +
       '<button class="btn-link" onclick="openViewPasses(\'' + cat.id + '\', null)">View Passes</button>' +
-      '<a class="btn-link" href="#/passes/' + (cat.kind === 'invitee' ? 'invitee' : cat.kind === 'vehicle' ? 'vehicle' : 'badges') + '/coex/' + cat.id + '">' + (coexLabel || 'Co-Exhibitors') + '</a>' +
+      '<a class="btn-link" href="#/passes/' + (cat.kind === 'invitee' ? 'invitee' : cat.kind === 'vehicle' ? 'vehicle' : 'badges') + '/coex/' + cat.id + '">' + (coexLabel || 'Co-Exhibitors / Aggregators') + '</a>' +
       '<button class="btn-link" onclick="' + (cat.kind === 'vehicle' ? 'openVehicleForm(\'' + cat.id + '\', null)' : 'openPassForm(\'' + cat.id + '\', null)') + '">Add New</button>' +
       (cat.kind === 'vehicle' ? '' : '<button class="btn-link" onclick="openSendLink(\'' + cat.id + '\', null)">' + (cat.kind === 'invitee' ? 'Invitee Link' : 'Send Link') + '</button>') +
     '</td></tr>';
@@ -868,7 +1148,7 @@ function viewBadges() {
         '<button class="btn btn-outline" onclick="bqSetCat(\'' + c.id + '\')">View Listing</button>' +
         '<button class="btn btn-outline" onclick="openBulkUpload(\'' + c.id + '\')">Bulk Upload</button>' +
         '<button class="btn btn-outline" onclick="openSendLink(\'' + c.id + '\')"><span class="material-symbols-outlined" style="font-size:16px">mail</span>Invite Via Email</button>' +
-        '<a class="btn btn-outline" href="#/passes/badges/coex/' + c.id + '"><span class="material-symbols-outlined" style="font-size:16px">group_add</span>Co-Exhibitor Quota</a>' +
+        '<a class="btn btn-outline" href="#/passes/badges/coex/' + c.id + '"><span class="material-symbols-outlined" style="font-size:16px">group_add</span>Co-Exhibitor / Aggregator Quota</a>' +
       '</div>' +
       '<div class="bq-dots">' + badgeCats.map((x, i) =>
         '<i class="' + (i === window.__bqIdx ? 'on' : '') + '" onclick="bqGoto(' + i + ')"></i>').join('') + '</div>' +
@@ -928,19 +1208,42 @@ function viewBadges() {
 /* ============================================================
    VIEW · Category > Co-Exhibitors page (shared by badge/invitee/vehicle)
    ============================================================ */
+/* Quota page: which company group the Assign Quota form targets */
+window.__qGroup = window.__qGroup || 'coex';
+function setQuotaGroup(group) { window.__qGroup = group; render(); }
+
 function viewCatCoexPage(catId) {
   const cat = catById(catId);
   if (!cat) { location.hash = '#/passes/badges'; return ''; }
   const backRoute = cat.kind === 'invitee' ? '#/passes/invitee' : cat.kind === 'vehicle' ? '#/passes/vehicle' : '#/passes/badges';
   const eligible = quotaEligibleCoex();
   const balance = exhibitorBalance(catId);
+  const group = window.__qGroup;
+  const groupList = activeOfGroup(group);
+  const nCoex = activeOfGroup('coex').length, nAgg = activeOfGroup('aggregator').length;
 
-  const coexOpts = eligible.map((c) => '<option value="' + c.id + '">' + esc(c.company) + ' — ' + esc(c.email) + '</option>').join('');
+  const groupCards =
+    '<div class="field full" style="margin-bottom:14px">' +
+      '<label>Assign To <span class="req">*</span></label>' +
+      '<div class="radio-cards">' +
+        '<label class="radio-card' + (group === 'coex' ? ' selected' : '') + '" onclick="setQuotaGroup(\'coex\')">' +
+          '<input type="radio" name="qGroup" value="coex"' + (group === 'coex' ? ' checked' : '') + '>' +
+          '<b>Co-Exhibitor</b><small>Separate co-exhibitors, registration payment complete · ' + nCoex + ' eligible</small></label>' +
+        '<label class="radio-card' + (group === 'aggregator' ? ' selected' : '') + '" onclick="setQuotaGroup(\'aggregator\')">' +
+          '<input type="radio" name="qGroup" value="aggregator"' + (group === 'aggregator' ? ' checked' : '') + '>' +
+          '<b>Aggregator Company</b><small>Approved by the organiser · ' + nAgg + ' eligible</small></label>' +
+      '</div>' +
+    '</div>';
+
+  const coexOpts = groupList.length
+    ? groupList.map((c) => '<option value="' + c.id + '">' + esc(c.company) + ' — ' + esc(c.email) + '</option>').join('')
+    : '<option value="">No ' + (group === 'aggregator' ? 'approved aggregator company' : 'paid Separate co-exhibitor') + ' available</option>';
   const assignCard = eligible.length === 0
-    ? '<div class="note amber"><b class="title">No eligible co-exhibitors.</b>Quota can be assigned only to <b>Separate</b> co-exhibitors whose registration payment is complete. Subsidiary co-exhibitors are not entitled to passes &amp; services.</div>'
+    ? '<div class="note amber"><b class="title">No eligible companies.</b>Quota can be assigned only to <b>Separate</b> co-exhibitors whose registration payment is complete, or to <b>Aggregator</b> companies approved by the organiser. Subsidiary co-exhibitors are not entitled to passes &amp; services.</div>'
     : '<form onsubmit="return submitQuota(event, \'' + catId + '\')" novalidate>' +
+      groupCards +
       '<div class="form-grid">' +
-        '<div class="field"><label>Co-Exhibitor <span class="req">*</span></label>' +
+        '<div class="field"><label>' + GROUP_LABEL[group] + ' <span class="req">*</span></label>' +
           '<select id="qCoex" onchange="updateQuotaStrip(\'' + catId + '\')">' + coexOpts + '</select><div class="error"></div></div>' +
         '<div class="field"><label>Allocate Quota <span class="req">*</span></label>' +
           '<input type="number" id="qQty" min="1" step="1" placeholder="Enter quota" oninput="updateQuotaStrip(\'' + catId + '\')"><div class="error"></div></div>' +
@@ -957,6 +1260,7 @@ function viewCatCoexPage(catId) {
       '<td class="num">' + (i + 1) + '</td>' +
       '<td>' + esc(cat.name) + '</td>' +
       '<td><span class="td-strong">' + esc(c.company) + '</span><span class="td-sub">' + esc(c.email) + '</span></td>' +
+      '<td>' + companyGroupPill(c) + '</td>' +
       '<td class="num">' + q.quota + '</td>' +
       '<td class="num">' + (q.quota - used) + '</td>' +
       '<td class="td-actions">' +
@@ -968,13 +1272,13 @@ function viewCatCoexPage(catId) {
   }).join('');
 
   return '<a class="back-link" href="' + backRoute + '"><span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>Back to ' + (cat.kind === 'invitee' ? 'Exhibitor Invitee' : cat.kind === 'vehicle' ? 'Vehicle Pass Details' : 'Badge Details') + '</a>' +
-    '<h1 class="page-title">Co-Exhibitors · ' + esc(cat.name) + '</h1>' +
-    '<p class="page-sub">Assign ' + (cat.kind === 'vehicle' ? 'vehicle pass' : 'badge') + ' quota from your balance to co-exhibitors, and manage the passes they fill.</p>' +
+    '<h1 class="page-title">Co-Exhibitors &amp; Aggregators · ' + esc(cat.name) + '</h1>' +
+    '<p class="page-sub">Assign ' + (cat.kind === 'vehicle' ? 'vehicle pass' : 'badge') + ' quota from your balance to co-exhibitors or aggregator companies, and manage the passes they fill.</p>' +
     '<div class="card"><h2 class="card-title">Assign Quota</h2>' + assignCard + '</div>' +
-    '<div class="card section-gap"><h2 class="card-title">Co-Exhibitor Assigned Quota List</h2>' +
+    '<div class="card section-gap"><h2 class="card-title">Assigned Quota List</h2>' +
     '<div class="tablewrap"><table class="grid">' +
-    '<tr><th>Sr.</th><th>Category of Passes</th><th>Co-Exhibitor (Email)</th><th>Quota</th><th>Balance</th><th>Action</th></tr>' +
-    (qRows || '<tr><td colspan="6" style="color:var(--muted)">No quota assigned to any co-exhibitor yet.</td></tr>') +
+    '<tr><th>Sr.</th><th>Category of Passes</th><th>Company (Email)</th><th>Type</th><th>Quota</th><th>Balance</th><th>Action</th></tr>' +
+    (qRows || '<tr><td colspan="7" style="color:var(--muted)">No quota assigned to any co-exhibitor or aggregator company yet.</td></tr>') +
     '</table></div></div>' + footerTools();
 }
 
@@ -986,7 +1290,7 @@ function updateQuotaStrip(catId) {
   const current = quotaFor(coexId, catId);
   const remaining = avail - qty;
   strip.innerHTML =
-    '<div>Current quota of selected co-exhibitor: <b>' + current + '</b></div>' +
+    '<div>Current quota of selected company: <b>' + current + '</b></div>' +
     '<div>Available Quota Balance: <b>' + avail + '</b></div>' +
     '<div>Remaining after assignment: <b class="' + (remaining < 0 ? 'neg' : '') + '">' + remaining + '</b></div>';
 }
@@ -996,7 +1300,8 @@ function submitQuota(e, catId) {
   clearErrs();
   const coexId = $('qCoex').value;
   const qty = parseInt($('qQty').value, 10);
-  if (!coexId) { setErr('qCoex', 'Select a co-exhibitor'); return false; }
+  if (!coexId) { setErr('qCoex', 'Select ' + (window.__qGroup === 'aggregator' ? 'an aggregator company' : 'a co-exhibitor')); return false; }
+  if (!isEntitled(coexById(coexId))) { setErr('qCoex', 'Quota can be assigned only to paid Separate co-exhibitors or approved Aggregator companies'); return false; }
   if (isNaN(qty) || qty <= 0) { setErr('qQty', 'Enter a valid quota'); return false; }
   const avail = exhibitorBalance(catId);
   if (qty > avail) { setErr('qQty', 'Only ' + avail + ' available in your balance'); return false; }
@@ -1044,7 +1349,7 @@ function openPassForm(catId, coexId) {
   const cat = catById(catId);
   if (passContextCheck(catId, coexId) === -1) return;
   const onBehalf = coexId
-    ? '<div class="note" style="margin-top:0"><b class="title">Filling on behalf of ' + esc(coexById(coexId).company) + '</b>This pass will consume the co-exhibitor’s assigned quota.</div>'
+    ? '<div class="note" style="margin-top:0"><b class="title">Filling on behalf of ' + esc(coexById(coexId).company) + '</b>This pass will consume the ' + (isAggregator(coexById(coexId)) ? 'aggregator company' : 'co-exhibitor') + '’s assigned quota.</div>'
     : '';
   const dateChecks = cat.kind === 'invitee'
     ? '<div class="field full"><label>Event Date Selection <span class="req">*</span></label>' +
@@ -1056,7 +1361,7 @@ function openPassForm(catId, coexId) {
         '<div class="hint">Car pass application opens after saving this invitee.</div></div>'
     : '';
 
-  openModal((coexId ? 'Add Pass (Co-Exhibitor)' : 'Add New') + ' · ' + esc(cat.name),
+  openModal((coexId ? 'Add Pass (' + (isAggregator(coexById(coexId)) ? 'Aggregator' : 'Co-Exhibitor') + ')' : 'Add New') + ' · ' + esc(cat.name),
     onBehalf +
     '<form id="passForm" onsubmit="return submitPass(event, \'' + catId + '\', \'' + (coexId || '') + '\')" novalidate>' +
     '<div class="form-grid">' +
@@ -1122,7 +1427,7 @@ function submitPass(e, catId, coexId) {
    ============================================================ */
 function openSendLink(catId, coexId) {
   const cat = catById(catId);
-  const ctx = coexId ? '<div class="note" style="margin-top:0"><b class="title">Sending for ' + esc(coexById(coexId).company) + '</b>The registration completed via this link will consume the co-exhibitor’s quota.</div>' : '';
+  const ctx = coexId ? '<div class="note" style="margin-top:0"><b class="title">Sending for ' + esc(coexById(coexId).company) + '</b>The registration completed via this link will consume the ' + (isAggregator(coexById(coexId)) ? 'aggregator company' : 'co-exhibitor') + '’s quota.</div>' : '';
   openModal('Send ' + (cat.kind === 'invitee' ? 'Invitee' : 'Pass') + ' Link · ' + esc(cat.name),
     ctx +
     '<p style="margin-top:0;color:var(--muted);font-size:0.86rem">An email notification with a self-registration link will be sent to the person below.</p>' +
@@ -1215,7 +1520,7 @@ function viewVehicle() {
     '<div class="card"><div class="card-head-row"><h2 class="card-title">Vehicle Pass List</h2></div>' +
     '<div class="tablewrap"><table class="grid">' +
     '<tr><th>No.</th><th>Category Name</th><th>Area Wise (Free)</th><th>Paid</th><th>Total Passes</th><th>Balance</th><th>Action</th></tr>' +
-    cats.map((c, i) => catRow(c, i, 'Co-Exhibitor')).join('') +
+    cats.map((c, i) => catRow(c, i, 'Co-Exhibitor / Aggregator')).join('') +
     '</table></div></div>' + footerTools();
 }
 
@@ -1415,6 +1720,8 @@ function viewExhibitorDashboard() {
   const quotaTotal = S.categories.reduce((a, c) => a + catTotal(c), 0);
   const passesUsed = S.passes.length;
   const coexPending = S.coexhibitors.filter((c) => c.status === 'payment_pending').length;
+  const aggPending = aggregators().filter((c) => c.status === 'pending_approval').length;
+  const aggRejected = aggregators().filter((c) => c.status === 'rejected').length;
   const acftDrafts = aircraft.filter((a) => a.status === 'draft').length;
   const acftUnpaid = aircraft.filter((a) => a.status === 'approved' && a.price != null).length;
 
@@ -1465,6 +1772,16 @@ function viewExhibitorDashboard() {
     icon: 'group_add', title: coexPending + ' co-exhibitor registration payment pending',
     sub: 'Separate co-exhibitors unlock stall & quotas after the ' + money(EVENT.coexRegFee) + ' fee.',
     btn: '<button class="btn btn-outline btn-sm" onclick="openCart()">Complete Payment</button>',
+  });
+  if (aggPending) actions.push({
+    icon: 'hub', title: aggPending + ' aggregator compan' + (aggPending === 1 ? 'y' : 'ies') + ' awaiting organiser approval',
+    sub: 'Stall space & pass quotas unlock after the organiser approves. Login credentials are emailed on approval.',
+    btn: '<a class="btn btn-outline btn-sm" href="#/aggregators">View Status</a>',
+  });
+  if (aggRejected) actions.push({
+    icon: 'report', title: aggRejected + ' aggregator compan' + (aggRejected === 1 ? 'y' : 'ies') + ' rejected by organiser',
+    sub: 'Check the organiser remark, correct the details and resubmit.',
+    btn: '<a class="btn btn-outline btn-sm" href="#/aggregators">Review</a>',
   });
   if (acftDrafts) actions.push({
     icon: 'flight', title: acftDrafts + ' aircraft application(s) in draft',
@@ -1525,7 +1842,9 @@ function viewExhibitorDashboard() {
       feat('#/passes/badges', 'fc-green', 'badge', 'Badges',
         passesUsed + ' of ' + quotaTotal + ' passes used') +
       feat('#/co-exhibitors', 'fc-teal', 'group_add', 'Co-Exhibitor',
-        S.coexhibitors.length + ' added' + (coexPending ? ' · ' + coexPending + ' payment pending' : '')) +
+        coexOnly().length + ' added' + (coexPending ? ' · ' + coexPending + ' payment pending' : '')) +
+      feat('#/aggregators', 'fc-purple', 'hub', 'Aggregator Company',
+        aggregators().length + ' added' + (aggPending ? ' · ' + aggPending + ' awaiting approval' : '')) +
       feat('#/exhibition-forms', 'fc-purple', 'assignment', 'Exhibition Forms',
         (typeof exFormsSubmitted === 'function' ? exFormsSubmitted() + ' of 5 forms submitted' : '')) +
       feat('#/conference-hall', 'fc-pink', 'meeting_room', 'Meeting Rooms',

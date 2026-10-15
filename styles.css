@@ -262,6 +262,16 @@ table.grid tr:hover td { background: #FAFBFE; }
 .pill.amber { background: var(--amber-soft); color: var(--amber); }
 .pill.red { background: var(--red-soft); color: var(--red); }
 .pill.gray { background: #EEF1F6; color: var(--muted); }
+.pill.purple { background: #F1EBFB; color: #6C47C9; }
+/* Small count badge at the right end of a sidebar item (pending approvals) */
+.nav-badge {
+  margin-left: auto;
+  min-width: 20px; height: 20px; padding: 0 6px;
+  border-radius: 99px;
+  background: var(--amber); color: #fff;
+  font-size: 0.68rem; font-weight: 800;
+  display: inline-flex; align-items: center; justify-content: center;
+}
 .pill.blue { background: #E8EEFB; color: var(--blue); }
 
 /* ---------- Forms ---------- */

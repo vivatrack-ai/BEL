@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Co-Exhibitor · Evenuefy</title>
+<title>Co-Exhibitor / Aggregator · Evenuefy</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&display=swap">
@@ -17,21 +17,22 @@
   <div class="card" style="width:100%;max-width:440px">
     <div class="logo" style="text-align:center;padding-bottom:4px">e<span>venuefy</span></div>
     <p style="text-align:center;color:var(--muted);font-size:0.85rem;margin:0 0 18px">
-      Aero India 2027 · <b>Co-Exhibitor Login</b>
+      Aero India 2027 · <b>Co-Exhibitor / Aggregator Login</b>
     </p>
     <div id="noCoexNote" style="display:none">
-      <div class="note amber"><b class="title">No eligible co-exhibitor login yet</b>
-        Login is enabled only for <b>Separate</b> co-exhibitor companies whose registration
-        payment has been completed by the main exhibitor (HAL). Subsidiary companies do not
-        get a login. Ask your main exhibitor to register you and complete the payment first.</div>
+      <div class="note amber"><b class="title">No eligible company login yet</b>
+        Login is enabled for <b>Separate</b> co-exhibitor companies whose registration
+        payment has been completed by the main exhibitor (HAL), and for <b>Aggregator</b>
+        companies approved by the organiser. Subsidiary companies do not get a login.
+        Ask your main exhibitor to register you first.</div>
       <a class="btn btn-outline" href="index.html" style="width:100%;justify-content:center;margin-top:6px">
         <span class="material-symbols-outlined">open_in_new</span>Open Main Exhibitor App</a>
     </div>
     <form id="loginForm" onsubmit="return coexLogin(event)" novalidate>
       <div class="field" style="margin-bottom:14px">
-        <label>Co-Exhibitor Company <span class="req">*</span></label>
+        <label>Company <span class="req">*</span></label>
         <select id="lgCoex"></select>
-        <div class="hint">Demo — companies added by the main exhibitor appear here.</div>
+        <div class="hint">Demo — co-exhibitor &amp; aggregator companies added by the main exhibitor appear here.</div>
       </div>
       <div class="field" style="margin-bottom:14px">
         <label>Email <span class="req">*</span></label>
@@ -49,8 +50,8 @@
       </button>
     </form>
     <p style="text-align:center;font-size:0.75rem;color:var(--muted);margin:14px 0 0">
-      Only <b>Separate</b> co-exhibitors with completed registration payment can login.<br>
-      Subsidiary companies do not get a separate login.
+      <b>Separate</b> co-exhibitors (registration payment complete) and <b>Aggregator</b> companies
+      (approved by the organiser) can login.<br>Subsidiary companies do not get a separate login.
     </p>
   </div>
 </div>
@@ -58,7 +59,7 @@
 <!-- ================= App shell (after login) ================= -->
 <div class="shell" id="appShell" style="display:none">
   <aside class="sidebar">
-    <div class="logo">e<span>venuefy</span> <span style="font-size:0.62rem;font-weight:800;color:var(--muted);letter-spacing:0.1em">CO-EXHIBITOR</span></div>
+    <div class="logo">e<span>venuefy</span> <span id="portalRole" style="font-size:0.62rem;font-weight:800;color:var(--muted);letter-spacing:0.1em">CO-EXHIBITOR</span></div>
 
     <div class="nav-group-label" id="navCompanyName">Co-Exhibitor</div>
     <div class="nav-sub">

@@ -306,6 +306,7 @@ function render() {
   if (mDetail) html = viewExhibitorDetail(mDetail[1]);
   else if (route === 'space-requirements') html = viewSpaceRequirements();
   else if (route === 'aircraft-approvals') html = viewAircraftApprovals();
+  else if (route === 'aggregator-approvals') html = viewAggregatorApprovals();
   else if (route === 'orders') html = viewOrders();
   else if (route === 'space-approvals') html = viewSpaceApprovals();
   else if (route === 'booking-dashboard') html = viewBookingDashboard();
@@ -320,9 +321,12 @@ function render() {
   });
 
   $('view').innerHTML = html;
+  if (typeof updateAggPendingBadge === 'function') updateAggPendingBadge();
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', render);
+// Live-refresh when the exhibitor (another tab) adds an aggregator company
+window.addEventListener('storage', (e) => { if (e.key === 'evenuefy_coex_module_v1') render(); });
 
 /* Requested area split by setup type (Chalet is counted in units — no sqm) */
 function sqmByType(list) {
@@ -1116,6 +1120,188 @@ function rejectAircraft(id) {
   saveExState(ex);
   render();
   toast('Application ' + (a.appNo || '') + ' rejected.', 'error');
+}
+
+/* ============================================================
+   VIEW · Aggregator Approvals (organiser approval flow)
+   Aggregator companies are added by the exhibitor (same module as
+   Co-Exhibitors, type 'aggregator'). They stay "Pending Approval"
+   until the organiser approves here. On approval the company's login
+   is created and the credentials are emailed; the exhibitor can then
+   allot stall space & pass quotas to it. Reads/writes the exhibitor
+   portal's state (same-origin localStorage) — production: companies API.
+   ============================================================ */
+const AGG_STATUS_CHIPS = [['pending_approval', 'Pending Approval'], ['active', 'Approved'], ['rejected', 'Rejected']];
+const GF = { status: null, dateMode: '', from: '', to: '', q: '' };
+function gfSetStatus(v) { GF.status = v || null; render(); }
+function gfSetDateMode(v) { GF.dateMode = v; if (v !== 'custom') { GF.from = ''; GF.to = ''; } render(); }
+function gfSetFrom(v) { GF.from = v; render(); }
+function gfSetTo(v) { GF.to = v; render(); }
+function gfSetQ(v) { GF.q = v; render(); const el = $('gfQ'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+function gfClear() { GF.status = null; GF.dateMode = ''; GF.from = ''; GF.to = ''; GF.q = ''; render(); }
+
+function allAggregators() {
+  const ex = loadExState();
+  return ((ex && ex.coexhibitors) || []).filter((c) => c.type === 'aggregator');
+}
+function filteredAggregators() {
+  let list = allAggregators();
+  if (GF.status) list = list.filter((c) => c.status === GF.status);
+  const q = GF.q.trim().toLowerCase();
+  if (q) list = list.filter((c) => (c.company + ' ' + c.email + ' ' + c.regNo + ' ' + c.nodalFirst + ' ' + c.nodalLast).toLowerCase().includes(q));
+  const r = dateFilterRange(GF);
+  list = list.filter((c) => inDateRange(c.submittedAt || c.createdAt, r.from, r.to));
+  return list;
+}
+function aggStatusPill(s) {
+  const map = { pending_approval: ['amber', 'Pending Approval'], active: ['green', 'Approved'], rejected: ['red', 'Rejected'] };
+  const m = map[s] || ['gray', s];
+  return '<span class="pill ' + m[0] + '">' + m[1] + '</span>';
+}
+function updateAggPendingBadge() {
+  const el = $('aggPendingBadge'); if (!el) return;
+  const n = allAggregators().filter((c) => c.status === 'pending_approval').length;
+  el.textContent = n;
+  el.style.display = n ? '' : 'none';
+}
+
+function viewAggregatorApprovals() {
+  const all = allAggregators();
+  const list = filteredAggregators();
+  const counts = {
+    total: all.length,
+    pending: all.filter((c) => c.status === 'pending_approval').length,
+    approved: all.filter((c) => c.status === 'active').length,
+    rejected: all.filter((c) => c.status === 'rejected').length,
+  };
+  const hasFilter = GF.status || GF.dateMode || GF.q;
+
+  const toolbar =
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end">' +
+      '<span class="result-count">' + list.length + ' of ' + all.length + '</span>' +
+      '<input type="text" id="gfQ" value="' + esc(GF.q) + '" placeholder="Search company / email / reg. no." oninput="gfSetQ(this.value)" style="' + dateInputStyle + ';min-width:220px">' +
+      toolbarSel(AGG_STATUS_CHIPS, GF.status, 'gfSetStatus', 'Status: All') +
+      toolbarDateSel(GF, 'gfSetDateMode', 'gfSetFrom', 'gfSetTo') +
+      (hasFilter ? '<button class="btn btn-outline btn-sm" onclick="gfClear()" title="Clear filters"><span class="material-symbols-outlined" style="font-size:16px">filter_alt_off</span>Clear</button>' : '') +
+      '<button class="btn btn-outline btn-sm" onclick="exportAggregators()"' + (list.length ? '' : ' disabled') + '><span class="material-symbols-outlined" style="font-size:16px">download</span>Export to Excel</button>' +
+      '<button class="btn btn-outline btn-sm" onclick="render()" title="Refresh"><span class="material-symbols-outlined" style="font-size:16px">refresh</span></button>' +
+    '</div>';
+
+  const rows = list.map((c) =>
+    '<tr>' +
+    '<td><span class="regno">' + esc(c.regNo || '—') + '</span></td>' +
+    '<td><div class="profile-cell"><span class="avatar">' + esc((c.company || '?').charAt(0).toUpperCase()) + '</span>' +
+      '<span><span class="td-strong">' + esc(c.company) + '</span>' +
+      '<span class="td-sub">' + esc(c.email) + '</span></span></div></td>' +
+    '<td>' + esc(c.nodalFirst + ' ' + c.nodalLast) +
+      '<span class="td-sub">' + (c.nodalDesig ? esc(c.nodalDesig) + ' · ' : '') + (c.nodalMobile ? '+91 ' + esc(c.nodalMobile) : '—') + '</span></td>' +
+    '<td><span class="td-strong">' + esc(EX_COMPANY) + '</span><span class="td-sub">Main exhibitor</span></td>' +
+    '<td>' + esc(c.submittedAt || c.createdAt || '—') + '</td>' +
+    '<td>' + aggStatusPill(c.status) +
+      (c.status === 'active' && c.approvedAt ? '<span class="td-sub">' + esc(c.approvedAt) + ' · credentials emailed</span>' : '') +
+      (c.status === 'rejected' && c.remark ? '<span class="td-sub" style="color:var(--red)">' + esc(c.remark) + '</span>' : '') + '</td>' +
+    '<td class="td-actions">' +
+      '<button class="btn-link" onclick="openAggDetail(\'' + c.id + '\')">View</button>' +
+      (c.status === 'pending_approval'
+        ? '<button class="btn-link" style="color:var(--green)" onclick="approveAggregator(\'' + c.id + '\')">Approve</button>' +
+          '<button class="btn-link danger" onclick="rejectAggregator(\'' + c.id + '\')">Reject</button>'
+        : '') +
+    '</td></tr>').join('') ||
+    '<tr><td colspan="7" style="color:var(--muted)">' +
+      (all.length ? 'No aggregator companies match the selected filters.' : 'No aggregator companies submitted yet. Exhibitors add them from Exhibitor App › Aggregator Companies.') +
+    '</td></tr>';
+
+  return '<h1 class="page-title">Aggregator Approvals</h1>' +
+    '<p class="page-sub">Aggregator companies added by exhibitors. On approval the company’s login is created and the <b>login credentials are emailed</b> to the company; the exhibitor can then allot stall space and pass quotas to it (same as a co-exhibitor).</p>' +
+    '<div class="tiles">' +
+      '<div class="tile blue"><div class="t-label">Total Companies</div><div class="t-value">' + counts.total + '</div></div>' +
+      '<div class="tile"><div class="t-label">Pending Approval</div><div class="t-value">' + counts.pending + '</div></div>' +
+      '<div class="tile accent"><div class="t-label">Approved</div><div class="t-value">' + counts.approved + '</div></div>' +
+      '<div class="tile"><div class="t-label">Rejected</div><div class="t-value">' + counts.rejected + '</div></div>' +
+    '</div>' +
+    '<div class="card"><div class="card-head-row" style="flex-wrap:wrap;gap:10px"><h2 class="card-title">Aggregator Companies</h2>' +
+      toolbar + '</div>' +
+    '<div class="tablewrap"><table class="grid">' +
+    '<tr><th>Reg. No.</th><th>Aggregator Company</th><th>Nodal Officer</th><th>Added By (Exhibitor)</th><th>Submitted</th><th>Status</th><th>Action</th></tr>' +
+    rows + '</table></div></div>' +
+    footerTools();
+}
+
+function openAggDetail(id) {
+  const ex = loadExState(); if (!ex) return;
+  const c = (ex.coexhibitors || []).find((x) => x.id === id); if (!c) return;
+  const allocs = (ex.allocations || []).filter((a) => a.coexId === id);
+  const stallOf = (sid) => ((ex.stalls || []).find((s) => s.id === sid) || {});
+  const quotas = (ex.quotas || []).filter((q) => q.coexId === id);
+  const catOf = (cid) => ((ex.categories || []).find((x) => x.id === cid) || {});
+  const aRows = allocs.map((a) => '<tr><td>' + esc(stallOf(a.stallId).hall || '—') + '</td><td>' + esc(stallOf(a.stallId).stall || '—') + '</td><td class="num">' + a.sqm + ' sqm</td></tr>').join('') ||
+    '<tr><td colspan="3" style="color:var(--muted)">No stall space allotted yet</td></tr>';
+  const qRows = quotas.map((q) => '<tr><td>' + esc(catOf(q.catId).name || '—') + '</td><td class="num">' + q.quota + '</td></tr>').join('') ||
+    '<tr><td colspan="2" style="color:var(--muted)">No pass quota assigned yet</td></tr>';
+
+  openModal('Aggregator Company · ' + esc(c.company),
+    kvGrid([
+      ['Registration No.', c.regNo], ['Status', aggStatusPill(c.status), 'html'],
+      ['Company Email (login)', c.email], ['Added By', EX_COMPANY],
+      ['Nodal Officer', c.nodalFirst + ' ' + c.nodalLast], ['Designation', c.nodalDesig || '—'],
+      ['Nodal Mobile', c.nodalMobile ? '+91 ' + c.nodalMobile : '—'], ['Submitted', c.submittedAt || c.createdAt],
+      ['Approved', c.approvedAt || '—'], ['Approved By', c.approvedBy || '—'],
+      ['Organiser Remark', c.remark || '—', 'full'],
+    ]) +
+    '<h3 style="margin:18px 0 6px;font-size:0.9rem">Stall Space (allotted by exhibitor)</h3>' +
+    '<div class="tablewrap"><table class="grid"><tr><th>Hall</th><th>Stall</th><th>Area</th></tr>' + aRows + '</table></div>' +
+    '<h3 style="margin:18px 0 6px;font-size:0.9rem">Pass Quotas</h3>' +
+    '<div class="tablewrap"><table class="grid"><tr><th>Category</th><th>Quota</th></tr>' + qRows + '</table></div>',
+    (c.status === 'pending_approval'
+      ? '<button class="btn btn-outline" onclick="closeModal();rejectAggregator(\'' + c.id + '\')">Reject</button>' +
+        '<button class="btn btn-primary" onclick="closeModal();approveAggregator(\'' + c.id + '\')"><span class="material-symbols-outlined">check</span>Approve &amp; Send Credentials</button>'
+      : '<button class="btn btn-outline" onclick="closeModal()">Close</button>'), true);
+}
+
+/* Push a notification into the exhibitor portal's bell (shared state) */
+function notifyExhibitor(ex, icon, color, text) {
+  if (!ex.notifications) ex.notifications = [];
+  ex.notifications.unshift({ id: 'nt_' + Date.now(), icon: icon, color: color, text: text, time: 'Just now', read: false });
+}
+
+function approveAggregator(id) {
+  const ex = loadExState(); if (!ex) return;
+  const c = (ex.coexhibitors || []).find((x) => x.id === id && x.type === 'aggregator'); if (!c) return;
+  if (!confirm('Approve aggregator company "' + c.company + '" (' + (c.regNo || '') + ')?\n\nA login will be created and the credentials emailed to ' + c.email + '. The exhibitor can then allot stall space & pass quotas to this company.')) return;
+  c.status = 'active';
+  c.approvedAt = nowStr();
+  c.approvedBy = 'Organiser Admin';
+  c.remark = '';
+  c.credentialsSentTo = c.email;
+  notifyExhibitor(ex, 'check_circle', 'var(--green)',
+    'Aggregator company "' + c.company + '" approved by the organiser — login credentials sent to ' + c.email + '. You can now allot stall space & pass quotas.');
+  saveExState(ex);
+  render();
+  toast('"' + c.company + '" approved — login credentials emailed to ' + c.email + '.', 'success');
+}
+
+function rejectAggregator(id) {
+  const ex = loadExState(); if (!ex) return;
+  const c = (ex.coexhibitors || []).find((x) => x.id === id && x.type === 'aggregator'); if (!c) return;
+  const remark = prompt('Reason for rejection (shown to the exhibitor):', '');
+  if (remark === null) return;
+  c.status = 'rejected';
+  c.remark = remark.trim() || 'Rejected by organiser';
+  c.rejectedAt = nowStr();
+  notifyExhibitor(ex, 'cancel', 'var(--red)',
+    'Aggregator company "' + c.company + '" was rejected by the organiser: ' + c.remark);
+  saveExState(ex);
+  render();
+  toast('"' + c.company + '" rejected.', 'error');
+}
+
+function exportAggregators() {
+  const list = filteredAggregators();
+  const statusLabel = { pending_approval: 'Pending Approval', active: 'Approved', rejected: 'Rejected' };
+  const headers = ['Sr.', 'Reg. No.', 'Company', 'Company Email', 'Nodal Officer', 'Designation', 'Mobile', 'Added By', 'Submitted', 'Status', 'Approved At', 'Approved By', 'Remark'];
+  const rows = list.map((c, i) => [i + 1, c.regNo, c.company, c.email, c.nodalFirst + ' ' + c.nodalLast, c.nodalDesig || '', c.nodalMobile || '',
+    EX_COMPANY, c.submittedAt || c.createdAt, statusLabel[c.status] || c.status, c.approvedAt || '', c.approvedBy || '', c.remark || '']);
+  exportToExcel('aggregator-companies-' + exportStamp(), 'Aggregators', headers, rows);
 }
 
 /* ============================================================

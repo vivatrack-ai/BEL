@@ -42,7 +42,7 @@
     <p style="text-align:center;font-size:0.75rem;color:var(--muted);margin:14px 0 0">
       Other portals: <a class="btn-link" style="padding:0 2px" href="admin.html">Admin</a> ·
       <a class="btn-link" style="padding:0 2px" href="committee.html">Committee</a> ·
-      <a class="btn-link" style="padding:0 2px" href="coex.html">Co-Exhibitor</a>
+      <a class="btn-link" style="padding:0 2px" href="coex.html">Co-Exhibitor / Aggregator</a>
     </p>
   </div>
 </div>
@@ -113,6 +113,16 @@
       </a>
     </div>
 
+    <div class="nav-group-label">Aggregator Companies</div>
+    <div class="nav-sub">
+      <a class="nav-item" data-route="aggregators" href="#/aggregators">
+        <span class="material-symbols-outlined">hub</span>Add Aggregator Company
+      </a>
+      <a class="nav-item" data-route="allocate-stall/aggregator" href="#/allocate-stall/aggregator">
+        <span class="material-symbols-outlined">dashboard_customize</span>Allocate Stall
+      </a>
+    </div>
+
     <div class="nav-group-label">Meetings &amp; Networking</div>
     <div class="nav-sub">
       <a class="nav-item" data-route="b2b-matchmaking" href="#/b2b-matchmaking">
@@ -128,7 +138,7 @@
 
     <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:12px">
       <a class="nav-item" href="coex.html">
-        <span class="material-symbols-outlined">switch_account</span>Co-Exhibitor Login
+        <span class="material-symbols-outlined">switch_account</span>Co-Exhibitor / Aggregator Login
       </a>
       <button class="nav-item" onclick="exhibitorLogout()" style="cursor:pointer">
         <span class="material-symbols-outlined">logout</span>Logout
