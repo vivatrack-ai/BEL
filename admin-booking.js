@@ -624,7 +624,20 @@ function sbaActionButtons(b, cls) {
   if (b.status === 'payment_under_verification') out += btn('sbaMarkReceived', 'task_alt', 'Mark Payment Received') + btn('sbaRejectProof', 'rule', 'Reject Proof', true);
   if (sbdIsOpen(b)) out += btn('sbaExtend', 'more_time', 'Extend Validity') + btn('sbaRelease', 'lock_open', 'Release Now', true);
   if (b.status === 'reserved') out += btn('sbaSimulateExpiry', 'bug_report', 'Simulate Expiry (debug)');
+  out += btn('sbaDownloadPI', 'description', 'Proforma Invoice');
   return out;
+}
+
+/* Proforma invoice from the back end — same document the exhibitor
+   downloads (generator in space-pricing.js), billed to the reservation's
+   exhibitor. */
+function sbaDownloadPI(id) {
+  const b = sbdBookings().find((x) => x.id === id);
+  if (!b) return;
+  document.querySelectorAll('.sba-menu.open').forEach((x) => x.classList.remove('open'));
+  sbpOpenProforma({ piNo: b.piNo, no: b.no, type: sbaTypeLabel(b), stalls: b.stalls, pricing: b.pricing, createdAt: sbdFmt(b.createdAt),
+    holdUntil: b.holdUntil, status: b.status, paidAt: b.paidAt ? sbdFmt(b.paidAt) : '' },
+    { billedTo: b.company + (b.regNo ? ' (' + b.regNo + ')' : ''), country: b.origin === 'international' ? 'International exhibitor' : 'India', eventName: 'Aero India 2027', eventDates: '10th to 15th Feb 2027' });
 }
 
 function viewSpaceReservations() {
