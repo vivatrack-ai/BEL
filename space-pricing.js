@@ -59,7 +59,8 @@ function sbpEndOfDayIst(ymd) {
 }
 const sbpDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }) : '—';
 const sbpDateTime = (iso) => iso ? new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '—';
-/* whole days left on the clock (0 = expires today, negative = past) */
+/* whole days left on the clock (0 = expires today, negative = past) —
+   a cart created today with 21-day validity shows "21 days left" */
 function sbpDaysLeft(iso, nowMs) {
-  return Math.ceil((new Date(iso).getTime() - (nowMs || Date.now())) / 864e5);
+  return Math.floor((new Date(iso).getTime() - (nowMs || Date.now())) / 864e5);
 }

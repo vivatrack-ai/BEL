@@ -29,6 +29,19 @@
     delete S.spaceBooking.applications;
   }
   if (!S.seq.pi) S.seq.pi = 0;
+  /* v2: one application per stall + application detail page. Demo data
+     created under the earlier cart model is cleared once so every
+     portal starts from a clean listing. */
+  if (!S.spaceBooking.v2) {
+    const ids = S.spaceBooking.reservations.map((r) => r.id);
+    const derived = S.spaceBooking.reservations.flatMap((r) => r.stalls.map((s) => 'st_' + s.name));
+    S.spaceBooking.reservations = [];
+    S.cart = S.cart.filter((c) => c.type !== 'space');
+    S.orders = (S.orders || []).filter((o) => !(o.type === 'space' && ids.includes(o.refId)));
+    S.stalls = S.stalls.filter((s) => !derived.includes(s.id));
+    S.seq.pi = 0;
+    S.spaceBooking.v2 = true;
+  }
   save();
 })();
 
@@ -372,58 +385,118 @@ function sbSelectStall(hallId, stallName, scheme) {
   toast(st.name + ' added to your selection.', 'success');
 }
 
-/* ---------------- Reserve & Add to Cart ---------------- */
+/* ---------------- Reserve & Add to Cart ----------------
+   Every selected stall becomes its OWN application (own application
+   number, own proforma invoice, own 21-day clock, own payment). */
 function sbCartItem(r) {
   return { id: uid('cart'), type: 'space', refId: r.id,
-    label: 'Space Reservation ' + r.piNo + ' — 100% payment',
-    sub: r.stalls.map((s) => s.name).join(', ') + ' · valid till ' + sbpDate(r.holdUntil), amount: r.amount };
+    label: 'Stall ' + r.stalls[0].name + ' · ' + sbZoneLabel(r.stalls[0].hall) + ' — Application ' + r.no,
+    sub: r.piNo + ' · valid till ' + sbpDate(r.holdUntil), amount: r.amount };
 }
 function sbReserve() {
   if (!window.__sbSel.length) return;
   const booked = sbBookedSet();
   const clash = window.__sbSel.find((s) => booked[s.hall + '|' + s.name]);
   if (clash) { toast(clash.name + ' is no longer available — remove it from the selection.', 'error'); return; }
-  const pricing = sbpPrice(window.__sbSel, sbCreditAvailable());
-  S.seq.pi = (S.seq.pi || 0) + 1;
-  const nowIso = new Date().toISOString();
-  const r = {
-    id: 'sbr_' + Date.now(),
-    no: '#' + String(10000000 + Math.floor(Math.random() * 89999999)),
-    piNo: 'PI-AI27-' + pad(S.seq.pi, 4),
-    type: window.__sbSel.every((s) => s.hall === 'CH') ? 'Chalet' : 'Pre-defined Space',
-    stalls: window.__sbSel.slice(),
-    pricing: pricing,
-    amount: pricing.payable,
-    status: 'reserved', // reserved → payment_under_verification → confirmed · expired / released
-    createdAt: nowStr(), createdAtIso: nowIso,
-    holdUntil: sbpHoldUntil(Date.now(), SBP_HOLD_DAYS),
-    extensions: [], reminders: {}, payment: null,
-  };
-  S.spaceBooking.reservations.unshift(r);
-  S.cart.push(sbCartItem(r));
+  const created = [];
+  window.__sbSel.forEach((s, i) => {
+    const pricing = sbpPrice([s], sbCreditAvailable());
+    S.seq.pi = (S.seq.pi || 0) + 1;
+    const nowIso = new Date().toISOString();
+    const r = {
+      id: 'sbr_' + Date.now() + '_' + i,
+      no: '#' + String(10000000 + Math.floor(Math.random() * 89999999)),
+      piNo: 'PI-AI27-' + pad(S.seq.pi, 4),
+      type: s.hall === 'CH' ? 'Chalet' : 'Pre-defined Space',
+      stalls: [s],
+      pricing: pricing,
+      amount: pricing.payable,
+      status: 'reserved', // reserved → payment_under_verification → confirmed · expired / released
+      createdAt: nowStr(), createdAtIso: nowIso,
+      holdUntil: sbpHoldUntil(Date.now(), SBP_HOLD_DAYS),
+      extensions: [], reminders: {}, payment: null,
+    };
+    S.spaceBooking.reservations.unshift(r);
+    S.cart.push(sbCartItem(r));
+    created.push(r);
+  });
   window.__sbSel = [];
-  window.__sbLast = r.id;
-  sbNotify('shopping_cart', 'var(--blue)', 'Stalls ' + r.stalls.map((s) => s.name).join(', ') + ' reserved in your cart (' + r.piNo + '). Pay ' + money(r.amount) + ' by ' + sbpDate(r.holdUntil) + ' to confirm.', true);
+  window.__sbLast = created.map((r) => r.id);
+  sbNotify('shopping_cart', 'var(--blue)', created.length + ' stall application(s) created — ' + created.map((r) => r.stalls[0].name).join(', ') + ' held in your cart till ' + sbpDate(created[0].holdUntil) + '. Pay 100% of each to confirm.', true);
   save();
   location.hash = '#/space-booking/success';
 }
 
 function viewBookingSuccess() {
-  const r = sbRes(window.__sbLast) || S.spaceBooking.reservations.find((x) => x.status === 'reserved');
-  if (!r) { location.hash = '#/space-booking/my'; return ''; }
-  return '<div class="card" style="max-width:600px;margin:50px auto;text-align:center;padding:40px 30px">' +
-    '<span class="material-symbols-outlined" style="font-size:64px;color:var(--green)">add_shopping_cart</span>' +
-    '<h1 class="page-title" style="margin-top:10px">Stalls Reserved &amp; Added to Cart</h1>' +
-    '<p class="page-sub">' + esc(r.stalls.map((s) => s.name).join(', ')) + ' are held for you till <b>' + sbpDate(r.holdUntil) + '</b> (' + SBP_HOLD_DAYS + ' days). ' +
-      'Pay <b>' + money(r.amount) + '</b> (100%) online or offline against proforma invoice <b>' + esc(r.piNo) + '</b> within this period — unpaid reservations are released automatically.</p>' +
-    '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:18px">' +
-      '<button class="btn btn-primary" onclick="openCart()"><span class="material-symbols-outlined">lock</span>Pay Now</button>' +
-      '<button class="btn btn-outline" onclick="downloadProformaInvoice(\'' + r.id + '\')"><span class="material-symbols-outlined">description</span>Download Proforma Invoice</button>' +
-      '<a class="btn btn-outline" href="#/space-booking/my"><span class="material-symbols-outlined">grid_view</span>My Spaces</a>' +
+  const ids = window.__sbLast || [];
+  const list = ids.map(sbRes).filter(Boolean);
+  if (!list.length) { location.hash = '#/space-booking/my'; return ''; }
+  const total = list.reduce((a, r) => a + r.amount, 0);
+  const rows = list.map((r) =>
+    '<a class="sb-app-row" href="#/space-booking/application/' + r.id + '">' +
+      '<span class="sb-app-ic"><span class="material-symbols-outlined">storefront</span></span>' +
+      '<span class="sb-app-main"><b>' + esc(r.stalls[0].name) + ' · ' + esc(sbZoneLabel(r.stalls[0].hall)) + '</b><small>Application ' + esc(r.no) + ' · ' + esc(r.piNo) + ' · ' + esc(sbSchemeLabel(r.stalls[0].scheme)) + ' · ' + r.stalls[0].sqm + ' sq.m</small></span>' +
+      '<span class="sb-app-amt">' + money(r.amount) + '<small>100% payable</small></span>' +
+      '<span class="material-symbols-outlined" style="color:var(--muted)">chevron_right</span></a>').join('');
+  return '<div class="card" style="max-width:680px;margin:40px auto;padding:34px 30px">' +
+    '<div style="text-align:center"><span class="material-symbols-outlined" style="font-size:64px;color:var(--green)">add_shopping_cart</span>' +
+    '<h1 class="page-title" style="margin-top:8px">' + list.length + ' Stall Application' + (list.length === 1 ? '' : 's') + ' Created</h1>' +
+    '<p class="page-sub">Each stall is held for you till <b>' + sbpDate(list[0].holdUntil) + '</b> (' + SBP_HOLD_DAYS + ' days). Pay 100% of each application — online or offline against its proforma invoice — within this period; unpaid applications expire automatically.</p></div>' +
+    '<div class="sb-app-list">' + rows + '</div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:16px">' +
+      '<span style="font-size:0.86rem;color:var(--muted)">Total payable <b style="color:var(--ink)">' + money(total) + '</b></span>' +
+      '<span style="display:flex;gap:10px;flex-wrap:wrap">' +
+        '<a class="btn btn-outline" href="#/space-booking/my"><span class="material-symbols-outlined">grid_view</span>My Spaces</a>' +
+        '<button class="btn btn-primary" onclick="openCart()"><span class="material-symbols-outlined">shopping_cart</span>Open Cart &amp; Pay</button></span>' +
     '</div></div>';
 }
 
+/* ---------------- 21-day validity timeline ---------------- */
+function sbTimeline(r, compact) {
+  const start = new Date(r.createdAtIso || Date.now()).getTime();
+  const end = new Date(r.holdUntil).getTime();
+  const paused = r.status === 'payment_under_verification';
+  const now = paused && r.pausedAt ? new Date(r.pausedAt).getTime() : (r.status === 'confirmed' && r.paidAtIso ? new Date(r.paidAtIso).getTime() : Date.now());
+  const total = Math.max(1, end - start);
+  const totalDays = Math.max(1, Math.round(total / 864e5));
+  const pct = Math.min(100, Math.max(0, Math.round(((now - start) / total) * 100)));
+  const left = sbpDaysLeft(r.holdUntil, now);
+  const dayNo = Math.min(totalDays, Math.max(1, Math.floor((now - start) / 864e5) + 1));
+  const cls = r.status === 'confirmed' ? 'done' : r.status === 'expired' || r.status === 'released' ? 'over'
+    : paused ? 'paused' : left <= 1 ? 'late' : left <= 7 ? 'warn' : 'ok';
+  const headL = r.status === 'confirmed' ? 'Paid on day ' + dayNo + ' of ' + totalDays
+    : r.status === 'expired' ? 'Expired on ' + sbpDate(r.holdUntil)
+    : r.status === 'released' ? 'Released' + (r.releasedAt ? ' ' + r.releasedAt : '')
+    : 'Day ' + dayNo + ' of ' + totalDays + (paused ? ' · clock paused' : '');
+  const headR = r.status === 'confirmed' ? 'Confirmed' : r.status === 'expired' || r.status === 'released' ? ''
+    : (left <= 0 ? 'Expires today' : left + ' day' + (left === 1 ? '' : 's') + ' left') + ' · till ' + sbpDate(r.holdUntil);
+  const ticks = [7, 3, 1].map((d) => {
+    const p = Math.max(0, Math.min(100, Math.round((1 - d / totalDays) * 100)));
+    return '<b class="tick' + (r.reminders && r.reminders[d] ? ' hit' : '') + '" style="left:' + p + '%" title="Reminder T−' + d + ' · ' + sbpDate(new Date(end - d * 864e5).toISOString()) + '"></b>' +
+      (compact ? '' : '<em class="tlbl" style="left:' + p + '%">T−' + d + '</em>');
+  }).join('');
+  return '<div class="sb-tl ' + cls + (compact ? ' compact' : '') + '">' +
+    '<div class="sb-tl-head"><span>' + headL + '</span><span>' + headR + '</span></div>' +
+    '<div class="sb-tl-track"><i class="fill" style="width:' + (cls === 'done' || cls === 'over' ? 100 : pct) + '%"></i>' + ticks +
+      (cls === 'ok' || cls === 'warn' || cls === 'late' || cls === 'paused' ? '<span class="now" style="left:' + pct + '%" title="' + (paused ? 'Paused' : 'Today') + '"></span>' : '') + '</div>' +
+    (compact ? '' : '<div class="sb-tl-foot"><span>Cart created ' + sbpDate(r.createdAtIso) + '</span><span>Expires ' + sbpDate(r.holdUntil) + ' · 23:59 IST</span></div>') +
+  '</div>';
+}
+
 /* ---------------- payment outcomes ---------------- */
+function sbCreateOrder(r, method, mode, ref) {
+  if (!S.orders) S.orders = [];
+  if (!S.seq.order) S.seq.order = 0;
+  const order = {
+    id: uid('order'), orderNo: 'ORD-2027-' + pad(S.seq.order, 4),
+    type: 'space', label: 'Stall ' + r.stalls[0].name + ' — Application ' + r.no + ' · 100% payment',
+    sub: r.piNo + ' · ' + method + (ref ? ' · Ref ' + ref : ''), refId: r.id,
+    amount: r.amount, currency: 'INR', status: 'success', method: method, mode: mode, ref: ref || '',
+    paidAt: nowStr(), paidAtIso: new Date().toISOString(), payer: EVENT.exhibitor,
+  };
+  S.orders.push(order);
+  return order;
+}
 /* booth becomes CONFIRMED and feeds S.stalls (dashboard hero) */
 function sbConfirm(r, payment, orderNo) {
   r.status = 'confirmed';
@@ -436,9 +509,9 @@ function sbConfirm(r, payment, orderNo) {
     }
   });
   S.cart = S.cart.filter((c) => !(c.type === 'space' && c.refId === r.id));
-  sbNotify('verified', 'var(--green)', 'Payment received — ' + r.stalls.map((s) => s.name).join(', ') + ' confirmed (' + r.piNo + '). Your tax invoice is available under My Orders.', true);
+  sbNotify('verified', 'var(--green)', 'Payment received — stall ' + r.stalls[0].name + ' confirmed (Application ' + r.no + '). Your tax invoice is available under My Orders.', true);
 }
-/* called from payCart() for cart items of type 'space' (online gateway) */
+/* called from payCart() for cart items of type 'space' (whole-cart checkout) */
 function sbOnlinePaid(resId, order) {
   const r = sbRes(resId);
   if (!r || r.status === 'confirmed') return;
@@ -446,22 +519,50 @@ function sbOnlinePaid(resId, order) {
   sbConfirm(r, { mode: 'online', method: 'Card', ref: order.orderNo, date: nowStr(), amount: r.amount }, order.orderNo);
 }
 
-/* exhibitor removes the reservation from the cart → stalls released */
+/* ---- pay ONE application online from its page (demo gateway) ---- */
+const SB_ONLINE_METHODS = ['Card', 'Net Banking', 'UPI'];
+function sbPayOnline(resId) {
+  const r = sbRes(resId);
+  if (!r || r.status !== 'reserved') { toast('This application is not awaiting payment.', 'error'); return; }
+  openModal('Pay Online · Application ' + esc(r.no),
+    '<div class="sb-gw"><div class="sb-gw-sum"><span>Stall</span><b>' + esc(r.stalls[0].name) + ' · ' + esc(sbZoneLabel(r.stalls[0].hall)) + '</b></div>' +
+      '<div class="sb-gw-sum"><span>Proforma invoice</span><b>' + esc(r.piNo) + '</b></div>' +
+      '<div class="sb-gw-sum total"><span>Amount payable (100%)</span><b>' + money(r.amount) + '</b></div></div>' +
+    '<label style="display:block;font-size:0.8rem;font-weight:700;margin:14px 0 8px">Payment method</label>' +
+    '<div class="radio-cards" style="grid-template-columns:repeat(3,1fr)">' +
+      SB_ONLINE_METHODS.map((m, i) => '<label class="radio-card' + (i === 0 ? ' selected' : '') + '" onclick="document.querySelectorAll(\'#sbGw .radio-card\').forEach(x=>x.classList.remove(\'selected\'));this.classList.add(\'selected\')"><input type="radio" name="sbGwM" value="' + m + '"' + (i === 0 ? ' checked' : '') + ' style="display:none"><b>' + m + '</b></label>').join('') + '</div>' +
+    '<p style="font-size:0.74rem;color:var(--muted);margin:12px 0 0">Demo gateway — the full amount is charged in one transaction. A tax invoice is issued on success.</p>',
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="sbDoPayOnline(\'' + r.id + '\')"><span class="material-symbols-outlined">lock</span>Pay ' + money(r.amount) + '</button>');
+  const m = $('modalOverlay'); if (m) m.querySelector('.modal-body').id = 'sbGw';
+}
+function sbDoPayOnline(resId) {
+  const r = sbRes(resId);
+  if (!r || r.status !== 'reserved') return;
+  const sel = document.querySelector('input[name="sbGwM"]:checked');
+  const method = sel ? sel.value : 'Card';
+  const order = sbCreateOrder(r, method, 'online', '');
+  sbConfirm(r, { mode: 'online', method: method, ref: order.orderNo, date: nowStr(), amount: r.amount }, order.orderNo);
+  save(); closeModal(); render();
+  toast('Payment successful — stall ' + r.stalls[0].name + ' confirmed.', 'success');
+}
+
+/* exhibitor removes the application from the cart → stall released */
 function sbCancelReservation(resId) {
   const r = sbRes(resId);
   if (!r || r.status !== 'reserved') return false;
-  if (!confirm('Remove reservation ' + r.piNo + ' from the cart? The stalls ' + r.stalls.map((s) => s.name).join(', ') + ' will be released immediately.')) return false;
+  if (!confirm('Remove application ' + r.no + ' (stall ' + r.stalls[0].name + ') from the cart? The stall will be released immediately.')) return false;
   r.status = 'released'; r.releasedAt = nowStr(); r.remark = 'Removed from cart by exhibitor';
   S.cart = S.cart.filter((c) => !(c.type === 'space' && c.refId === r.id));
   save();
-  sbNotify('remove_shopping_cart', 'var(--red)', 'Reservation ' + r.piNo + ' removed — stalls released.');
+  sbNotify('remove_shopping_cart', 'var(--red)', 'Application ' + r.no + ' removed — stall ' + r.stalls[0].name + ' released.');
   return true;
 }
 
 /* ---- offline payment: upload proof → clock pauses until DEO verifies ---- */
 function sbOpenOfflineForm(resId) {
   const r = sbRes(resId);
-  if (!r || r.status !== 'reserved') { toast('Offline payment proof can be uploaded only while the reservation is in your cart.', 'error'); return; }
+  if (!r || r.status !== 'reserved') { toast('Offline payment proof can be uploaded only while the application is in your cart.', 'error'); return; }
   closeCart();
   const today = new Date().toISOString().slice(0, 10);
   openModal('Pay Offline — Upload Payment Proof · ' + esc(r.piNo),
@@ -491,7 +592,7 @@ function sbSubmitOffline(resId) {
   if (!ref) { setErr('offRef', 'UTR / reference number is required'); ok = false; }
   if (!date) { setErr('offDate', 'Payment date is required'); ok = false; }
   if (!amt || amt <= 0) { setErr('offAmt', 'Enter the amount transferred'); ok = false; }
-  else if (amt < r.amount) { setErr('offAmt', '100% of the cart (' + money(r.amount) + ') must be paid — part payments are not accepted'); ok = false; }
+  else if (amt < r.amount) { setErr('offAmt', '100% of the application (' + money(r.amount) + ') must be paid — part payments are not accepted'); ok = false; }
   if (!ok) return false;
   const f = $('offFile').files[0];
   r.payment = { mode: 'offline', method: method, ref: ref, date: date, amount: amt, fileName: f ? f.name : '', submittedAt: nowStr() };
@@ -503,11 +604,134 @@ function sbSubmitOffline(resId) {
   return false;
 }
 
-/* ---------------- VIEW · My Spaces ---------------- */
+/* ---------------- shared pieces ---------------- */
+const sbStallTitle = (r) => esc(r.stalls[0].name) + ' · ' + esc(sbZoneLabel(r.stalls[0].hall));
+const sbStallMeta = (r) => esc(sbSchemeLabel(r.stalls[0].scheme)) + ' · ' + esc(r.stalls[0].size) + ' · ' + r.stalls[0].sqm + ' sq.m · ' + esc(r.stalls[0].sides) + ' open';
+function sbPriceTable(p) {
+  return '<div class="sb-price">' +
+    sbSumRow('Base price', money(p.base)) +
+    sbSumRow('Corner / open-side charges', money(p.side)) +
+    sbSumRow('Subtotal', money(p.subtotal)) +
+    sbSumRow('GST 18%', money(p.gst)) +
+    sbSumRow('Grand total', money(p.grand)) +
+    (p.credit ? sbSumRow('Registration amount adjusted', '− ' + money(p.credit)) : '') +
+    '<div class="sb-price-total"><span>Net payable (100%)</span><b>' + money(p.payable) + '</b></div></div>';
+}
+/* action buttons for one application (list + detail) */
+function sbActions(r, full) {
+  const link = full ? '' : '<a class="btn btn-outline btn-sm" href="#/space-booking/application/' + r.id + '"><span class="material-symbols-outlined" style="font-size:16px">visibility</span>View</a>';
+  if (r.status === 'reserved') return (full
+    ? '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="sbPayOnline(\'' + r.id + '\')"><span class="material-symbols-outlined">lock</span>Pay Online · ' + money(r.amount) + '</button>' +
+      '<button class="btn btn-outline" style="width:100%;justify-content:center" onclick="sbOpenOfflineForm(\'' + r.id + '\')"><span class="material-symbols-outlined">upload_file</span>Pay Offline — Upload Proof</button>' +
+      '<button class="btn btn-outline" style="width:100%;justify-content:center" onclick="downloadProformaInvoice(\'' + r.id + '\')"><span class="material-symbols-outlined">description</span>Download Proforma Invoice</button>' +
+      '<button class="btn-link danger" style="width:100%;justify-content:center" onclick="if(sbCancelReservation(\'' + r.id + '\'))location.hash=\'#/space-booking/my\'">Remove from cart &amp; release stall</button>'
+    : '<a class="btn btn-primary btn-sm" href="#/space-booking/application/' + r.id + '"><span class="material-symbols-outlined" style="font-size:16px">lock</span>View &amp; Pay</a>');
+  if (r.status === 'payment_under_verification') return (full
+    ? '<button class="btn btn-outline" style="width:100%;justify-content:center" onclick="downloadProformaInvoice(\'' + r.id + '\')"><span class="material-symbols-outlined">description</span>Download Proforma Invoice</button>'
+    : link);
+  if (r.status === 'confirmed') return (full
+    ? (r.orderNo ? '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="downloadOrderInvoice(\'' + esc(r.orderNo) + '\')"><span class="material-symbols-outlined">receipt_long</span>Download Tax Invoice</button>' : '') +
+      '<button class="btn btn-outline" style="width:100%;justify-content:center" onclick="downloadProformaInvoice(\'' + r.id + '\')"><span class="material-symbols-outlined">description</span>Proforma Invoice (records)</button>'
+    : link);
+  return (full
+    ? '<a class="btn btn-primary" style="width:100%;justify-content:center" href="#/space-booking/hall/' + r.stalls[0].hall + '"><span class="material-symbols-outlined">replay</span>Book again</a>'
+    : link + ' <a class="btn-link" href="#/space-booking/hall/' + r.stalls[0].hall + '">Book again</a>');
+}
+/* event history of one application */
+function sbHistory(r) {
+  const ev = [];
+  ev.push(['add_shopping_cart', 'var(--blue)', 'Stall ' + r.stalls[0].name + ' reserved · application created · valid till ' + sbpDate(r.extensions && r.extensions.length ? r.extensions[0].from : r.holdUntil), r.createdAt]);
+  if (r.payment && r.payment.submittedAt) ev.push(['upload_file', 'var(--blue)', 'Offline payment proof submitted — ' + r.payment.method + ' · Ref ' + r.payment.ref + ' · ' + money(r.payment.amount) + ' · clock paused', r.payment.submittedAt]);
+  if (r.payment && r.payment.rejectedAt) ev.push(['rule', 'var(--red)', 'Proof not accepted by DEO — ' + (r.payment.remark || '') + ' · clock resumed', r.payment.rejectedAt]);
+  (r.extensions || []).forEach((e) => ev.push(['more_time', 'var(--blue)', (e.reason === 'Simulated expiry (debug)' ? 'Validity moved to ' : 'Validity extended by DEO to ') + sbpDate(e.to) + (e.reason ? ' — ' + e.reason : ''), e.at || '']));
+  if (r.status === 'confirmed') ev.push(['verified', 'var(--green)', '100% payment received (' + (r.payment ? (r.payment.mode === 'offline' ? 'Offline · ' + r.payment.method + (r.payment.verifiedBy ? ' · verified by ' + r.payment.verifiedBy : '') : 'Online · ' + (r.payment.method || 'Card')) : 'Online') + ') — stall confirmed' + (r.orderNo ? ' · ' + r.orderNo : ''), r.paidAt || '']);
+  if (r.status === 'expired') ev.push(['timer_off', 'var(--red)', 'Validity lapsed — application expired, stall released', r.expiredAt || sbpDate(r.holdUntil)]);
+  if (r.status === 'released') ev.push(['lock_open', 'var(--red)', 'Released — ' + (r.remark || 'stall returned to inventory'), r.releasedAt || '']);
+  return ev.map((e) => '<div class="action-row" style="padding:8px 0"><span class="aicon" style="background:#F1F4FA;color:' + e[1] + '"><span class="material-symbols-outlined">' + e[0] + '</span></span>' +
+    '<div class="atext"><b style="font-weight:600">' + esc(e[2]) + '</b><span>' + esc(e[3]) + '</span></div></div>').join('');
+}
+function sbStepper(r) {
+  const steps = [['Reserved', 'Cart created · ' + sbpDate(r.createdAtIso)],
+    ['Payment', r.status === 'payment_under_verification' ? 'Proof under verification' : r.status === 'confirmed' ? (r.payment && r.payment.mode === 'offline' ? 'Offline · verified' : 'Online · gateway') : '100% within ' + SBP_HOLD_DAYS + ' days'],
+    ['Confirmed', r.status === 'confirmed' ? 'Paid ' + sbpDate(r.paidAtIso) : 'Tax invoice issued']];
+  const idx = r.status === 'confirmed' ? 3 : r.status === 'payment_under_verification' ? 1 : r.status === 'reserved' ? 1 : -1;
+  const dead = r.status === 'expired' || r.status === 'released';
+  return '<div class="sb-steps' + (dead ? ' dead' : '') + '">' + steps.map((s, i) => {
+    const st = dead ? (i === 0 ? 'done' : 'off') : i < idx ? 'done' : i === idx ? 'now' : 'off';
+    return '<div class="sb-step ' + st + '"><span class="dot"><span class="material-symbols-outlined">' + (st === 'done' ? 'check' : st === 'now' ? (r.status === 'payment_under_verification' ? 'hourglass_top' : 'radio_button_checked') : 'circle') + '</span></span>' +
+      '<b>' + s[0] + '</b><small>' + s[1] + '</small></div>';
+  }).join('') + (dead ? '<div class="sb-step bad"><span class="dot"><span class="material-symbols-outlined">close</span></span><b>' + (r.status === 'expired' ? 'Expired' : 'Released') + '</b><small>' + (r.status === 'expired' ? sbpDate(r.holdUntil) : esc(r.releasedAt || '')) + '</small></div>' : '') + '</div>';
+}
+
+/* ---------------- VIEW · Application detail (one stall) ---------------- */
+function viewApplication(id) {
+  sbTick();
+  const r = sbRes(id);
+  if (!r) { location.hash = '#/space-booking/my'; return ''; }
+  const s = r.stalls[0];
+  const left = sbpDaysLeft(r.holdUntil);
+  const pay = r.status === 'reserved'
+    ? '<div class="sb-due"><small>AMOUNT DUE · 100%</small><b>' + money(r.amount) + '</b><span>by ' + sbpDate(r.holdUntil) + ' · ' + (left <= 0 ? 'expires today' : left + ' day' + (left === 1 ? '' : 's') + ' left') + '</span></div>' +
+      (r.payment && r.payment.rejectedAt ? '<div class="note" style="border-left-color:var(--red);margin:10px 0"><b class="title" style="color:var(--red)">Earlier proof not accepted</b>' + esc(r.payment.remark || '') + ' (' + esc(r.payment.method) + ' · ' + esc(r.payment.ref) + ', ' + esc(r.payment.rejectedAt) + '). Pay online or upload a fresh proof.</div>' : '') +
+      '<div class="sb-paybtns">' + sbActions(r, true) + '</div>' +
+      '<p style="font-size:0.74rem;color:var(--muted);margin:10px 0 0">Offline: NEFT / RTGS / Cheque / DD / SWIFT to DEO’s account quoting ' + esc(r.piNo) + '. Uploading the proof pauses the ' + SBP_HOLD_DAYS + '-day clock until DEO verifies.</p>'
+    : r.status === 'payment_under_verification'
+    ? '<div class="sb-due blue"><small>UNDER VERIFICATION</small><b>' + money(r.payment.amount) + '</b><span>' + esc(r.payment.method) + ' · Ref ' + esc(r.payment.ref) + '</span></div>' +
+      '<div class="pkv" style="grid-template-columns:1fr 1fr;gap:10px 14px;margin:12px 0">' +
+        '<div class="cell"><div class="k">Payment date</div><div class="v">' + esc(r.payment.date) + '</div></div>' +
+        '<div class="cell"><div class="k">Submitted</div><div class="v">' + esc(r.payment.submittedAt) + '</div></div>' +
+        '<div class="cell full"><div class="k">Proof file</div><div class="v">' + (r.payment.fileName ? esc(r.payment.fileName) : '<span style="color:var(--muted)">not attached</span>') + '</div></div></div>' +
+      '<div class="note" style="margin:0 0 10px"><b class="title">Validity clock paused</b>DEO will confirm the stall once the amount is received in its account. You will be notified of the result.</div>' +
+      '<div class="sb-paybtns">' + sbActions(r, true) + '</div>'
+    : r.status === 'confirmed'
+    ? '<div class="sb-due green"><small>PAID · 100%</small><b>' + money(r.amount) + '</b><span>' + esc(r.paidAt || '') + (r.payment ? ' · ' + (r.payment.mode === 'offline' ? 'Offline · ' + esc(r.payment.method) + ' · Ref ' + esc(r.payment.ref) : 'Online · ' + esc(r.payment.method || 'Card')) : '') + '</span></div>' +
+      (r.orderNo ? '<div class="pkv" style="grid-template-columns:1fr 1fr;gap:10px 14px;margin:12px 0"><div class="cell"><div class="k">Order</div><div class="v regno">' + esc(r.orderNo) + '</div></div><div class="cell"><div class="k">Tax invoice</div><div class="v regno">' + esc(r.orderNo.replace('ORD-', 'INV-')) + '</div></div></div>' : '') +
+      '<div class="sb-paybtns">' + sbActions(r, true) + '</div>'
+    : '<div class="sb-due red"><small>' + (r.status === 'expired' ? 'EXPIRED' : 'RELEASED') + '</small><b>' + money(r.amount) + '</b><span>' + (r.status === 'expired' ? 'validity lapsed on ' + sbpDate(r.holdUntil) : esc(r.remark || '')) + '</span></div>' +
+      '<p style="font-size:0.8rem;color:var(--muted);margin:10px 0">No payment was received against this application. The stall is back in inventory — you can book it again if it is still available.</p>' +
+      '<div class="sb-paybtns">' + sbActions(r, true) + '</div>';
+
+  return '<a class="back-link" href="#/space-booking/my"><span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>My Spaces</a>' +
+    '<div class="card-head-row" style="align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px"><div>' +
+      '<h1 class="page-title" style="margin-bottom:4px">Application ' + esc(r.no) + '</h1>' +
+      '<p class="page-sub" style="margin:0">Stall <b>' + sbStallTitle(r) + '</b> · Proforma invoice <span class="regno">' + esc(r.piNo) + '</span> · created ' + esc(r.createdAt) + '</p></div>' +
+      '<div style="display:flex;gap:8px"><span class="pill gray">' + esc(r.type) + '</span>' + sbStatusPill(r.status) + '</div></div>' +
+    '<div class="card" style="margin-bottom:16px">' + sbStepper(r) + '</div>' +
+    '<div class="prof-layout" style="grid-template-columns:minmax(0,1fr) 340px"><div>' +
+      '<div class="card" style="margin-bottom:16px"><div class="card-head-row"><h2 class="card-title">Validity — ' + SBP_HOLD_DAYS + '-day hold</h2>' +
+          (r.extensions && r.extensions.length ? '<span class="pill blue">Extended by DEO</span>' : '') + '</div>' + sbTimeline(r, false) +
+        (r.extensions && r.extensions.length ? '<div style="margin-top:10px;font-size:0.8rem;color:var(--muted)">' + r.extensions.map((e) => 'Extended to <b>' + sbpDate(e.to) + '</b>' + (e.reason ? ' — ' + esc(e.reason) : '') + ' <span style="opacity:.7">(' + esc(e.at || '') + ')</span>').join('<br>') + '</div>' : '') + '</div>' +
+      '<div class="card" style="margin-bottom:16px"><div class="pcard-head" style="margin-bottom:10px"><span class="icon-sq" style="background:var(--blue-soft);color:var(--blue)"><span class="material-symbols-outlined">storefront</span></span><h2 class="card-title">Stall Details</h2></div>' +
+        '<div class="pkv" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">' +
+          '<div class="cell"><div class="k">Stall / Booth</div><div class="v">' + esc(s.name) + '</div></div>' +
+          '<div class="cell"><div class="k">Hall / Zone</div><div class="v">' + esc(sbZoneLabel(s.hall)) + '</div></div>' +
+          '<div class="cell"><div class="k">Scheme</div><div class="v">' + esc(sbSchemeLabel(s.scheme)) + '</div></div>' +
+          '<div class="cell"><div class="k">Size / Area</div><div class="v">' + esc(s.size) + ' · ' + s.sqm + ' sq.m</div></div>' +
+          '<div class="cell"><div class="k">Open sides</div><div class="v">' + esc(s.sides) + '</div></div>' +
+          '<div class="cell"><div class="k">Stall design</div><div class="v">' + esc(s.design || '—') + '</div></div>' +
+          '<div class="cell"><div class="k">Venue</div><div class="v">Yelahanka Air Force Station, Bengaluru</div></div>' +
+          '<div class="cell"><div class="k">Base price</div><div class="v">' + money(s.price) + '</div></div>' +
+        '</div>' +
+        '<div style="margin-top:12px"><a class="btn-link" style="padding:0" href="#/space-booking/hall/' + s.hall + '">View hall layout →</a></div></div>' +
+      '<div class="card" style="margin-bottom:16px"><div class="pcard-head" style="margin-bottom:10px"><span class="icon-sq" style="background:var(--green-soft);color:var(--green)"><span class="material-symbols-outlined">payments</span></span><h2 class="card-title">Price Break-up · ' + esc(r.piNo) + '</h2></div>' +
+        sbPriceTable(r.pricing) +
+        '<p style="font-size:0.74rem;color:var(--muted);margin:10px 0 0">GST @ 18% on base + corner charges. The registration amount already paid is adjusted once, on your earliest live application. Net payable is a single 100% payment — no instalments.</p></div>' +
+      '<div class="card"><h2 class="card-title">History</h2>' + sbHistory(r) + '</div>' +
+    '</div><div>' +
+      '<div class="card sb-paycard" style="margin-bottom:16px"><h2 class="card-title">Payment</h2>' + pay + '</div>' +
+      '<div class="card"><h2 class="card-title">Need help?</h2><p style="font-size:0.8rem;color:var(--muted);margin:6px 0 0">Validity can be extended by DEO case by case before expiry. Raise a query under <b>Payments &amp; Orders</b> from the help desk, quoting application ' + esc(r.no) + '.</p></div>' +
+    '</div></div>';
+}
+
+/* ---------------- VIEW · My Spaces (listing) ---------------- */
+window.__sbFilter = window.__sbFilter || '';
 function viewMySpaces() {
   sbTick();
-  const list = S.spaceBooking.reservations;
-  const hasConfirmed = list.some((r) => r.status === 'confirmed') || S.stalls.length > 0;
+  const all = S.spaceBooking.reservations;
+  const hasConfirmed = all.some((r) => r.status === 'confirmed') || S.stalls.length > 0;
+  const f = window.__sbFilter;
+  const list = f ? all.filter((r) => r.status === f) : all;
+  const count = (st) => all.filter((r) => r.status === st).length;
 
   const hero = hasConfirmed ? '' :
     '<div class="hero-space" style="margin-bottom:18px"><span class="material-symbols-outlined watermark">storefront</span>' +
@@ -516,103 +740,48 @@ function viewMySpaces() {
         '<p style="margin:8px 0 0;font-size:0.86rem;color:#CBDBF9">You haven’t booked a space yet. Select stalls, hold them in your cart and pay within ' + SBP_HOLD_DAYS + ' days to confirm.</p>' +
       '</div><div class="hero-actions"><a class="btn-hero" href="#/space-booking/book">Secure Your Space</a></div></div></div>';
 
-  const cards = list.map((r) => {
-    const p = r.pricing || { base: r.amount, side: 0, subtotal: r.amount, gst: 0, grand: r.amount, credit: 0, payable: r.amount };
-    const left = sbpDaysLeft(r.holdUntil);
-    const stallNames = r.stalls.map((s) => esc(s.name)).join(', ');
-    const validity = r.status === 'reserved'
-      ? '<div class="note amber" style="margin-top:12px"><b class="title"><span class="material-symbols-outlined" style="font-size:15px;vertical-align:-3px">timer</span> Valid till ' + sbpDate(r.holdUntil) + ' · ' + (left <= 0 ? 'expires today' : left + ' day' + (left === 1 ? '' : 's') + ' left') + '</b>' +
-          'Pay <b>' + money(r.amount) + '</b> (100% of the cart) by this date to confirm your stalls. Online via the cart, or offline by NEFT / RTGS / Cheque / SWIFT against the proforma invoice — upload the proof here once transferred.' +
-          (r.extensions && r.extensions.length ? '<div style="margin-top:6px;font-size:0.78rem">Validity extended by DEO ' + r.extensions.map((e) => 'to ' + sbpDate(e.to) + (e.reason ? ' (' + esc(e.reason) + ')' : '')).join(', ') + '.</div>' : '') + '</div>'
-      : r.status === 'payment_under_verification'
-      ? '<div class="note" style="margin-top:12px"><b class="title"><span class="material-symbols-outlined" style="font-size:15px;vertical-align:-3px">hourglass_top</span> Payment proof under verification · validity clock paused</b>' +
-          esc(r.payment.method) + ' · Ref ' + esc(r.payment.ref) + ' · ' + esc(r.payment.date) + ' · ' + money(r.payment.amount) + (r.payment.fileName ? ' · ' + esc(r.payment.fileName) : '') + ' · submitted ' + esc(r.payment.submittedAt) +
-          '. DEO will confirm the stalls once the amount is received in its account.</div>'
-      : r.status === 'confirmed'
-      ? '<div class="note green" style="margin-top:12px"><b class="title"><span class="material-symbols-outlined" style="font-size:15px;vertical-align:-3px">verified</span> Confirmed · paid ' + esc(r.paidAt || '') + '</b>' +
-          (r.payment ? (r.payment.mode === 'offline' ? 'Offline · ' + esc(r.payment.method) + ' · Ref ' + esc(r.payment.ref) : 'Online · Card') + ' · ' : '') + '100% received. The booth now shows on your dashboard.' +
-          (r.payment && r.payment.remark ? ' <span style="color:var(--muted)">' + esc(r.payment.remark) + '</span>' : '') + '</div>'
-      : r.status === 'expired'
-      ? '<div class="note" style="margin-top:12px;border-left-color:var(--red);background:var(--red-soft)"><b class="title" style="color:var(--red)">Expired on ' + sbpDate(r.holdUntil) + '</b>' +
-          'The ' + SBP_HOLD_DAYS + '-day validity lapsed without full payment and the stalls were released back to inventory. <a href="#/space-booking/book" style="font-weight:700">Book again →</a></div>'
-      : '<div class="note" style="margin-top:12px;border-left-color:var(--red);background:var(--red-soft)"><b class="title" style="color:var(--red)">Released</b>' +
-          (r.remark ? esc(r.remark) + '. ' : '') + 'The stalls are back in inventory. <a href="#/space-booking/book" style="font-weight:700">Book again →</a></div>';
+  const chips = [['', 'All'], ['reserved', 'In Cart'], ['payment_under_verification', 'Under Verification'], ['confirmed', 'Confirmed'], ['expired', 'Expired'], ['released', 'Released']]
+    .filter(([v]) => !v || count(v)).map(([v, l]) =>
+      '<button class="chip' + (f === v ? ' on' : '') + '" onclick="window.__sbFilter=\'' + v + '\';render()">' + l + (v ? ' <b>' + count(v) + '</b>' : ' <b>' + all.length + '</b>') + '</button>').join('');
 
-    const rejected = r.status === 'reserved' && r.payment && r.payment.rejectedAt
-      ? '<div class="note" style="margin-top:10px;border-left-color:var(--red)"><b class="title" style="color:var(--red)">Payment proof not accepted</b>' + esc(r.payment.remark || 'DEO could not trace the payment.') +
-        ' (' + esc(r.payment.method) + ' · Ref ' + esc(r.payment.ref) + ', reviewed ' + esc(r.payment.rejectedAt) + '). The validity clock resumed from where it paused — pay online or upload a fresh proof.</div>' : '';
+  const rows = list.map((r) =>
+    '<tr class="sb-row" onclick="location.hash=\'#/space-booking/application/' + r.id + '\'">' +
+      '<td><span class="regno" style="color:var(--blue);font-weight:800">' + esc(r.no) + '</span><span class="td-sub">' + esc(r.piNo) + ' · ' + esc(r.createdAt.split(',')[0]) + '</span></td>' +
+      '<td><span class="td-strong">' + sbStallTitle(r) + '</span><span class="td-sub">' + sbStallMeta(r) + '</span></td>' +
+      '<td class="money">' + money(r.amount) + '<span class="td-sub">100% · single payment</span></td>' +
+      '<td style="min-width:230px">' + sbTimeline(r, true) + '</td>' +
+      '<td>' + sbStatusPill(r.status) + '</td>' +
+      '<td onclick="event.stopPropagation()" style="white-space:nowrap">' + sbActions(r, false) + '</td></tr>').join('') ||
+    '<tr><td colspan="6" style="color:var(--muted);padding:26px;text-align:center">' + (all.length ? 'No applications with this status.' : 'No applications yet — select stalls from Book Space; each stall becomes its own application held in your cart for ' + SBP_HOLD_DAYS + ' days.') + '</td></tr>';
 
-    const actions =
-      (r.status === 'reserved'
-        ? '<button class="btn btn-primary btn-sm" onclick="openCart()"><span class="material-symbols-outlined" style="font-size:16px">lock</span>Pay Online</button>' +
-          '<button class="btn btn-outline btn-sm" onclick="sbOpenOfflineForm(\'' + r.id + '\')"><span class="material-symbols-outlined" style="font-size:16px">upload_file</span>Pay Offline — Upload Proof</button>'
-        : '') +
-      (['reserved', 'payment_under_verification', 'confirmed'].includes(r.status)
-        ? '<button class="btn btn-outline btn-sm" onclick="downloadProformaInvoice(\'' + r.id + '\')"><span class="material-symbols-outlined" style="font-size:16px">description</span>Proforma Invoice</button>' : '') +
-      (r.status === 'confirmed' && r.orderNo
-        ? '<button class="btn btn-outline btn-sm" onclick="downloadOrderInvoice(\'' + esc(r.orderNo) + '\')"><span class="material-symbols-outlined" style="font-size:16px">receipt_long</span>Tax Invoice</button>' : '') +
-      (r.status === 'reserved'
-        ? '<button class="btn-link danger" onclick="if(sbCancelReservation(\'' + r.id + '\'))render()">Remove from cart</button>' : '');
+  const table = '<div class="card sba-card" style="padding:0">' +
+    '<div class="card-head-row" style="padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:10px"><div class="filter-chips" style="margin:0">' + chips + '</div>' +
+      '<a class="btn btn-primary btn-sm" href="#/space-booking/book"><span class="material-symbols-outlined" style="font-size:16px">add</span>Book Space</a></div>' +
+    '<div class="tablewrap"><table class="grid sb-table"><tr><th>Application</th><th>Stall</th><th>Net Payable</th><th>' + SBP_HOLD_DAYS + '-day Validity</th><th>Status</th><th>Action</th></tr>' + rows + '</table></div>' +
+    '<div style="padding:10px 16px;font-size:0.76rem;color:var(--muted);border-top:1px solid var(--line)">Timeline: <i class="sb-key ok"></i> on track · <i class="sb-key warn"></i> within 7 days of expiry · <i class="sb-key late"></i> expires within a day · <i class="sb-key paused"></i> paused (proof under verification) · ticks = reminders at T−7 / T−3 / T−1</div></div>';
 
-    return '<div class="card" style="margin-bottom:14px">' +
-      '<div class="card-head-row" style="margin-bottom:8px">' +
-        '<div><b style="color:var(--blue)">' + esc(r.piNo) + '</b><span style="font-size:0.76rem;color:var(--muted);margin-left:8px">Cart created ' + esc(r.createdAt) + '</span></div>' +
-        '<div style="display:flex;gap:8px"><span class="pill gray">' + esc(r.type) + '</span>' + sbStatusPill(r.status) + '</div></div>' +
-      '<div class="pkv" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">' +
-        '<div class="cell"><div class="k">Stall Name</div><div class="v">' + stallNames + '</div></div>' +
-        '<div class="cell"><div class="k">Stall Area</div><div class="v">' + r.stalls.map((s) => s.size).join(', ') + ' / ' + r.stalls.reduce((x, s) => x + s.sqm, 0) + ' m²</div></div>' +
-        '<div class="cell"><div class="k">Scheme</div><div class="v">' + r.stalls.map((s) => sbSchemeLabel(s.scheme)).join(', ') + '</div></div>' +
-        '<div class="cell"><div class="k">Open Sides</div><div class="v">' + esc(r.stalls[0].sides) + '</div></div>' +
-        '<div class="cell"><div class="k">Net Payable (100%)</div><div class="v">' + money(r.amount) + '</div></div>' +
-      '</div>' +
-      '<details style="margin-top:10px;font-size:0.8rem"><summary style="cursor:pointer;color:var(--blue);font-weight:700">Price break-up</summary>' +
-        '<div style="max-width:420px;margin-top:6px">' + sbSumRow('Base price', money(p.base)) + sbSumRow('Corner / open-side charges', money(p.side)) +
-        sbSumRow('Subtotal', money(p.subtotal)) + sbSumRow('GST 18%', money(p.gst)) + sbSumRow('Grand total', money(p.grand)) +
-        (p.credit ? sbSumRow('Registration amount adjusted', '− ' + money(p.credit)) : '') + sbSumRow('<b>Net payable</b>', '<b>' + money(p.payable) + '</b>') + '</div></details>' +
-      validity + rejected +
-      (actions ? '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center">' + actions + '</div>' : '') +
-    '</div>';
-  }).join('') ||
-    '<div class="card"><div class="empty"><span class="material-symbols-outlined">grid_view</span>' +
-    '<h3>No reservations yet</h3><p>Select stalls from Book Space — they are held in your cart for ' + SBP_HOLD_DAYS + ' days while you complete the payment.</p>' +
-    '<a class="btn btn-primary" href="#/space-booking/book">Book Space</a></div></div>';
-
-  /* right rail */
-  const actions = [];
-  list.forEach((r) => {
-    if (r.status === 'reserved') {
-      const left = sbpDaysLeft(r.holdUntil);
-      actions.push(['timer', 'Pay ' + money(r.amount) + ' by ' + sbpDate(r.holdUntil), r.piNo + ' · ' + (left <= 0 ? 'expires today' : left + ' day(s) left') + ' · online or offline']);
-    } else if (r.status === 'payment_under_verification') actions.push(['hourglass_top', 'Awaiting DEO verification', r.piNo + ' · ' + r.payment.method + ' · ' + money(r.payment.amount)]);
-  });
-  const outstanding = list.filter((r) => r.status === 'reserved').reduce((x, r) => x + r.amount, 0);
-  const underVerif = list.filter((r) => r.status === 'payment_under_verification').reduce((x, r) => x + r.amount, 0);
-  const rail =
-    '<div>' +
-    '<div class="card" style="margin-bottom:14px"><h2 class="card-title">Upcoming Actions</h2>' +
-      (actions.map((x) =>
-        '<div class="action-row"><span class="aicon"><span class="material-symbols-outlined">' + x[0] + '</span></span>' +
-        '<div class="atext"><b>' + x[1] + '</b><span>' + x[2] + '</span></div></div>').join('') ||
-        '<p style="font-size:0.82rem;color:var(--muted);margin:6px 0 0">No upcoming actions right now.</p>') + '</div>' +
-    '<div class="card" style="margin-bottom:14px"><h2 class="card-title">Total Outstanding Payment</h2>' +
-      (list.length === 0
-        ? '<p style="font-size:0.82rem;color:var(--muted)">Your payment details will appear here once you reserve a space.</p>'
-        : outstanding
-          ? '<div style="font-size:1.5rem;font-weight:800;color:var(--red);margin-top:6px">' + money(outstanding) + '</div><p style="font-size:0.76rem;color:var(--muted);margin:2px 0 0">across ' + list.filter((r) => r.status === 'reserved').length + ' reservation(s) in cart · 100% due within validity</p>'
-          : '<div style="font-size:1.5rem;font-weight:800;color:var(--green);margin-top:6px">₹0</div><p style="font-size:0.76rem;color:var(--muted);margin:2px 0 0">No outstanding payment.</p>') +
-      (underVerif ? '<p style="font-size:0.78rem;color:var(--blue);margin:8px 0 0;font-weight:700">' + money(underVerif) + ' under verification</p>' : '') + '</div>' +
-    '<div class="card"><div class="card-head-row" style="margin-bottom:8px"><h2 class="card-title">Updates</h2></div>' +
-      [['check_circle', 'var(--green)', 'Stall inventory refreshed for Halls A–E.', '2 days ago'],
-       ['warning', 'var(--amber)', 'Reservations unpaid after ' + SBP_HOLD_DAYS + ' days are released automatically.', '4 days ago'],
-       ['campaign', 'var(--blue)', 'New circular released: Exhibitor Guidelines.', '1 week ago']].map((u) =>
-        '<div class="action-row" style="padding:9px 0"><span class="aicon" style="background:#F1F4FA;color:' + u[1] + '"><span class="material-symbols-outlined">' + u[0] + '</span></span>' +
-        '<div class="atext"><b style="font-weight:600">' + u[2] + '</b><span>' + u[3] + '</span></div></div>').join('') + '</div>' +
-    '</div>';
+  /* summary tiles */
+  const outstanding = all.filter((r) => r.status === 'reserved').reduce((x, r) => x + r.amount, 0);
+  const underVerif = all.filter((r) => r.status === 'payment_under_verification').reduce((x, r) => x + r.amount, 0);
+  const paid = all.filter((r) => r.status === 'confirmed').reduce((x, r) => x + r.amount, 0);
+  const soonest = all.filter((r) => r.status === 'reserved').sort((a, b) => new Date(a.holdUntil) - new Date(b.holdUntil))[0];
+  const tiles = all.length ? '<div class="tiles" style="margin-bottom:14px">' +
+      '<div class="tile' + (outstanding ? '' : ' accent') + '"><div class="t-label">Outstanding · In Cart</div><div class="t-value" style="color:' + (outstanding ? 'var(--red)' : 'var(--green)') + '">' + money(outstanding) + '</div>' +
+        '<div class="t-sub">' + (soonest ? count('reserved') + ' application(s) · earliest expiry ' + sbpDate(soonest.holdUntil) : 'nothing due') + '</div>' +
+        (outstanding ? '<button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="openCart()"><span class="material-symbols-outlined" style="font-size:16px">shopping_cart</span>Open Cart</button>' : '') + '</div>' +
+      '<div class="tile blue"><div class="t-label">Under Verification</div><div class="t-value">' + count('payment_under_verification') + '</div><div class="t-sub">' + (underVerif ? money(underVerif) + ' · clock paused until DEO verifies' : 'no offline proofs pending') + '</div></div>' +
+      '<div class="tile accent"><div class="t-label">Confirmed Stalls</div><div class="t-value">' + count('confirmed') + '</div><div class="t-sub">' + money(paid) + ' paid · 100% received</div></div>' +
+      '<div class="tile"><div class="t-label">Expired / Released</div><div class="t-value">' + (count('expired') + count('released')) + '</div><div class="t-sub">stalls returned to inventory</div></div>' +
+    '</div>' : '';
+  const how = '<div class="card" style="margin-top:16px"><h2 class="card-title">How it works</h2><ol class="sb-how">' +
+      '<li><b>Select</b> stalls on the hall layout — each becomes its own application in your cart.</li>' +
+      '<li><b>Hold</b> — the stall is reserved for ' + SBP_HOLD_DAYS + ' days from cart creation; download the proforma invoice.</li>' +
+      '<li><b>Pay 100%</b> online from the application page, or offline (NEFT / RTGS / Cheque / SWIFT) and upload the proof — the clock pauses until DEO verifies.</li>' +
+      '<li><b>Confirmed</b> — on receipt the stall is confirmed and a tax invoice issued. Unpaid applications expire automatically; DEO may extend validity before expiry.</li></ol></div>';
 
   return '<h1 class="page-title">My Spaces</h1>' +
-    '<p class="page-sub">Your stall reservations, cart validity and payment status — 100% payment within ' + SBP_HOLD_DAYS + ' days of cart creation confirms the booth.</p>' +
-    hero +
-    '<div class="prof-layout"><div><h2 class="card-title" style="margin-bottom:10px">My Reservations</h2>' + cards + '</div>' + rail + '</div>';
+    '<p class="page-sub">Your stall applications, ' + SBP_HOLD_DAYS + '-day validity and payment status — one application, one proforma invoice and one 100% payment per stall.</p>' +
+    hero + tiles + table + how;
 }
 
 /* ---------------- routes ---------------- */

@@ -219,6 +219,7 @@ function render() {
   const mCoex = route.match(/^passes\/(badges|invitee|vehicle)\/coex\/(.+)$/);
   const mProf = route.match(/^profile(?:\/(.+))?$/);
   const mHall = route.match(/^space-booking\/hall\/(.+)$/);
+  const mSbApp = route.match(/^space-booking\/application\/(.+)$/);
   const mB2b = route.match(/^b2b-matchmaking\/profile\/(.+)$/);
   const mAlloc = route.match(/^allocate-stall\/(coex|aggregator)$/);
   if (mCoex) { view = viewCatCoexPage; arg = mCoex[2]; }
@@ -230,6 +231,7 @@ function render() {
   }
   else if (mProf) { view = viewProfile; arg = mProf[1] || 'company'; }
   else if (mHall) { view = viewHallStalls; arg = mHall[1]; }
+  else if (mSbApp) { view = viewApplication; arg = mSbApp[1]; }
   else if (mB2b) { view = viewB2BProfile; arg = mB2b[1]; }
   else view = ROUTES[route] || viewExhibitorDashboard;
 
@@ -244,7 +246,7 @@ function render() {
       (r === 'exhibition-forms' && route.indexOf('exhibition-forms') === 0) ||
       (r === 'digital-showcase' && (route === 'products' || route.indexOf('booth/') === 0)) ||
       (r === 'space-booking/book' && route.indexOf('space-booking/hall') === 0) ||
-      (r === 'space-booking/my' && route === 'space-booking/success') ||
+      (r === 'space-booking/my' && (route === 'space-booking/success' || route.indexOf('space-booking/application') === 0)) ||
       (r === 'b2b-matchmaking' && route.indexOf('b2b-matchmaking') === 0));
   });
 
@@ -1631,16 +1633,34 @@ function updateCartBadge() {
 function openCart() {
   closeCart();
   const fmtItem = (i) => i.currency === 'USD' ? '$' + Number(i.amount).toLocaleString('en-US') : money(i.amount);
-  const spaceActions = (i) => i.type !== 'space' ? '' :
-    '<div class="cart-actions">' +
-      '<button class="btn-link" onclick="downloadProformaInvoice(\'' + i.refId + '\')"><span class="material-symbols-outlined" style="font-size:14px;vertical-align:-2px">description</span> Proforma Invoice</button>' +
-      '<button class="btn-link" onclick="sbOpenOfflineForm(\'' + i.refId + '\')"><span class="material-symbols-outlined" style="font-size:14px;vertical-align:-2px">upload_file</span> Pay offline — upload proof</button>' +
-    '</div>';
-  const items = S.cart.map((i) =>
-    '<div class="cart-item"><div><b>' + esc(i.label) + '</b><small>' + esc(i.sub) + '</small>' + spaceActions(i) + '</div>' +
-    '<div style="text-align:right"><span class="money">' + fmtItem(i) + '</span><br>' +
-    '<button class="btn-link danger" onclick="removeCartItem(\'' + i.id + '\')">Remove</button></div></div>').join('') ||
-    '<div class="empty" style="padding:30px 10px"><span class="material-symbols-outlined">shopping_cart</span><h3>Cart is empty</h3></div>';
+  const spaceItems = S.cart.filter((i) => i.type === 'space');
+  const otherItems = S.cart.filter((i) => i.type !== 'space');
+  /* stall applications — one card per stall, linking to its application page */
+  const spaceCard = (i) => {
+    const r = typeof sbRes === 'function' ? sbRes(i.refId) : null;
+    if (!r) return '';
+    const s = r.stalls[0];
+    const left = sbpDaysLeft(r.holdUntil);
+    return '<div class="cart-card" onclick="closeCart();location.hash=\'#/space-booking/application/' + r.id + '\'">' +
+      '<div class="cc-top"><span class="cc-ic"><span class="material-symbols-outlined">storefront</span></span>' +
+        '<div class="cc-main"><b>' + esc(s.name) + ' · ' + esc(sbZoneLabel(s.hall)) + '</b><small>' + esc(sbSchemeLabel(s.scheme)) + ' · ' + s.sqm + ' sq.m · Application ' + esc(r.no) + '</small></div>' +
+        '<span class="cc-amt">' + money(i.amount) + '</span></div>' +
+      '<div class="cc-valid' + (left <= 1 ? ' late' : left <= 7 ? ' warn' : '') + '"><i style="width:' + Math.min(100, Math.max(3, Math.round((1 - left / SBP_HOLD_DAYS) * 100))) + '%"></i></div>' +
+      '<div class="cc-foot"><span><span class="material-symbols-outlined">timer</span>Valid till ' + sbpDate(r.holdUntil) + ' · ' + (left <= 0 ? 'expires today' : left + ' day' + (left === 1 ? '' : 's') + ' left') + '</span>' +
+        '<span class="cc-links" onclick="event.stopPropagation()"><button class="btn-link" onclick="closeCart();location.hash=\'#/space-booking/application/' + r.id + '\'">View &amp; pay</button>' +
+        '<button class="btn-link danger" onclick="removeCartItem(\'' + i.id + '\')">Remove</button></span></div></div>';
+  };
+  const otherCard = (i) =>
+    '<div class="cart-card plain"><div class="cc-top"><span class="cc-ic"><span class="material-symbols-outlined">' + ({ coex_reg: 'group_add', vehicle: 'directions_car', aircraft_reg: 'flight' }[i.type] || 'receipt_long') + '</span></span>' +
+      '<div class="cc-main"><b>' + esc(i.label) + '</b><small>' + esc(i.sub) + '</small></div><span class="cc-amt">' + fmtItem(i) + '</span></div>' +
+      '<div class="cc-foot"><span></span><span class="cc-links"><button class="btn-link danger" onclick="removeCartItem(\'' + i.id + '\')">Remove</button></span></div></div>';
+  const items = (spaceItems.length
+      ? '<div class="cart-sec"><h4>Stall Applications <b>' + spaceItems.length + '</b></h4>' +
+        '<p>Each stall is a separate application with its own proforma invoice. Pay all below in one go, or open an application to pay it individually, offline or online.</p>' +
+        spaceItems.map(spaceCard).join('') + '</div>' : '') +
+    (otherItems.length
+      ? '<div class="cart-sec"><h4>Other Items <b>' + otherItems.length + '</b></h4>' + otherItems.map(otherCard).join('') + '</div>' : '') ||
+    '<div class="empty" style="padding:30px 10px"><span class="material-symbols-outlined">shopping_cart</span><h3>Cart is empty</h3><p style="font-size:0.8rem">Stalls you reserve from Book Space and other paid items appear here.</p></div>';
   const totalInr = S.cart.filter((i) => i.currency !== 'USD').reduce((a, i) => a + i.amount, 0);
   const totalUsd = S.cart.filter((i) => i.currency === 'USD').reduce((a, i) => a + i.amount, 0);
   const totalStr = [totalInr ? money(totalInr) : '', totalUsd ? '$' + totalUsd.toLocaleString('en-US') : '']
@@ -1650,13 +1670,12 @@ function openCart() {
   wrap.id = 'cartWrap';
   wrap.innerHTML =
     '<div class="drawer-overlay" onclick="closeCart()"></div>' +
-    '<div class="drawer"><div class="drawer-head"><h3>Cart · Main Exhibitor</h3>' +
+    '<div class="drawer cart"><div class="drawer-head"><div><h3>Cart</h3><small style="color:var(--muted);font-size:0.76rem">' + esc(EVENT.exhibitor) + ' · ' + S.cart.length + ' item' + (S.cart.length === 1 ? '' : 's') + '</small></div>' +
     '<button class="modal-close" onclick="closeCart()"><span class="material-symbols-outlined">close</span></button></div>' +
     '<div class="drawer-body">' + items + '</div>' +
-    '<div class="drawer-foot"><div class="cart-total"><span>Total (incl. GST)</span><span class="money">' + totalStr + '</span></div>' +
+    '<div class="drawer-foot"><div class="cart-total"><span>Total payable <small style="font-weight:600;color:var(--muted)">incl. GST</small></span><span class="money">' + totalStr + '</span></div>' +
     '<button class="btn btn-primary" style="width:100%;justify-content:center" ' + (S.cart.length ? '' : 'disabled') + ' onclick="payCart()">' +
-    '<span class="material-symbols-outlined">lock</span>Pay Now' + (S.cart.some((i) => i.type === 'space') ? ' (100%)' : '') + '</button>' +
-    (S.cart.some((i) => i.type === 'space') ? '<p style="font-size:0.72rem;color:var(--muted);text-align:center;margin:8px 0 0">Space reservations: pay the full amount online here, or offline (NEFT / RTGS / Cheque / SWIFT) against the proforma invoice and upload the proof.</p>' : '') +
+    '<span class="material-symbols-outlined">lock</span>Pay All Online · ' + totalStr + '</button>' +
     '<p style="font-size:0.72rem;color:var(--muted);text-align:center;margin:8px 0 0">Demo checkout — integrate your payment gateway here.</p></div></div>';
   document.body.appendChild(wrap);
 }
@@ -1784,14 +1803,14 @@ function viewExhibitorDashboard() {
     if (r.status === 'reserved') {
       const left = sbpDaysLeft(r.holdUntil);
       actions.push({
-        icon: 'timer', title: 'Stall reservation ' + r.piNo + ' valid till ' + sbpDate(r.holdUntil) + (left <= 0 ? ' (expires today)' : ' (' + left + ' day' + (left === 1 ? '' : 's') + ' left)'),
-        sub: 'Pay ' + money(r.amount) + ' (100%) online or upload offline payment proof to confirm ' + r.stalls.map((s) => s.name).join(', ') + '.',
-        btn: '<button class="btn btn-primary btn-sm" onclick="openCart()">Pay Now</button>',
+        icon: 'timer', title: 'Stall ' + r.stalls[0].name + ' — application ' + r.no + ' valid till ' + sbpDate(r.holdUntil) + (left <= 0 ? ' (expires today)' : ' (' + left + ' day' + (left === 1 ? '' : 's') + ' left)'),
+        sub: 'Pay ' + money(r.amount) + ' (100%) online or upload offline payment proof to confirm the stall.',
+        btn: '<a class="btn btn-primary btn-sm" href="#/space-booking/application/' + r.id + '">View &amp; Pay</a>',
       });
     } else if (r.status === 'payment_under_verification') actions.push({
-      icon: 'hourglass_top', title: 'Offline payment for ' + r.piNo + ' under verification',
+      icon: 'hourglass_top', title: 'Offline payment for stall ' + r.stalls[0].name + ' (' + r.no + ') under verification',
       sub: r.payment.method + ' · Ref ' + r.payment.ref + ' · ' + money(r.payment.amount) + ' — the validity clock is paused until DEO verifies the receipt.',
-      btn: '<a class="btn btn-outline btn-sm" href="#/space-booking/my">View</a>',
+      btn: '<a class="btn btn-outline btn-sm" href="#/space-booking/application/' + r.id + '">View</a>',
     });
   });
   const otherCart = S.cart.filter((i) => i.type !== 'space').length;
@@ -1866,7 +1885,7 @@ function viewExhibitorDashboard() {
       feat('#/profile', 'fc-slate', 'account_circle', 'Exhibitor Profile',
         (typeof profileOverallPct === 'function' ? profileOverallPct() + '% profile complete' : '')) +
       feat('#/space-booking/my', 'fc-blue', 'view_comfy_alt', 'Space Booking',
-        ((S.spaceBooking && S.spaceBooking.reservations && S.spaceBooking.reservations.length) || 0) + ' reservation(s) · ' + S.stalls.length + ' stall(s) booked') +
+        ((S.spaceBooking && S.spaceBooking.reservations && S.spaceBooking.reservations.length) || 0) + ' application(s) · ' + S.stalls.length + ' stall(s) booked') +
       feat('#/aircraft', 'fc-cyan', 'flight', 'Aircraft Registration',
         aircraft.length + ' application(s)') +
       feat('#/orders', 'fc-orange', 'receipt_long', 'My Orders',
