@@ -13,6 +13,8 @@
 'use strict';
 
 /* ---------------- state ---------------- */
+/* bump to wipe every portal's demo applications on the next load */
+const SB_CLEAR_SEQ = 3;
 (function migrateSpaceBooking() {
   if (!S.spaceBooking) S.spaceBooking = {};
   if (!S.spaceBooking.reservations) {
@@ -32,18 +34,29 @@
   /* v2: one application per stall + application detail page. Demo data
      created under the earlier cart model is cleared once so every
      portal starts from a clean listing. */
-  if (!S.spaceBooking.v2) {
-    const ids = S.spaceBooking.reservations.map((r) => r.id);
-    const derived = S.spaceBooking.reservations.flatMap((r) => r.stalls.map((s) => 'st_' + s.name));
-    S.spaceBooking.reservations = [];
-    S.cart = S.cart.filter((c) => c.type !== 'space');
-    S.orders = (S.orders || []).filter((o) => !(o.type === 'space' && ids.includes(o.refId)));
-    S.stalls = S.stalls.filter((s) => !derived.includes(s.id));
-    S.seq.pi = 0;
-    S.spaceBooking.v2 = true;
+  if (S.spaceBooking.clearSeq !== SB_CLEAR_SEQ) {
+    sbClearApplications(true);
+    S.spaceBooking.clearSeq = SB_CLEAR_SEQ;
   }
   save();
 })();
+
+/* Clear all stall applications (demo reset) — their cart items, orders,
+   notifications and the stalls they added to the dashboard go too. */
+function sbClearApplications(silent) {
+  if (!silent && !confirm('Clear ALL stall applications? Cart items, their orders and confirmed stalls from these applications will be removed. Seeded stalls stay.')) return;
+  const list = S.spaceBooking.reservations || [];
+  const ids = list.map((r) => r.id);
+  const derived = list.flatMap((r) => r.stalls.map((s) => 'st_' + s.name));
+  S.spaceBooking.reservations = [];
+  S.cart = S.cart.filter((c) => c.type !== 'space');
+  S.orders = (S.orders || []).filter((o) => !(o.type === 'space' && ids.includes(o.refId)));
+  S.stalls = S.stalls.filter((s) => !derived.includes(s.id));
+  S.notifications = (S.notifications || []).filter((n) => !/^nt_/.test(n.id));
+  S.seq.pi = 0;
+  S.spaceBooking.v2 = true;
+  if (!silent) { save(); window.__sbFilter = ''; render(); toast('All stall applications cleared.', 'success'); }
+}
 
 const SB_STATUS = {
   reserved: ['amber', 'Reserved · In Cart'],
@@ -781,7 +794,8 @@ function viewMySpaces() {
 
   return '<h1 class="page-title">My Spaces</h1>' +
     '<p class="page-sub">Your stall applications, ' + SBP_HOLD_DAYS + '-day validity and payment status — one application, one proforma invoice and one 100% payment per stall.</p>' +
-    hero + tiles + table + how;
+    hero + tiles + table + how +
+    '<div class="footer-tools"><button onclick="sbClearApplications()">Clear all applications</button><button onclick="resetDemo()">Reset demo data</button></div>';
 }
 
 /* ---------------- routes ---------------- */
