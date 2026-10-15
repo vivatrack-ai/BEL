@@ -313,6 +313,12 @@ table.grid tr:hover td { background: #FAFBFE; }
 .field .hint { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
 .field .error { font-size: 0.75rem; color: var(--red); margin-top: 4px; font-weight: 600; display: none; }
 .field.invalid input, .field.invalid select { border-color: var(--red); }
+
+/* Mobile number: country code select + local number */
+.phone-row { display: flex; gap: 8px; }
+.phone-row select { width: auto; flex: 0 0 158px; min-width: 0; padding-left: 8px; padding-right: 8px; }
+.phone-row input[type="tel"] { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 480px) { .phone-row select { flex-basis: 120px; } }
 .field.invalid .error { display: block; }
 
 /* Radio cards (type selector, seater) */

@@ -268,7 +268,7 @@ function viewDashboard() {
       '<div class="field"><label>Company Type</label><input type="text" value="' + typeLabel(c) + '" readonly></div>' +
       '<div class="field"><label>Nodal Person — First Name <span class="req">*</span></label><input type="text" id="pfFirst" value="' + esc(c.nodalFirst || '') + '"><div class="error"></div></div>' +
       '<div class="field"><label>Nodal Person — Last Name <span class="req">*</span></label><input type="text" id="pfLast" value="' + esc(c.nodalLast || '') + '"><div class="error"></div></div>' +
-      '<div class="field"><label>Nodal Contact Number</label><input type="tel" id="pfMobile" value="' + esc(c.nodalMobile || '') + '" placeholder="10-digit mobile"><div class="error"></div></div>' +
+      mobileFieldHtml('pf', 'Nodal Contact Number', { cc: c.nodalCc, value: c.nodalMobile || '' }) +
       '<div class="field"><label>Designation</label><input type="text" id="pfDesig" value="' + esc(c.nodalDesig || '') + '" placeholder="e.g. Marketing Head"></div>' +
     '</div>' +
     '<div style="margin-top:16px;display:flex;justify-content:flex-end">' +
@@ -285,17 +285,17 @@ function saveProfile(e) {
   clearErrs();
   const first = $('pfFirst').value.trim();
   const last = $('pfLast').value.trim();
-  const mobile = $('pfMobile').value.trim();
   let ok = true;
   if (!first) { setErr('pfFirst', 'First name is required'); ok = false; }
   if (!last) { setErr('pfLast', 'Last name is required'); ok = false; }
-  if (mobile && !MOBILE_RE.test(mobile)) { setErr('pfMobile', 'Enter a valid 10-digit mobile number'); ok = false; }
+  const ph = readMobile('pf', false);
+  if (!ph) ok = false;
   if (!ok) return false;
   const ex = loadExState();
   const c = (ex.coexhibitors || []).find((x) => x.id === sessionStorage.getItem(SESSION_KEY));
   if (!c) return false;
   c.nodalFirst = first; c.nodalLast = last;
-  c.nodalMobile = mobile; c.nodalDesig = $('pfDesig').value.trim();
+  c.nodalCc = ph.cc; c.nodalMobile = ph.mobile; c.nodalDesig = $('pfDesig').value.trim();
   saveExState(ex);
   render();
   toast('Profile updated', 'success');

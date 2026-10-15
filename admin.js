@@ -1194,7 +1194,7 @@ function viewAggregatorApprovals() {
       '<span><span class="td-strong">' + esc(c.company) + '</span>' +
       '<span class="td-sub">' + esc(c.email) + '</span></span></div></td>' +
     '<td>' + esc(c.nodalFirst + ' ' + c.nodalLast) +
-      '<span class="td-sub">' + (c.nodalDesig ? esc(c.nodalDesig) + ' · ' : '') + (c.nodalMobile ? '+91 ' + esc(c.nodalMobile) : '—') + '</span></td>' +
+      '<span class="td-sub">' + (c.nodalDesig ? esc(c.nodalDesig) + ' · ' : '') + (c.nodalMobile ? esc(fmtMobile(c)) : '—') + '</span></td>' +
     '<td><span class="td-strong">' + esc(EX_COMPANY) + '</span><span class="td-sub">Main exhibitor</span></td>' +
     '<td>' + esc(c.submittedAt || c.createdAt || '—') + '</td>' +
     '<td>' + aggStatusPill(c.status) +
@@ -1244,7 +1244,7 @@ function openAggDetail(id) {
       ['Registration No.', c.regNo], ['Status', aggStatusPill(c.status), 'html'],
       ['Company Email (login)', c.email], ['Added By', EX_COMPANY],
       ['Nodal Officer', c.nodalFirst + ' ' + c.nodalLast], ['Designation', c.nodalDesig || '—'],
-      ['Nodal Mobile', c.nodalMobile ? '+91 ' + c.nodalMobile : '—'], ['Submitted', c.submittedAt || c.createdAt],
+      ['Nodal Mobile', fmtMobile(c) || '—'], ['Submitted', c.submittedAt || c.createdAt],
       ['Approved', c.approvedAt || '—'], ['Approved By', c.approvedBy || '—'],
       ['Organiser Remark', c.remark || '—', 'full'],
     ]) +
@@ -1299,7 +1299,7 @@ function exportAggregators() {
   const list = filteredAggregators();
   const statusLabel = { pending_approval: 'Pending Approval', active: 'Approved', rejected: 'Rejected' };
   const headers = ['Sr.', 'Reg. No.', 'Company', 'Company Email', 'Nodal Officer', 'Designation', 'Mobile', 'Added By', 'Submitted', 'Status', 'Approved At', 'Approved By', 'Remark'];
-  const rows = list.map((c, i) => [i + 1, c.regNo, c.company, c.email, c.nodalFirst + ' ' + c.nodalLast, c.nodalDesig || '', c.nodalMobile || '',
+  const rows = list.map((c, i) => [i + 1, c.regNo, c.company, c.email, c.nodalFirst + ' ' + c.nodalLast, c.nodalDesig || '', fmtMobile(c),
     EX_COMPANY, c.submittedAt || c.createdAt, statusLabel[c.status] || c.status, c.approvedAt || '', c.approvedBy || '', c.remark || '']);
   exportToExcel('aggregator-companies-' + exportStamp(), 'Aggregators', headers, rows);
 }

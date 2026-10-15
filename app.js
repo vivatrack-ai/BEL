@@ -354,7 +354,7 @@ function openCoexView(id) {
       '<div><b>Status:</b> ' + coexStatusPill(c) + '</div>' +
       '<div><b>Email:</b> ' + esc(c.email) + '</div>' +
       '<div><b>Reg. No.:</b> ' + (c.regNo ? '<code>' + esc(c.regNo) + '</code>' : '— (subsidiary)') + '</div>' +
-      (c.type === 'separate' || agg ? '<div class="full"><b>Nodal Officer:</b> ' + esc(c.nodalFirst + ' ' + c.nodalLast) + (c.nodalMobile ? ' · +91 ' + esc(c.nodalMobile) : '') + '</div>' : '') +
+      (c.type === 'separate' || agg ? '<div class="full"><b>Nodal Officer:</b> ' + esc(c.nodalFirst + ' ' + c.nodalLast) + (c.nodalMobile ? ' · ' + esc(fmtMobile(c)) : '') + '</div>' : '') +
       '<div class="full"><b>Added:</b> ' + esc(c.createdAt) + '</div>' +
       approvalRow +
     '</div>' +
@@ -442,6 +442,7 @@ function viewCoexAdd(isFirst) {
           '<div class="field"><label>Nodal Officer Email <span class="req">*</span></label>' +
             '<input type="email" id="sepEmail" placeholder="name@company.com">' +
             '<div class="hint">Login credentials &amp; welcome email will be sent here after payment.</div><div class="error"></div></div>' +
+          mobileFieldHtml('sep', 'Nodal Officer Mobile', { required: true }) +
         '</div>' +
         '<div class="note"><b class="title">Note — Separate Co-Exhibitor</b><ul>' +
           '<li>Registration charges: <b>' + money(EVENT.coexRegFee) + ' (including GST)</b>.</li>' +
@@ -505,13 +506,15 @@ function submitCoex(e) {
     if (!email) { setErr('sepEmail', 'Email is required'); ok = false; }
     else if (!EMAIL_RE.test(email)) { setErr('sepEmail', 'Enter a valid email address'); ok = false; }
     else if (emailInUse(email)) { setErr('sepEmail', 'This email is already used by another co-exhibitor'); ok = false; }
+    const ph = readMobile('sep', true);
+    if (!ph) ok = false;
     if (!ok) return false;
 
     const id = uid('coex');
     const regNo = 'COEX-2027-' + pad(S.seq.coex, 4);
     S.coexhibitors.push({
       id: id, type: 'separate', company: company, email: email,
-      nodalFirst: first, nodalLast: last, regNo: regNo,
+      nodalFirst: first, nodalLast: last, nodalCc: ph.cc, nodalMobile: ph.mobile, regNo: regNo,
       status: 'payment_pending', createdAt: nowStr(),
     });
     S.cart.push({
@@ -547,7 +550,7 @@ function viewAggList() {
     return '<tr>' +
       '<td class="num">' + (i + 1) + '</td>' +
       '<td><span class="td-strong">' + esc(c.company) + '</span><span class="td-sub">' + esc(c.email) + '</span></td>' +
-      '<td>' + esc(c.nodalFirst + ' ' + c.nodalLast) + (c.nodalMobile ? '<span class="td-sub">+91 ' + esc(c.nodalMobile) + '</span>' : '') + '</td>' +
+      '<td>' + esc(c.nodalFirst + ' ' + c.nodalLast) + (c.nodalMobile ? '<span class="td-sub">' + esc(fmtMobile(c)) + '</span>' : '') + '</td>' +
       '<td class="num"><code>' + esc(c.regNo) + '</code></td>' +
       '<td>' + coexStatusPill(c) + remark + '</td>' +
       '<td class="num">' + (coexSqm(c.id) ? coexSqm(c.id) + ' sqm' : '—') + '</td>' +
@@ -616,8 +619,7 @@ function viewAggAdd(isFirst, editId) {
           '<input type="text" id="aggFirst" value="' + v('nodalFirst') + '"><div class="error"></div></div>' +
         '<div class="field"><label>Nodal Officer Last Name <span class="req">*</span></label>' +
           '<input type="text" id="aggLast" value="' + v('nodalLast') + '"><div class="error"></div></div>' +
-        '<div class="field"><label>Nodal Officer Mobile</label>' +
-          '<input type="tel" id="aggMobile" value="' + v('nodalMobile') + '" placeholder="10-digit mobile"><div class="error"></div></div>' +
+        mobileFieldHtml('agg', 'Nodal Officer Mobile', { required: true, cc: editing && editing.nodalCc, value: editing ? editing.nodalMobile : '' }) +
         '<div class="field"><label>Nodal Officer Designation</label>' +
           '<input type="text" id="aggDesig" value="' + v('nodalDesig') + '" placeholder="e.g. Business Head"></div>' +
       '</div>' +
@@ -644,7 +646,6 @@ function submitAgg(e, editId) {
   const email = $('aggEmail').value.trim();
   const first = $('aggFirst').value.trim();
   const last = $('aggLast').value.trim();
-  const mobile = $('aggMobile').value.trim();
   const desig = $('aggDesig').value.trim();
   let ok = true;
 
@@ -658,7 +659,8 @@ function submitAgg(e, editId) {
   else if (emailInUse(email)) { setErr('aggEmail', 'This email is already used by another company'); ok = false; }
   if (!first) { setErr('aggFirst', 'First name is required'); ok = false; }
   if (!last) { setErr('aggLast', 'Last name is required'); ok = false; }
-  if (mobile && !MOBILE_RE.test(mobile)) { setErr('aggMobile', 'Enter a valid 10-digit mobile number'); ok = false; }
+  const ph = readMobile('agg', true);
+  if (!ph) ok = false;
   if (!ok) return false;
 
   if (editId) {
@@ -666,7 +668,7 @@ function submitAgg(e, editId) {
     const c = coexById(editId);
     Object.assign(c, {
       company: company, email: email, nodalFirst: first, nodalLast: last,
-      nodalMobile: mobile, nodalDesig: desig,
+      nodalCc: ph.cc, nodalMobile: ph.mobile, nodalDesig: desig,
       status: 'pending_approval', remark: '', submittedAt: nowStr(), approvedAt: '',
     });
     save();
@@ -677,7 +679,7 @@ function submitAgg(e, editId) {
     S.seq.agg += 1;
     S.coexhibitors.push({
       id: id, type: 'aggregator', company: company, email: email,
-      nodalFirst: first, nodalLast: last, nodalMobile: mobile, nodalDesig: desig,
+      nodalFirst: first, nodalLast: last, nodalCc: ph.cc, nodalMobile: ph.mobile, nodalDesig: desig,
       regNo: regNo, status: 'pending_approval', remark: '',
       createdAt: nowStr(), submittedAt: nowStr(), approvedAt: '',
     });
