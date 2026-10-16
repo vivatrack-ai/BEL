@@ -536,9 +536,10 @@ function sbOnlinePaid(resId, order) {
 
 /* ---- pay ONE application (or its shift differential) online from its page (demo gateway) ---- */
 const SB_ONLINE_METHODS = ['Card', 'Net Banking', 'UPI'];
-function sbPayOnline(resId, kind) {
+function sbPayOnline(resId, kind, preselect) {
   const r = sbRes(resId);
   const adj = kind === 'adj';
+  const inrFirst = preselect === 'INR';
   if (!r || (adj ? !(r.adjustment && r.adjustment.status === 'due') : r.status !== 'reserved')) { toast('Nothing is awaiting payment on this application.', 'error'); return; }
   const amount = adj ? r.adjustment.amount : r.amount;
   const cur = r.pricing.currency;
@@ -549,15 +550,15 @@ function sbPayOnline(resId, kind) {
     (sbpInrSettlementAllowed(cur)
       ? '<label style="display:block;font-size:0.8rem;font-weight:700;margin:14px 0 8px">Pay in</label>' +
         '<div class="radio-cards" style="grid-template-columns:1fr 1fr">' +
-          '<label class="radio-card selected" onclick="sbGwPick(this,\'cur\')"><input type="radio" name="sbGwCur" value="USD" checked style="display:none"><b>USD · ' + sbMoney(amount, 'USD') + '</b><small>billing currency</small></label>' +
-          '<label class="radio-card" onclick="sbGwPick(this,\'cur\')"><input type="radio" name="sbGwCur" value="INR" style="display:none"><b>INR · ' + sbMoney(sbpToInr(amount), 'INR') + '</b><small>at ₹' + sbpFxRate() + ' per USD · DEO settlement rate</small></label></div>'
+          '<label class="radio-card' + (inrFirst ? '' : ' selected') + '" onclick="sbGwPick(this,\'cur\')"><input type="radio" name="sbGwCur" value="USD"' + (inrFirst ? '' : ' checked') + ' style="display:none"><b>USD · ' + sbMoney(amount, 'USD') + '</b><small>billing currency</small></label>' +
+          '<label class="radio-card' + (inrFirst ? ' selected' : '') + '" onclick="sbGwPick(this,\'cur\')"><input type="radio" name="sbGwCur" value="INR"' + (inrFirst ? ' checked' : '') + ' style="display:none"><b>INR · ' + sbMoney(sbpToInr(amount), 'INR') + '</b><small>at ₹' + sbpFxRate() + ' per USD · DEO settlement rate</small></label></div>'
       : '') +
     '<label style="display:block;font-size:0.8rem;font-weight:700;margin:14px 0 8px">Payment method</label>' +
     '<div class="radio-cards" style="grid-template-columns:repeat(3,1fr)">' +
       SB_ONLINE_METHODS.map((m, i) => '<label class="radio-card' + (i === 0 ? ' selected' : '') + '" onclick="sbGwPick(this,\'m\')"><input type="radio" name="sbGwM" value="' + m + '"' + (i === 0 ? ' checked' : '') + ' style="display:none"><b>' + m + '</b></label>').join('') + '</div>' +
     '<p style="font-size:0.74rem;color:var(--muted);margin:12px 0 0">Demo gateway — the full amount is charged in one transaction. ' + (adj ? 'A receipt is issued on success.' : 'On success the stall is allotted automatically and a tax invoice issued.') + '</p>',
     '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
-    '<button class="btn btn-primary" id="sbGwPay" onclick="sbDoPayOnline(\'' + r.id + '\',\'' + (adj ? 'adj' : 'full') + '\')"><span class="material-symbols-outlined">lock</span>Pay ' + sbMoney(amount, cur) + '</button>');
+    '<button class="btn btn-primary" id="sbGwPay" onclick="sbDoPayOnline(\'' + r.id + '\',\'' + (adj ? 'adj' : 'full') + '\')"><span class="material-symbols-outlined">lock</span>Pay ' + (inrFirst && sbpInrSettlementAllowed(cur) ? sbMoney(sbpToInr(amount), 'INR') : sbMoney(amount, cur)) + '</button>');
   const m = $('modalOverlay'); if (m) m.querySelector('.modal-body').id = 'sbGw';
   window.__sbGwAmount = amount; window.__sbGwCur = cur;
 }
@@ -713,7 +714,8 @@ function sbActions(r, full) {
   const cur = r.pricing.currency;
   if (r.status === 'reserved') return (full
     ? '<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="sbPayOnline(\'' + r.id + '\')"><span class="material-symbols-outlined">lock</span>Pay Online · ' + sbMoney(r.amount, cur) + '</button>' +
-      '<button class="btn btn-outline" style="width:100%;justify-content:center" onclick="sbOpenOfflineForm(\'' + r.id + '\')"><span class="material-symbols-outlined">upload_file</span>Pay Offline — Upload Proof</button>' +
+      (sbpInrSettlementAllowed(cur) ? '<button class="btn btn-primary" style="width:100%;justify-content:center;background:var(--green)" onclick="sbPayOnline(\'' + r.id + '\',\'full\',\'INR\')"><span class="material-symbols-outlined">currency_rupee</span>Pay Online in INR · ' + sbMoney(sbpToInr(r.amount), 'INR') + '</button>' : '') +
+      '<button class="btn btn-outline" style="width:100%;justify-content:center" onclick="sbOpenOfflineForm(\'' + r.id + '\')"><span class="material-symbols-outlined">upload_file</span>Pay Offline — Upload Proof' + (sbpInrSettlementAllowed(cur) ? ' (USD or INR)' : '') + '</button>' +
       '<button class="btn btn-outline" style="width:100%;justify-content:center" onclick="downloadProformaInvoice(\'' + r.id + '\')"><span class="material-symbols-outlined">description</span>Download Proforma Invoice</button>' +
       '<button class="btn-link danger" style="width:100%;justify-content:center" onclick="if(sbCancelReservation(\'' + r.id + '\'))location.hash=\'#/space-booking/my\'">Remove from cart &amp; release stall</button>'
     : '<a class="btn btn-primary btn-sm" href="#/space-booking/application/' + r.id + '"><span class="material-symbols-outlined" style="font-size:16px">lock</span>View &amp; Pay</a>');
@@ -781,7 +783,9 @@ function viewApplication(id) {
         '<div class="sb-due green" style="margin-top:10px"><small>CREDIT IN YOUR FAVOUR</small><b>' + sbMoney(r.creditNote.amount, cur) + '</b><span>issued ' + esc(r.creditNote.createdAt) + ' · refunded within 60 days of the show (T&amp;C clause 9z) or adjusted against other dues</span></div></div>'
     : '';
   const pay = r.status === 'reserved'
-    ? '<div class="sb-due"><small>AMOUNT DUE · 100%</small><b>' + sbMoney(r.amount, cur) + '</b><span>by ' + sbpDate(r.holdUntil) + ' · ' + (left <= 0 ? 'expires today' : left + ' day' + (left === 1 ? '' : 's') + ' left') + '</span></div>' +
+    ? '<div class="sb-due"><small>AMOUNT DUE · 100%</small><b>' + sbMoney(r.amount, cur) + '</b>' +
+        (sbpInrSettlementAllowed(cur) ? '<span style="color:var(--ink);font-weight:700">= ' + sbMoney(sbpToInr(r.amount), 'INR') + ' <span style="font-weight:600;color:var(--muted)">if paid in INR at ₹' + sbpFxRate() + ' per USD</span></span>' : '') +
+        '<span>by ' + sbpDate(r.holdUntil) + ' · ' + (left <= 0 ? 'expires today' : left + ' day' + (left === 1 ? '' : 's') + ' left') + '</span></div>' +
       (r.payment && r.payment.rejectedAt ? '<div class="note" style="border-left-color:var(--red);margin:10px 0"><b class="title" style="color:var(--red)">Earlier proof not accepted</b>' + esc(r.payment.remark || '') + ' (' + esc(r.payment.method) + ' · ' + esc(r.payment.ref) + ', ' + esc(r.payment.rejectedAt) + '). Pay online or upload a fresh proof.</div>' : '') +
       '<div class="sb-paybtns">' + sbActions(r, true) + '</div>' +
       '<p style="font-size:0.74rem;color:var(--muted);margin:10px 0 0">Offline: NEFT / RTGS / Cheque / DD / Wire transfer to DEO’s account quoting ' + esc(r.piNo) + '. Uploading the proof pauses the ' + sbpHoldDays() + '-day clock until DEO verifies. On 100% payment the stall is allotted automatically.' + (sbpInrSettlementAllowed(cur) ? ' This USD invoice may be paid in INR at DEO’s settlement rate of ₹' + sbpFxRate() + ' per USD (' + sbMoney(sbpToInr(r.amount), 'INR') + ' today).' : '') + '</p>'

@@ -1167,7 +1167,7 @@ function sbaReserveOpen() {
       '<div class="field"><label>Stall (available only) <span class="req">*</span></label><select id="rsStall" onchange="window.__sbaRes.name=this.value;sbaReserveRefresh()"></select><div class="error"></div></div>' +
       '<div class="field"><label>Scheme</label><select id="rsScheme" onchange="window.__sbaRes.scheme=this.value;sbaReserveRefresh()"></select></div>' +
       '<div class="field"><label>Mezzanine area (sq.m)</label><input type="number" id="rsMezz" min="0" value="0" oninput="window.__sbaRes.mezz=Number(this.value)||0;sbaReserveRefresh()"><div class="hint" id="rsMezzHint"></div><div class="error"></div></div>' +
-      '<div class="field"><label>Bill in</label><select id="rsCur" onchange="window.__sbaRes.cur=this.value;sbaReserveRefresh()"><option value="">Default for the company (INR for Indian, USD for foreign)</option><option value="INR">INR — Indian participant rates</option><option value="USD">USD — foreign participant rates</option></select><div class="hint">A USD invoice can still be paid in INR at the settlement rate (₹' + sbpFxRate() + ' per USD).</div></div>' +
+      '<div class="field"><label>Billing currency</label><div id="rsCurNote" style="font-size:0.84rem;font-weight:600;padding:8px 0"></div><div class="hint">Indian participants are billed in INR at the Indian rate card; foreign participants in USD at the foreign rate card. A USD invoice may be settled in INR only as USD × DEO settlement rate (₹' + sbpFxRate() + ' per USD) — never at the Indian rate card.</div></div>' +
     '</div><div id="rsPreview"></div>',
     '<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="sbaReserveCreate()"><span class="material-symbols-outlined">add_shopping_cart</span>Reserve &amp; E-mail PI</button>');
   sbaReserveRefresh();
@@ -1183,7 +1183,8 @@ function sbaCreditFor(companyId) {
 function sbaReserveRefresh() {
   const st = window.__sbaRes;
   const comp = sbaLiveProfile(st.company) || SB_COMPANIES.find((c) => c.id === st.company);
-  const cur = st.cur || (comp.origin === 'international' ? 'USD' : 'INR');
+  const cur = comp.origin === 'international' ? 'USD' : 'INR';
+  const note = $('rsCurNote'); if (note) note.textContent = cur === 'USD' ? 'USD — foreign participant rates (INR settlement at ₹' + sbpFxRate() + ' per USD)' : 'INR — Indian participant rates';
   const opts = sbaStallOptions(null, st.hall);
   $('rsStall').innerHTML = '<option value="">— select —</option>' + opts.map((x) => '<option value="' + x.name + '"' + (x.name === st.name ? ' selected' : '') + '>' + x.name + ' · ' + x.sqm + ' sq.m · ' + x.sides + ' open</option>').join('');
   const isCh = st.hall === 'CH';
@@ -1204,7 +1205,8 @@ function sbaReserveRefresh() {
     (l.mezz ? '<div class="sb-gw-sum"><span>Mezzanine · ' + l.mezzSqm + ' sq.m × ' + sbpFmt(l.mezzRate, cur) + '</span><b>' + sbpFmt(l.mezz, cur) + '</b></div>' : '') +
     '<div class="sb-gw-sum"><span>GST ' + Math.round(p.gstPct * 100) + '%</span><b>' + sbpFmt(p.gst, cur) + '</b></div>' +
     (p.credit ? '<div class="sb-gw-sum"><span>Registration fee adjusted</span><b>− ' + sbpFmt(p.credit, cur) + '</b></div>' : '') +
-    '<div class="sb-gw-sum total"><span>Net payable (100%) · billed in ' + cur + '</span><b>' + sbpFmt(p.payable, cur) + '</b></div></div>';
+    '<div class="sb-gw-sum total"><span>Net payable (100%) · billed in ' + cur + '</span><b>' + sbpFmt(p.payable, cur) + '</b></div>' +
+    (cur === 'USD' && sbpInrSettlementAllowed(cur) ? '<div class="sb-gw-sum"><span>If settled in INR · USD × ₹' + sbpFxRate() + '</span><b>' + sbpFmt(sbpToInr(p.payable), 'INR') + '</b></div>' : '') + '</div>';
 }
 function sbaReserveCreate() {
   const st = window.__sbaRes;
@@ -1225,7 +1227,7 @@ function sbaReserveCreate() {
     if (!ex.spaceBooking.reservations) ex.spaceBooking.reservations = [];
     ex.seq.pi = (ex.seq.pi || 0) + 1;
     const withCredit = !ex.spaceBooking.reservations.some((r) => SBD_HOLDING.includes(r.status) && r.pricing && r.pricing.credit > 0);
-    const curL = st.cur || (lp.origin === 'international' ? 'USD' : 'INR');
+    const curL = lp.origin === 'international' ? 'USD' : 'INR';
     const pricing = sbpPrice([cand], { currency: curL, withCredit: withCredit });
     piNo = 'PI-AI27-' + String(ex.seq.pi).padStart(4, '0'); no = '#' + String(10000000 + Math.floor(Math.random() * 89999999)); id = 'sbr_' + Date.now() + '_a';
     const r = { id: id, no: no, piNo: piNo, piRev: 0, type: cand.hall === 'CH' ? 'Chalet' : 'Pre-defined Space', stalls: [cand], pricing: pricing, amount: pricing.payable, status: 'reserved', source: 'admin',
@@ -1240,7 +1242,7 @@ function sbaReserveCreate() {
     sbdSaveKey(ex);
   } else {
     const comp = SB_COMPANIES.find((c) => c.id === st.company);
-    const cur = st.cur || (comp.origin === 'international' ? 'USD' : 'INR');
+    const cur = comp.origin === 'international' ? 'USD' : 'INR';
     const pricing = sbpPrice([cand], { currency: cur, withCredit: sbaCreditFor(st.company) });
     const created = (sbDemoStore().__created || []).length;
     piNo = 'PI-AI27-' + String(9001 + created); no = '#' + String(10000000 + (sbHash(piNo + Date.now()) % 89999999)); id = 'sbd_' + cand.name + '_' + Date.now();
