@@ -6,12 +6,15 @@
 'use strict';
 
 /* ---------------- Seed data (mirrors dev.evenuefy.com) ---------------- */
+/* the company logged into this portal — domestic (INR) or international (USD), see exhibitors.js */
+const EXH = sbCurrentExhibitor();
 const EVENT = {
   name: 'Aero India 2027',
   dates: '10th to 15th Feb 2027',
-  exhibitor: 'Hindustan Aeronautics Limited (HAL)',
-  exhibitorCountry: 'India', // from the company's registration — drives INR vs USD pricing
-  exhibitorEmail: 'dhirens@evenuefy.com',
+  exhibitor: EXH.company,
+  exhibitorCountry: EXH.country, // from the company's registration — drives INR vs USD pricing
+  exhibitorEmail: EXH.email,
+  exhibitorRegNo: EXH.regNo,
   eventDays: ['11 Feb 2027', '12 Feb 2027', '13 Feb 2027'],
   coexRegFee: 40000, // Rs. incl. GST — Separate co-exhibitor registration
 };
@@ -56,7 +59,7 @@ const SEED = {
   cart: [],           // {id,type:'coex_reg'|'vehicle',refId,label,sub,amount}
 };
 
-const LS_KEY = 'evenuefy_coex_module_v1';
+const LS_KEY = EXH.lsKey; // one portal state per exhibitor login
 let S = load();
 
 function load() {
@@ -87,14 +90,20 @@ function load() {
       return parsed;
     }
   } catch (e) { /* storage unavailable — run in-memory */ }
-  return JSON.parse(JSON.stringify(SEED));
+  return freshSeed();
+}
+/* HAL carries its pre-allotted stalls; any other login starts without stalls */
+function freshSeed() {
+  const seed = JSON.parse(JSON.stringify(SEED));
+  if (!EXH.seedStalls) seed.stalls = [];
+  return seed;
 }
 function save() {
   try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch (e) { /* in-memory only */ }
 }
 function resetDemo() {
   if (!confirm('Reset all demo data?')) return;
-  S = JSON.parse(JSON.stringify(SEED));
+  S = freshSeed();
   save();
   location.hash = '#/co-exhibitors';
   render();
@@ -2014,7 +2023,7 @@ function downloadOrderInvoice(orderNo) {
 function downloadProformaInvoice(resId) {
   const r = S.spaceBooking && S.spaceBooking.reservations.find((x) => x.id === resId);
   if (!r) { toast('Application not found.', 'error'); return; }
-  sbpOpenProforma(r, { billedTo: EVENT.exhibitor, regNo: SB_LIVE_REGNO, country: EVENT.exhibitorCountry, eventName: EVENT.name, eventDates: EVENT.dates });
+  sbpOpenProforma(r, { billedTo: EVENT.exhibitor, regNo: EVENT.exhibitorRegNo, country: EVENT.exhibitorCountry, eventName: EVENT.name, eventDates: EVENT.dates });
 }
 
 function viewMyOrders() {
@@ -2276,17 +2285,31 @@ function exhibitorLoggedIn() {
   try { return sessionStorage.getItem(EXH_SESSION_KEY) === 'yes'; } catch (e) { return false; }
 }
 
+/* login screen: pick the domestic or the international company */
+function loginCompanyFill() {
+  const sel = $('lgCompany');
+  if (!sel) return;
+  sel.innerHTML = SB_EXHIBITORS.map((p) => '<option value="' + p.id + '"' + (p.id === EXH.id ? ' selected' : '') + '>' + esc(p.company) + ' — ' + esc(p.label) + '</option>').join('');
+  loginCompanyChanged();
+}
+function loginCompanyChanged() {
+  const p = sbExhibitorById($('lgCompany').value);
+  $('lgEmail').value = p.email;
+  $('lgCompanyHint').textContent = p.country + ' · Reg. no. ' + p.regNo + ' · ' + (p.origin === 'international' ? 'foreign participant rates in USD (may settle in INR)' : 'Indian participant rates in INR');
+}
 function exhibitorLogin(e) {
   e.preventDefault();
   clearErrs();
   const email = $('lgEmail').value.trim();
   const pwd = $('lgPassword').value;
+  const id = $('lgCompany') ? $('lgCompany').value : EXH.id;
   let ok = true;
   if (!email) { setErr('lgEmail', 'Email is required'); ok = false; }
   else if (!EMAIL_RE.test(email)) { setErr('lgEmail', 'Enter a valid email address'); ok = false; }
   if (!pwd) { setErr('lgPassword', 'Password is required'); ok = false; }
   if (!ok) return false;
-  try { sessionStorage.setItem(EXH_SESSION_KEY, 'yes'); } catch (err) { /* ignore */ }
+  try { sessionStorage.setItem(EXH_SESSION_KEY, 'yes'); localStorage.setItem(SB_EXH_SEL_KEY, id); } catch (err) { /* ignore */ }
+  if (id !== EXH.id) { location.reload(); return false; } // switch portal state to the chosen company
   enterExhibitorApp();
   toast('Welcome back, ' + EVENT.exhibitor, 'success');
   return false;
@@ -2300,6 +2323,7 @@ function exhibitorLogout() {
 }
 
 function enterExhibitorApp() {
+  const chip = $('chipUser'); if (chip) chip.textContent = EVENT.exhibitor + (EXH.origin === 'international' ? ' · USD' : '');
   $('loginScreen').style.display = 'none';
   $('appShell').style.display = 'flex';
   if (!location.hash) location.hash = '#/dashboard';
@@ -2307,6 +2331,7 @@ function enterExhibitorApp() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  loginCompanyFill();
   if (exhibitorLoggedIn()) enterExhibitorApp();
   // not logged in → the login screen stays visible; the shell renders after login
 });

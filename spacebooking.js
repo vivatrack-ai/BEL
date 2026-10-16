@@ -19,7 +19,7 @@
 
 /* ---------------- state ---------------- */
 /* bump to wipe every portal's demo applications on the next load */
-const SB_CLEAR_SEQ = 5;
+const SB_CLEAR_SEQ = 6;
 (function migrateSpaceBooking() {
   if (!S.spaceBooking) S.spaceBooking = {};
   if (!S.spaceBooking.reservations) { S.spaceBooking.reservations = []; delete S.spaceBooking.applications; }
@@ -66,7 +66,7 @@ const sbMoney = (n, cur) => sbpFmt(n, cur || sbCurrency());
 const sbStall = (r) => r.stalls[0];
 
 /* occupancy map for the layout — live applications + seeded stalls + demo book */
-function sbBookedSet() { return sbInventory(S.spaceBooking.reservations, S.stalls); }
+function sbBookedSet() { return sbInventory(S.spaceBooking.reservations, S.stalls, EXH); }
 
 window.__sbSel = window.__sbSel || []; // transient stall selection
 
@@ -752,7 +752,7 @@ function sbStepper(r) {
 function downloadSpaceTaxInvoice(resId) {
   const r = sbRes(resId);
   if (!r || r.status !== 'confirmed') { toast('Tax invoice is issued after 100% payment.', 'error'); return; }
-  sbpOpenTaxInvoice(r, { billedTo: EVENT.exhibitor, regNo: SB_LIVE_REGNO, country: EVENT.exhibitorCountry, eventName: EVENT.name, eventDates: EVENT.dates });
+  sbpOpenTaxInvoice(r, { billedTo: EVENT.exhibitor, regNo: EVENT.exhibitorRegNo, country: EVENT.exhibitorCountry, eventName: EVENT.name, eventDates: EVENT.dates });
 }
 
 /* ---------------- VIEW · Application detail (one stall) ---------------- */

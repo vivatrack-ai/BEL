@@ -22,7 +22,8 @@
     <form id="loginForm" onsubmit="return exhibitorLogin(event)" novalidate>
       <div class="field" style="margin-bottom:14px">
         <label>Exhibiting Company</label>
-        <input type="text" value="Hindustan Aeronautics Limited (HAL)" readonly>
+        <select id="lgCompany" onchange="loginCompanyChanged()"></select>
+        <div class="hint" id="lgCompanyHint"></div>
       </div>
       <div class="field" style="margin-bottom:14px">
         <label>Email <span class="req">*</span></label>
@@ -151,7 +152,7 @@
     <div class="topbar">
       <div class="event">Aero India 2027<small>10th to 15th Feb 2027 (Asia/Kolkata)</small></div>
       <div class="spacer"></div>
-      <span class="chip-user">Hindustan Aeronautics Limited (HAL)</span>
+      <span class="chip-user" id="chipUser">Hindustan Aeronautics Limited (HAL)</span>
       <button class="cart-btn" onclick="openNotifications()" aria-label="Notifications">
         <span class="material-symbols-outlined">notifications</span>
         <span class="cart-count" id="notifCount" style="display:none">0</span>
@@ -171,6 +172,7 @@
 
 <div id="toasts"></div>
 <script src="phone.js"></script>
+<script src="exhibitors.js"></script>
 <script src="app.js"></script>
 <script src="matchmaking-data.js"></script>
 <script src="profile.js"></script>
