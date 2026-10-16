@@ -308,7 +308,8 @@ function render() {
   else if (route === 'aircraft-approvals') html = viewAircraftApprovals();
   else if (route === 'aggregator-approvals') html = viewAggregatorApprovals();
   else if (route === 'orders') html = viewOrders();
-  else if (route === 'space-reservations' || route === 'space-approvals') html = viewSpaceReservations();
+  else if (route === 'space-applications' || route === 'space-reservations' || route === 'space-approvals') html = viewSpaceApplications();
+  else if (route === 'space-settings') html = viewSpaceSettings();
   else if (route === 'booking-dashboard') html = viewBookingDashboard();
   else if (route === 'booking-transactions') html = viewBookingTransactions();
   else if (route.indexOf('aircraft-application/') === 0) html = viewAircraftApplication(route.split('/')[1]);

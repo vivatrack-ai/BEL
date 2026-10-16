@@ -32,8 +32,8 @@
       <a class="nav-item" data-route="booking-transactions" href="#/booking-transactions">
         <span class="material-symbols-outlined">account_balance_wallet</span>Transactions
       </a>
-      <a class="nav-item" data-route="space-reservations" href="#/space-reservations">
-        <span class="material-symbols-outlined">view_comfy_alt</span>Space Reservations
+      <a class="nav-item" data-route="space-applications" href="#/space-applications">
+        <span class="material-symbols-outlined">view_comfy_alt</span>Space Applications
       </a>
     </div>
 
@@ -68,9 +68,12 @@
     <a class="nav-item" data-route="orders" href="#/orders">
       <span class="material-symbols-outlined">payments</span>Orders
     </a>
-    <a class="nav-item" style="pointer-events:none;opacity:0.5">
-      <span class="material-symbols-outlined">settings</span>Settings
-    </a>
+    <div class="nav-group-label">Settings</div>
+    <div class="nav-sub">
+      <a class="nav-item" data-route="space-settings" href="#/space-settings">
+        <span class="material-symbols-outlined">tune</span>Space Booking Configuration
+      </a>
+    </div>
 
     <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:12px">
       <a class="nav-item" href="index.html">
@@ -103,6 +106,8 @@
 <script src="admin-data.js"></script>
 <script src="admin.js"></script>
 <script src="space-pricing.js"></script>
+<script src="space-inventory.js"></script>
 <script src="admin-booking.js"></script>
+<script src="admin-space-settings.js"></script>
 </body>
 </html>

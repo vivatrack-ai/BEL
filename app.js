@@ -11,6 +11,7 @@ const EVENT = {
   dates: '10th to 15th Feb 2027',
   exhibitor: 'Hindustan Aeronautics Limited (HAL)',
   exhibitorCountry: 'India', // from the company's registration — drives INR vs USD pricing
+  exhibitorEmail: 'dhirens@evenuefy.com',
   eventDays: ['11 Feb 2027', '12 Feb 2027', '13 Feb 2027'],
   coexRegFee: 40000, // Rs. incl. GST — Separate co-exhibitor registration
 };
@@ -1643,8 +1644,8 @@ function openCart() {
     const left = sbpDaysLeft(r.holdUntil);
     return '<div class="cart-card" onclick="closeCart();location.hash=\'#/space-booking/application/' + r.id + '\'">' +
       '<div class="cc-top"><span class="cc-ic"><span class="material-symbols-outlined">storefront</span></span>' +
-        '<div class="cc-main"><b>' + esc(s.name) + ' · ' + esc(sbZoneLabel(s.hall)) + '</b><small>' + esc(sbSchemeLabel(s.scheme)) + ' · ' + s.sqm + ' sq.m · Application ' + esc(r.no) + '</small></div>' +
-        '<span class="cc-amt">' + money(i.amount) + '</span></div>' +
+        '<div class="cc-main"><b>' + esc(s.name) + ' · ' + esc(sbZoneLabel(s.hall)) + '</b><small>' + esc(sbSchemeLabel(s.scheme)) + ' · ' + s.sqm + ' sq.m' + (s.mezzSqm ? ' + ' + s.mezzSqm + ' mezz.' : '') + ' · Application ' + esc(r.no) + '</small></div>' +
+        '<span class="cc-amt">' + sbpFmt(i.amount, r.pricing.currency) + '</span></div>' +
       '<div class="cc-foot"><span><span class="material-symbols-outlined">timer</span>Valid till ' + sbpDate(r.holdUntil) + ' · ' + (left <= 0 ? 'expires today' : left + ' day' + (left === 1 ? '' : 's') + ' left') + '</span>' +
         '<span class="cc-links" onclick="event.stopPropagation()"><button class="btn-link" onclick="closeCart();location.hash=\'#/space-booking/application/' + r.id + '\'">View &amp; pay</button>' +
         '<button class="btn-link danger" onclick="removeCartItem(\'' + i.id + '\')">Remove</button></span></div></div>';
@@ -1767,7 +1768,7 @@ function viewExhibitorDashboard() {
     '<div class="stall-ticket">' +
       '<span class="sicon"><span class="material-symbols-outlined">storefront</span></span>' +
       '<div><div class="sno">' + esc(st.stall) + '</div>' +
-      '<div class="smeta">' + esc(st.hall) + ' · ' + st.area + ' SQM</div></div>' +
+      '<div class="smeta">' + esc(st.hall) + ' · ' + st.area + ' SQM' + (st.mezzSqm ? ' + ' + st.mezzSqm + ' MEZZ' : '') + '</div></div>' +
     '</div>').join('');
   const spaceCard = S.stalls.length
     ? '<div class="hero-space">' +
@@ -1779,6 +1780,7 @@ function viewExhibitorDashboard() {
           '<div class="hero-stats">' +
             '<div class="hero-stat"><b>' + S.stalls.length + '</b><span>Stalls Booked</span></div>' +
             '<div class="hero-stat"><b>' + totalSqm + ' <small style="font-size:0.75rem;font-weight:700">SQM</small></b><span>Total Area</span></div>' +
+            (S.stalls.some((st) => st.mezzSqm) ? '<div class="hero-stat"><b>' + S.stalls.reduce((a, st) => a + Number(st.mezzSqm || 0), 0) + ' <small style="font-size:0.75rem;font-weight:700">SQM</small></b><span>Mezzanine</span></div>' : '') +
           '</div>' +
         '</div>' +
         '<div class="hero-actions">' +
@@ -1803,12 +1805,12 @@ function viewExhibitorDashboard() {
       const left = sbpDaysLeft(r.holdUntil);
       actions.push({
         icon: 'timer', title: 'Stall ' + r.stalls[0].name + ' — application ' + r.no + ' valid till ' + sbpDate(r.holdUntil) + (left <= 0 ? ' (expires today)' : ' (' + left + ' day' + (left === 1 ? '' : 's') + ' left)'),
-        sub: 'Pay ' + money(r.amount) + ' (100%) online or upload offline payment proof to confirm the stall.',
+        sub: 'Pay ' + sbpFmt(r.amount, r.pricing.currency) + ' (100%) online or upload offline payment proof — the stall is allotted automatically on receipt.',
         btn: '<a class="btn btn-primary btn-sm" href="#/space-booking/application/' + r.id + '">View &amp; Pay</a>',
       });
     } else if (r.status === 'payment_under_verification') actions.push({
       icon: 'hourglass_top', title: 'Offline payment for stall ' + r.stalls[0].name + ' (' + r.no + ') under verification',
-      sub: r.payment.method + ' · Ref ' + r.payment.ref + ' · ' + money(r.payment.amount) + ' — the validity clock is paused until DEO verifies the receipt.',
+      sub: r.payment.method + ' · Ref ' + r.payment.ref + ' · ' + sbpFmt(r.payment.amount, r.pricing.currency) + ' — the validity clock is paused until DEO verifies the receipt.',
       btn: '<a class="btn btn-outline btn-sm" href="#/space-booking/application/' + r.id + '">View</a>',
     });
   });
@@ -2012,7 +2014,7 @@ function downloadOrderInvoice(orderNo) {
 function downloadProformaInvoice(resId) {
   const r = S.spaceBooking && S.spaceBooking.reservations.find((x) => x.id === resId);
   if (!r) { toast('Application not found.', 'error'); return; }
-  sbpOpenProforma(r, { billedTo: EVENT.exhibitor, country: EVENT.exhibitorCountry, eventName: EVENT.name, eventDates: EVENT.dates });
+  sbpOpenProforma(r, { billedTo: EVENT.exhibitor, regNo: SB_LIVE_REGNO, country: EVENT.exhibitorCountry, eventName: EVENT.name, eventDates: EVENT.dates });
 }
 
 function viewMyOrders() {
