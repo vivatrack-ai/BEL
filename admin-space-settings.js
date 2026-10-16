@@ -33,7 +33,8 @@ function viewSpaceSettings() {
           '<div class="field"><label>Corner stall fee — % of space rental per open side beyond the first</label>' + num('corner', Math.round(c.cornerPctPerSide * 100), 0.5, 0, 90) + ' %<div class="hint">2 sides +' + Math.round(c.cornerPctPerSide * 100) + '% · 3 sides +' + Math.round(c.cornerPctPerSide * 200) + '% · 4 sides +' + Math.round(c.cornerPctPerSide * 300) + '% · not on chalets or mezzanine</div></div>' +
           '<div class="field"><label>GST %</label>' + num('gst', Math.round(c.gst * 100), 1, 0, 90) + ' %</div>' +
           '<div class="field"><label>Minimum bookable area (sq.m)</label>' + num('minSqm', c.minSqm, 1, 1, 90) + '</div>' +
-          '<div class="field"><label>USD reference rate (₹ per $) — reports only</label>' + num('usdRate', c.usdRate, 0.5, 1, 90) + '</div>' +
+          '<div class="field"><label>USD → INR settlement rate (₹ per USD)</label>' + num('usdRate', c.usdRate, 0.5, 1, 90) + '<div class="hint">Used when a USD-billed exhibitor pays in INR (online or offline) and for INR equivalents in reports. Exchange-rate variation is borne by the exhibitor (T&amp;C 9z).</div></div>' +
+          '<div class="field full">' + chk('allowInr', c.allowInrSettlement !== false, 'Allow USD-billed (foreign) exhibitors to settle invoices in INR at the rate above') + '</div>' +
         '</div></div>' +
       '<div class="card" style="margin-top:0"><h2 class="card-title">Mezzanine Floor</h2>' +
         '<div class="form-grid">' +
@@ -93,6 +94,7 @@ function sbCfgSave() {
   c.passes.aggregator = { allDay: pos('p_ag_a', 'Aggregator all-day', true), oneDay: pos('p_ag_o', 'Aggregator one-day', true), car: pos('p_ag_c', 'Aggregator car', true) };
   c.passes.mediaPartner = { fee: pos('p_mp_fee', 'Media partner fee', true), sqm: pos('p_mp_sqm', 'Media partner sq.m', true), passes: pos('p_mp_pass', 'Media partner passes', true) };
   ['reserved', 'reminders', 'verification', 'extension', 'expiry', 'allotment', 'shift'].forEach((k) => { c.emails[k] = $('em_' + k).checked; });
+  c.allowInrSettlement = $('allowInr').checked;
   if (bad.length) { toast('Check these values: ' + bad.join(', '), 'error'); return; }
   if (c.mezz.maxPct > 1) { toast('Mezzanine maximum cannot exceed 100% of the allotted area.', 'error'); return; }
   sbpSaveConfig(c);

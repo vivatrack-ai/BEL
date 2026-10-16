@@ -32,7 +32,8 @@ const SBP_DEFAULTS = {
   cornerPctPerSide: 0.03,
   mezz: { inr: 21500, usd: 475, minSqm: 100, maxPct: 0.5, schemes: ['raw', 'shell'] },
   regFee: { inr: 40000, usd: 700 },
-  usdRate: 88,
+  usdRate: 88,                                          // DEO settlement rate, ₹ per USD
+  allowInrSettlement: true,                             // USD-billed exhibitors may pay in INR at that rate
   passes: {
     allDayPer50: 3, oneDayPer4: 1, carPer50: 1,          // clause 9(q)/(r): per 50 sq.m blocks, 1 one-day pass per 4 sq.m
     mediaPartner: { fee: 1000000, sqm: 12, passes: 10 }, // clause 9(o): Associate Media Partner
@@ -107,6 +108,24 @@ function sbpPrice(stalls, opts) {
 }
 /* base space rental of one stall for a scheme (price pickers) */
 function sbpBaseFor(st, scheme, cur) { return sbpPrice([Object.assign({}, st, { scheme: scheme, mezzSqm: 0 })], { currency: cur }).base; }
+
+/* ---------------- settlement of USD invoices in INR ----------------
+   The invoice stays in the billing currency (USD); the exhibitor may pay
+   the INR equivalent at DEO's settlement rate (T&C 9z: exchange-rate
+   variation is borne by the participant). A payment record carries
+   settleCurrency / fxRate / settleAmount next to the billed amount. */
+const sbpFxRate = () => sbpConfig().usdRate;
+const sbpInrSettlementAllowed = (cur) => cur === 'USD' && sbpConfig().allowInrSettlement !== false;
+const sbpToInr = (usd, rate) => Math.round(usd * (rate || sbpFxRate()));
+/* amount actually payable in the chosen settlement currency */
+function sbpSettleAmount(amount, cur, settleCur, rate) {
+  return cur === 'USD' && settleCur === 'INR' ? sbpToInr(amount, rate) : amount;
+}
+/* "Settled in INR ₹x at ₹88/$" for documents, tables and audit */
+function sbpSettlementText(pm, cur) {
+  if (!pm || cur !== 'USD' || pm.settleCurrency !== 'INR') return '';
+  return 'Settled in INR ' + sbpFmt(pm.settleAmount, 'INR') + ' at ₹' + pm.fxRate + ' per USD';
+}
 
 /* ---------------- pass / vehicle entitlement (clause 9 q, r) ----------------
    up to 50 sq.m: 3 all-day passes + 1 car pass, pro-rata per further 50 sq.m;
@@ -234,6 +253,7 @@ function sbpProformaHtml(r, who) {
     sbpBankBlock(r.piNo) +
     '<ul class="terms">' +
       '<li>The stall is held in your cart till <b>' + esc(sbpDate(r.holdUntil)) + '</b>. 100% of the Net Payable must reach DEO’s account within ' + sbpHoldDays() + ' days of this proforma invoice (T&amp;C clause 6a); part payments are not accepted.</li>' +
+      (cur === 'USD' && sbpInrSettlementAllowed(cur) ? '<li>USD invoices may be settled in INR at DEO’s settlement rate of ₹' + sbpFxRate() + ' per USD (' + sbpFmt(sbpToInr(p.payable), 'INR') + ' today); exchange-rate variation is borne by the exhibitor (T&amp;C clause 9z).</li>' : '') +
       '<li>Payment may be made online through the exhibitor portal or offline by NEFT / RTGS / Cheque / DD / Wire transfer. For offline payments, upload the proof in the portal — the validity clock pauses until DEO verifies the receipt.</li>' +
       '<li>If the amount is not received within the validity period the application is cancelled automatically and the space released for fresh booking. DEO may extend validity case by case before expiry.</li>' +
       '<li>On confirmation of 100% payment the stall is allotted automatically to the exhibitor; no upgrade / downgrade is permitted thereafter. A tax invoice is issued on allotment.</li>' +
@@ -260,8 +280,9 @@ function sbpTaxInvoiceHtml(r, who) {
   const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + esc(invNo) + '</title><style>' + SBP_DOC_CSS + '</style></head><body>' +
     sbpDocHead(who, 'TAX INVOICE', 'Invoice No: <b>' + esc(invNo) + '</b><br>Date: ' + esc(r.paidAt || '') + '<br>Against proforma invoice ' + esc(r.piNo) + (r.piRev ? ' Rev ' + r.piRev : '')) +
     '<div class="grid"><div><div class="muted">BILLED TO</div><b>' + esc(who.billedTo) + '</b>' + (who.regNo ? ' <span class="muted">(' + esc(who.regNo) + ')</span>' : '') + '<br>' + esc(who.country) + '<br><span class="muted">Application ' + esc(r.no) + ' · ' + esc(r.type) + ' · billed in ' + cur + '</span></div>' +
-    '<div class="right"><div class="muted">PAYMENT</div><b>' + esc(r.orderNo || '') + '</b><br><span class="muted">' + esc((pm.mode === 'offline' ? 'Offline · ' : 'Online · ') + (pm.method || 'Card') + (pm.ref ? ' · Ref ' + pm.ref : '') + (pm.txn ? ' · ' + pm.txn : '')) + '</span><br><span class="stamp">PAID · 100%</span></div></div>' +
-    '<table><tr><th>Description</th><th class="right">Amount (' + cur + ')</th></tr>' + sbpDocLines(r, p) + sbpDocTotals(p, 'Total Paid') + '</table>' +
+    '<div class="right"><div class="muted">PAYMENT</div><b>' + esc(r.orderNo || '') + '</b><br><span class="muted">' + esc((pm.mode === 'offline' ? 'Offline · ' : 'Online · ') + (pm.method || 'Card') + (pm.ref ? ' · Ref ' + pm.ref : '') + (pm.txn ? ' · ' + pm.txn : '')) + '</span>' + (sbpSettlementText(pm, cur) ? '<br><span class="muted">' + esc(sbpSettlementText(pm, cur)) + '</span>' : '') + '<br><span class="stamp">PAID · 100%</span></div></div>' +
+    '<table><tr><th>Description</th><th class="right">Amount (' + cur + ')</th></tr>' + sbpDocLines(r, p) + sbpDocTotals(p, 'Total Paid') +
+    (sbpSettlementText(pm, cur) ? '<tr class="tot"><td class="right">Received in INR (' + esc(String(pm.method || '')) + ')</td><td class="right">' + sbpFmt(pm.settleAmount, 'INR') + ' @ ₹' + esc(String(pm.fxRate)) + '/$</td></tr>' : '') + '</table>' +
     (r.allotment ? '<div class="bank"><h3>Allotment</h3><div>Stall <b>' + esc(r.stalls.map((s) => s.name).join(', ')) + '</b> (' + esc(r.stalls.map((s) => sbpZoneName(s.hall)).join(', ')) + ') allotted to <b>' + esc(who.billedTo) + '</b> on ' + esc(r.allotment.at || '') + '. ' +
       (r.allotment.entitlement ? 'Entitlement released: ' + r.allotment.entitlement.allDay + ' all-day exhibitor passes, ' + r.allotment.entitlement.oneDay + ' one-day passes, ' + r.allotment.entitlement.car + ' car pass(es).' : '') + '</div></div>' : '') +
     '<div class="foot">GST No. of DEO: ' + esc(DEO_BANK.gstin) + ' · Computer-generated tax invoice for the payment collected by the organiser · ' + esc(who.eventName) + ' · No TDS is to be deducted (DEO is a Central Government organisation).</div>' + SBP_PRINT_BTN +

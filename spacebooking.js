@@ -481,15 +481,17 @@ function sbValidity(r) {
 }
 
 /* ---------------- payment → AUTOMATIC ALLOTMENT (3.8) ---------------- */
-function sbCreateOrder(r, method, mode, ref, kind) {
+function sbCreateOrder(r, method, mode, ref, kind, settle) {
   if (!S.orders) S.orders = [];
   if (!S.seq.order) S.seq.order = 0;
   const adj = kind === 'adj';
+  const billed = adj ? r.adjustment.amount : r.amount;
+  const st = settle || { settleCurrency: r.pricing.currency, settleAmount: billed };
   const order = {
     id: uid('order'), orderNo: 'ORD-2027-' + pad(S.seq.order, 4),
     type: 'space', label: (adj ? 'Stall shift differential — ' : 'Stall ' + sbStall(r).name + ' — ') + 'Application ' + r.no + (adj ? '' : ' · 100% payment'),
     sub: (adj ? r.adjustment.no : r.piNo) + ' · ' + method + (ref ? ' · Ref ' + ref : ''), refId: r.id,
-    amount: adj ? r.adjustment.amount : r.amount, currency: r.pricing.currency, status: 'success', method: method, mode: mode, ref: ref || '',
+    amount: st.settleAmount, currency: st.settleCurrency, billedAmount: billed, billedCurrency: r.pricing.currency, fxRate: st.fxRate || null, status: 'success', method: method, mode: mode, ref: ref || '',
     paidAt: nowStr(), paidAtIso: new Date().toISOString(), payer: EVENT.exhibitor,
   };
   S.orders.push(order);
@@ -515,7 +517,7 @@ function sbAllot(r, payment, orderNo, by) {
   const ent = sbpApplyEntitlement(S);
   r.allotment = { at: nowStr(), atIso: r.paidAtIso, by: by || 'System (auto-allotment)', company: EVENT.exhibitor, entitlement: ent, locked: true };
   S.cart = S.cart.filter((c) => !(c.type === 'space' && c.refId === r.id));
-  sbpAudit(r, by || 'System', '100% payment confirmed', (r.payment.mode === 'offline' ? 'Offline · ' + r.payment.method + ' · Ref ' + r.payment.ref : 'Online · ' + (r.payment.method || 'Card')) + ' · ' + sbMoney(r.amount, r.pricing.currency) + (r.orderNo ? ' · ' + r.orderNo : ''));
+  sbpAudit(r, by || 'System', '100% payment confirmed', (r.payment.mode === 'offline' ? 'Offline · ' + r.payment.method + ' · Ref ' + r.payment.ref : 'Online · ' + (r.payment.method || 'Card')) + ' · ' + sbMoney(r.amount, r.pricing.currency) + (sbpSettlementText(r.payment, r.pricing.currency) ? ' · ' + sbpSettlementText(r.payment, r.pricing.currency) : '') + (r.orderNo ? ' · ' + r.orderNo : ''));
   sbpAudit(r, 'System', 'Stall allotted automatically', 'Stall ' + s.name + ' mapped to ' + EVENT.exhibitor + ' · layout updated · tax invoice ' + String(r.orderNo || '').replace('ORD-', 'INV-') + ' · application locked (no upgrade / downgrade)');
   sbpAudit(r, 'System', 'Badge & vehicle quota released', ent.allDay + ' all-day exhibitor passes, ' + ent.oneDay + ' one-day passes, ' + ent.car + ' car pass(es) for ' + ent.sqm + ' sq.m allotted');
   sbNotify('verified', 'var(--green)', 'Stall ' + s.name + ' allotted to ' + EVENT.exhibitor + ' — 100% payment received against application ' + r.no + '. Tax invoice and badge / vehicle quota are now available.', true);
@@ -544,13 +546,41 @@ function sbPayOnline(resId, kind) {
     '<div class="sb-gw"><div class="sb-gw-sum"><span>Stall</span><b>' + sbStallTitle(r) + '</b></div>' +
       '<div class="sb-gw-sum"><span>' + (adj ? 'Differential invoice' : 'Proforma invoice') + '</span><b>' + esc(adj ? r.adjustment.no : r.piNo) + '</b></div>' +
       '<div class="sb-gw-sum total"><span>' + (adj ? 'Shift differential payable' : 'Amount payable (100%)') + '</span><b>' + sbMoney(amount, cur) + '</b></div></div>' +
+    (sbpInrSettlementAllowed(cur)
+      ? '<label style="display:block;font-size:0.8rem;font-weight:700;margin:14px 0 8px">Pay in</label>' +
+        '<div class="radio-cards" style="grid-template-columns:1fr 1fr">' +
+          '<label class="radio-card selected" onclick="sbGwPick(this,\'cur\')"><input type="radio" name="sbGwCur" value="USD" checked style="display:none"><b>USD · ' + sbMoney(amount, 'USD') + '</b><small>billing currency</small></label>' +
+          '<label class="radio-card" onclick="sbGwPick(this,\'cur\')"><input type="radio" name="sbGwCur" value="INR" style="display:none"><b>INR · ' + sbMoney(sbpToInr(amount), 'INR') + '</b><small>at ₹' + sbpFxRate() + ' per USD · DEO settlement rate</small></label></div>'
+      : '') +
     '<label style="display:block;font-size:0.8rem;font-weight:700;margin:14px 0 8px">Payment method</label>' +
     '<div class="radio-cards" style="grid-template-columns:repeat(3,1fr)">' +
-      SB_ONLINE_METHODS.map((m, i) => '<label class="radio-card' + (i === 0 ? ' selected' : '') + '" onclick="document.querySelectorAll(\'#sbGw .radio-card\').forEach(x=>x.classList.remove(\'selected\'));this.classList.add(\'selected\')"><input type="radio" name="sbGwM" value="' + m + '"' + (i === 0 ? ' checked' : '') + ' style="display:none"><b>' + m + '</b></label>').join('') + '</div>' +
+      SB_ONLINE_METHODS.map((m, i) => '<label class="radio-card' + (i === 0 ? ' selected' : '') + '" onclick="sbGwPick(this,\'m\')"><input type="radio" name="sbGwM" value="' + m + '"' + (i === 0 ? ' checked' : '') + ' style="display:none"><b>' + m + '</b></label>').join('') + '</div>' +
     '<p style="font-size:0.74rem;color:var(--muted);margin:12px 0 0">Demo gateway — the full amount is charged in one transaction. ' + (adj ? 'A receipt is issued on success.' : 'On success the stall is allotted automatically and a tax invoice issued.') + '</p>',
     '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
-    '<button class="btn btn-primary" onclick="sbDoPayOnline(\'' + r.id + '\',\'' + (adj ? 'adj' : 'full') + '\')"><span class="material-symbols-outlined">lock</span>Pay ' + sbMoney(amount, cur) + '</button>');
+    '<button class="btn btn-primary" id="sbGwPay" onclick="sbDoPayOnline(\'' + r.id + '\',\'' + (adj ? 'adj' : 'full') + '\')"><span class="material-symbols-outlined">lock</span>Pay ' + sbMoney(amount, cur) + '</button>');
   const m = $('modalOverlay'); if (m) m.querySelector('.modal-body').id = 'sbGw';
+  window.__sbGwAmount = amount; window.__sbGwCur = cur;
+}
+/* radio-card picker inside the gateway dialog; updates the pay button for the chosen settlement currency */
+function sbGwPick(el, group) {
+  const name = group === 'cur' ? 'sbGwCur' : 'sbGwM';
+  el.parentElement.querySelectorAll('.radio-card').forEach((x) => x.classList.remove('selected'));
+  el.classList.add('selected');
+  el.querySelector('input[name="' + name + '"]').checked = true;
+  if (group === 'cur') {
+    const settle = el.querySelector('input').value;
+    const btn = $('sbGwPay');
+    if (btn) btn.innerHTML = '<span class="material-symbols-outlined">lock</span>Pay ' + sbMoney(sbpSettleAmount(window.__sbGwAmount, window.__sbGwCur, settle), settle);
+  }
+}
+/* settlement details for a payment: billed amount + what is actually charged */
+function sbSettlement(amount, cur) {
+  const sel = document.querySelector('input[name="sbGwCur"]:checked');
+  const settle = sel ? sel.value : cur;
+  const rate = sbpFxRate();
+  return settle === 'INR' && cur === 'USD'
+    ? { settleCurrency: 'INR', fxRate: rate, settleAmount: sbpToInr(amount, rate) }
+    : { settleCurrency: cur, fxRate: null, settleAmount: amount };
 }
 function sbDoPayOnline(resId, kind) {
   const r = sbRes(resId);
@@ -559,17 +589,19 @@ function sbDoPayOnline(resId, kind) {
   const method = sel ? sel.value : 'Card';
   if (kind === 'adj') {
     if (!r.adjustment || r.adjustment.status !== 'due') return;
-    const order = sbCreateOrder(r, method, 'online', '', 'adj');
+    const st = sbSettlement(r.adjustment.amount, r.pricing.currency);
+    const order = sbCreateOrder(r, method, 'online', '', 'adj', st);
     r.adjustment.status = 'paid'; r.adjustment.paidAt = nowStr(); r.adjustment.orderNo = order.orderNo;
-    r.adjustment.payment = { mode: 'online', method: method, ref: order.orderNo, amount: r.adjustment.amount };
-    sbpAudit(r, EVENT.exhibitor, 'Shift differential paid', 'Online · ' + method + ' · ' + sbMoney(r.adjustment.amount, r.pricing.currency) + ' · ' + order.orderNo);
+    r.adjustment.payment = Object.assign({ mode: 'online', method: method, ref: order.orderNo, amount: r.adjustment.amount }, st);
+    sbpAudit(r, EVENT.exhibitor, 'Shift differential paid', 'Online · ' + method + ' · ' + sbMoney(r.adjustment.amount, r.pricing.currency) + (st.settleCurrency !== r.pricing.currency ? ' · ' + sbpSettlementText(st, r.pricing.currency) : '') + ' · ' + order.orderNo);
     save(); closeModal(); render();
     toast('Differential paid — ' + r.adjustment.no + ' settled.', 'success');
     return;
   }
   if (r.status !== 'reserved') return;
-  const order = sbCreateOrder(r, method, 'online', '');
-  if (!sbAllot(r, { mode: 'online', method: method, ref: order.orderNo, date: nowStr(), amount: r.amount }, order.orderNo)) { S.orders.pop(); return; }
+  const st = sbSettlement(r.amount, r.pricing.currency);
+  const order = sbCreateOrder(r, method, 'online', '', 'full', st);
+  if (!sbAllot(r, Object.assign({ mode: 'online', method: method, ref: order.orderNo, date: nowStr(), amount: r.amount }, st), order.orderNo)) { S.orders.pop(); return; }
   save(); closeModal(); render();
   toast('Payment successful — stall ' + sbStall(r).name + ' allotted to ' + EVENT.exhibitor + '.', 'success');
 }
@@ -606,11 +638,19 @@ function sbOpenOfflineForm(resId, kind) {
         SB_OFFLINE_METHODS.map((m) => '<option>' + m + '</option>').join('') + '</select><div class="error"></div></div>' +
       '<div class="field"><label>UTR / Reference No. <span class="req">*</span></label><input type="text" id="offRef" placeholder="e.g. SBIN526012345678"><div class="error"></div></div>' +
       '<div class="field"><label>Payment Date <span class="req">*</span></label><input type="date" id="offDate" value="' + today + '" max="' + today + '"><div class="error"></div></div>' +
-      '<div class="field"><label>Amount Transferred (' + cur + ') <span class="req">*</span></label><input type="number" id="offAmt" value="' + amount + '" min="1"><div class="error"></div></div>' +
+      (sbpInrSettlementAllowed(cur)
+        ? '<div class="field"><label>Transferred in</label><select id="offCur" onchange="sbOffCurChange(' + amount + ')"><option value="USD">USD (billing currency) · ' + sbMoney(amount, 'USD') + '</option><option value="INR">INR at ₹' + sbpFxRate() + ' per USD · ' + sbMoney(sbpToInr(amount), 'INR') + '</option></select><div class="hint">Exchange-rate variation is borne by the exhibitor (T&amp;C 9z).</div></div>'
+        : '') +
+      '<div class="field"><label><span id="offAmtLbl">Amount Transferred (' + cur + ')</span> <span class="req">*</span></label><input type="number" id="offAmt" value="' + amount + '" min="1"><div class="error"></div></div>' +
       '<div class="field full"><label>Payment Proof (optional)</label><input type="file" id="offFile" accept=".pdf,.jpg,.jpeg,.png"><div class="hint">Bank advice / cheque copy / SWIFT MT103 — PDF or image.</div><div class="error"></div></div>' +
     '</div></form>',
     '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
     '<button class="btn btn-primary" onclick="$(\'sbOffForm\').requestSubmit()"><span class="material-symbols-outlined">upload</span>Submit for Verification</button>');
+}
+function sbOffCurChange(amount) {
+  const settle = $('offCur').value;
+  $('offAmtLbl').textContent = 'Amount Transferred (' + settle + ')';
+  $('offAmt').value = settle === 'INR' ? sbpToInr(amount) : amount;
 }
 function sbSubmitOffline(resId, kind) {
   const r = sbRes(resId);
@@ -622,23 +662,28 @@ function sbSubmitOffline(resId, kind) {
   const ref = $('offRef').value.trim();
   const date = $('offDate').value;
   const amt = Number($('offAmt').value);
-  const due = adj ? r.adjustment.amount : r.amount;
+  const billed = adj ? r.adjustment.amount : r.amount;
+  const cur = r.pricing.currency;
+  const settle = $('offCur') ? $('offCur').value : cur;
+  const rate = sbpFxRate();
+  const due = sbpSettleAmount(billed, cur, settle, rate);
   if (!ref) { setErr('offRef', 'UTR / reference number is required'); ok = false; }
   if (!date) { setErr('offDate', 'Payment date is required'); ok = false; }
   if (!amt || amt <= 0) { setErr('offAmt', 'Enter the amount transferred'); ok = false; }
-  else if (amt < due) { setErr('offAmt', '100% (' + sbMoney(due, r.pricing.currency) + ') must be paid — part payments are not accepted'); ok = false; }
+  else if (amt < due) { setErr('offAmt', '100% (' + sbMoney(due, settle) + (settle !== cur ? ' = ' + sbMoney(billed, cur) + ' at ₹' + rate + '/$' : '') + ') must be paid — part payments are not accepted'); ok = false; }
   if (!ok) return false;
   const f = $('offFile').files[0];
-  const proof = { mode: 'offline', method: method, ref: ref, date: date, amount: amt, fileName: f ? f.name : '', submittedAt: nowStr() };
+  const proof = { mode: 'offline', method: method, ref: ref, date: date, amount: billed, fileName: f ? f.name : '', submittedAt: nowStr(),
+    settleCurrency: settle, fxRate: settle !== cur ? rate : null, settleAmount: amt };
   if (adj) {
     r.adjustment.payment = proof; r.adjustment.status = 'under_verification';
-    sbpAudit(r, EVENT.exhibitor, 'Differential payment proof submitted', method + ' · Ref ' + ref + ' · ' + sbMoney(amt, r.pricing.currency));
+    sbpAudit(r, EVENT.exhibitor, 'Differential payment proof submitted', method + ' · Ref ' + ref + ' · ' + sbMoney(amt, settle) + (settle !== cur ? ' (' + sbMoney(billed, cur) + ' at ₹' + rate + '/$)' : ''));
   } else {
     r.payment = proof;
     r.status = 'payment_under_verification';
     r.pausedAt = new Date().toISOString();
     S.cart = S.cart.filter((c) => !(c.type === 'space' && c.refId === r.id));
-    sbpAudit(r, EVENT.exhibitor, 'Offline payment proof submitted', method + ' · Ref ' + ref + ' · ' + sbMoney(amt, r.pricing.currency) + ' · validity clock paused');
+    sbpAudit(r, EVENT.exhibitor, 'Offline payment proof submitted', method + ' · Ref ' + ref + ' · ' + sbMoney(amt, settle) + (settle !== cur ? ' (' + sbMoney(billed, cur) + ' at ₹' + rate + '/$)' : '') + ' · validity clock paused');
   }
   save(); closeModal(); render();
   sbNotify('hourglass_top', 'var(--blue)', 'Payment proof for ' + (adj ? r.adjustment.no : r.piNo) + ' (' + method + ' · ' + ref + ') submitted. ' + (adj ? '' : 'Your validity clock is paused until DEO verifies the receipt.'));
@@ -739,9 +784,9 @@ function viewApplication(id) {
     ? '<div class="sb-due"><small>AMOUNT DUE · 100%</small><b>' + sbMoney(r.amount, cur) + '</b><span>by ' + sbpDate(r.holdUntil) + ' · ' + (left <= 0 ? 'expires today' : left + ' day' + (left === 1 ? '' : 's') + ' left') + '</span></div>' +
       (r.payment && r.payment.rejectedAt ? '<div class="note" style="border-left-color:var(--red);margin:10px 0"><b class="title" style="color:var(--red)">Earlier proof not accepted</b>' + esc(r.payment.remark || '') + ' (' + esc(r.payment.method) + ' · ' + esc(r.payment.ref) + ', ' + esc(r.payment.rejectedAt) + '). Pay online or upload a fresh proof.</div>' : '') +
       '<div class="sb-paybtns">' + sbActions(r, true) + '</div>' +
-      '<p style="font-size:0.74rem;color:var(--muted);margin:10px 0 0">Offline: NEFT / RTGS / Cheque / DD / Wire transfer to DEO’s account quoting ' + esc(r.piNo) + '. Uploading the proof pauses the ' + sbpHoldDays() + '-day clock until DEO verifies. On 100% payment the stall is allotted automatically.</p>'
+      '<p style="font-size:0.74rem;color:var(--muted);margin:10px 0 0">Offline: NEFT / RTGS / Cheque / DD / Wire transfer to DEO’s account quoting ' + esc(r.piNo) + '. Uploading the proof pauses the ' + sbpHoldDays() + '-day clock until DEO verifies. On 100% payment the stall is allotted automatically.' + (sbpInrSettlementAllowed(cur) ? ' This USD invoice may be paid in INR at DEO’s settlement rate of ₹' + sbpFxRate() + ' per USD (' + sbMoney(sbpToInr(r.amount), 'INR') + ' today).' : '') + '</p>'
     : r.status === 'payment_under_verification'
-    ? '<div class="sb-due blue"><small>UNDER VERIFICATION</small><b>' + sbMoney(r.payment.amount, cur) + '</b><span>' + esc(r.payment.method) + ' · Ref ' + esc(r.payment.ref) + '</span></div>' +
+    ? '<div class="sb-due blue"><small>UNDER VERIFICATION</small><b>' + sbMoney(r.payment.settleAmount || r.payment.amount, r.payment.settleCurrency || cur) + '</b><span>' + esc(r.payment.method) + ' · Ref ' + esc(r.payment.ref) + (r.payment.settleCurrency && r.payment.settleCurrency !== cur ? ' · ' + sbMoney(r.payment.amount, cur) + ' at ₹' + r.payment.fxRate + '/$' : '') + '</span></div>' +
       '<div class="pkv" style="grid-template-columns:1fr 1fr;gap:10px 14px;margin:12px 0">' +
         '<div class="cell"><div class="k">Payment date</div><div class="v">' + esc(r.payment.date) + '</div></div>' +
         '<div class="cell"><div class="k">Submitted</div><div class="v">' + esc(r.payment.submittedAt) + '</div></div>' +
@@ -749,7 +794,7 @@ function viewApplication(id) {
       '<div class="note" style="margin:0 0 10px"><b class="title">Validity clock paused</b>DEO will allot the stall automatically once the amount is verified in its account. You will be notified of the result.</div>' +
       '<div class="sb-paybtns">' + sbActions(r, true) + '</div>'
     : r.status === 'confirmed'
-    ? '<div class="sb-due green"><small>PAID · 100% · ALLOTTED</small><b>' + sbMoney(r.amount, cur) + '</b><span>' + esc(r.paidAt || '') + (r.payment ? ' · ' + (r.payment.mode === 'offline' ? 'Offline · ' + esc(r.payment.method) + ' · Ref ' + esc(r.payment.ref) : 'Online · ' + esc(r.payment.method || 'Card')) : '') + '</span></div>' +
+    ? '<div class="sb-due green"><small>PAID · 100% · ALLOTTED</small><b>' + sbMoney(r.amount, cur) + '</b><span>' + esc(r.paidAt || '') + (r.payment ? ' · ' + (r.payment.mode === 'offline' ? 'Offline · ' + esc(r.payment.method) + ' · Ref ' + esc(r.payment.ref) : 'Online · ' + esc(r.payment.method || 'Card')) : '') + (sbpSettlementText(r.payment, cur) ? '<br>' + esc(sbpSettlementText(r.payment, cur)) : '') + '</span></div>' +
       (r.orderNo ? '<div class="pkv" style="grid-template-columns:1fr 1fr;gap:10px 14px;margin:12px 0"><div class="cell"><div class="k">Order</div><div class="v regno">' + esc(r.orderNo) + '</div></div><div class="cell"><div class="k">Tax invoice</div><div class="v regno">' + esc(r.orderNo.replace('ORD-', 'INV-')) + '</div></div></div>' : '') +
       '<div class="sb-paybtns">' + sbActions(r, true) + '</div>'
     : '<div class="sb-due red"><small>' + (r.status === 'expired' ? 'EXPIRED' : 'RELEASED') + '</small><b>' + sbMoney(r.amount, cur) + '</b><span>' + (r.status === 'expired' ? 'validity lapsed on ' + sbpDate(r.holdUntil) : esc(r.remark || '')) + '</span></div>' +

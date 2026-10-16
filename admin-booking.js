@@ -35,7 +35,8 @@ const SBD_EVENT = { eventName: 'Aero India 2027', eventDates: '10th to 15th Feb 
 const SBD_METHODS = ['Card', 'Net Banking', 'UPI', 'International Card', 'NEFT', 'RTGS', 'Cheque / DD', 'SWIFT (Wire Transfer)'];
 const SBD_OFFLINE = ['NEFT', 'RTGS', 'Cheque / DD', 'SWIFT (Wire Transfer)'];
 const sbdMode = (m) => (SBD_OFFLINE.includes(m) ? 'offline' : 'online');
-const sbdCur = (b) => (b.origin === 'international' ? 'USD' : 'INR');
+const sbdCur = (b) => ((b.pricing && b.pricing.currency) || (b.origin === 'international' ? 'USD' : 'INR'));
+const sbdBucket = (b) => (sbdCur(b) === 'USD' ? 'international' : 'national'); // currency bucket for the money tiles
 const sbdAmt = (n, origin) => sbpFmt(n, origin === 'international' ? 'USD' : 'INR');
 const sbdUsd = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 function sbdCompact(n) {
@@ -262,7 +263,7 @@ function viewBookingDashboard() {
     '<div class="tablewrap" style="margin-top:16px"><table class="grid"><tr><th>Hall / Zone</th><th class="num">Shell (sq.m)</th><th class="num">Raw (sq.m)</th>' +
       '<th class="num">Chalet (sq.m)</th><th class="num">Total Held</th><th class="num">Capacity</th><th class="num">Occupancy</th></tr>' + areaRows + areaFoot + '</table></div></div>';
 
-  const valueOf = (list, o) => list.filter((b) => (b.origin || 'national') === o).reduce((a, b) => a + b.total, 0);
+  const valueOf = (list, o) => list.filter((b) => sbdBucket(b) === o).reduce((a, b) => a + b.total, 0);
   return '<div class="card-head-row" style="margin-bottom:4px"><div><h1 class="page-title">Space Booking Dashboard</h1>' +
       '<p class="page-sub" style="margin-bottom:0">Stall &amp; chalet applications — carts valid for ' + sbpHoldDays() + ' days, allotted automatically on 100% payment — and hall occupancy.</p></div>' +
       sbdFilterBar() + '</div>' +
@@ -311,12 +312,14 @@ function sbdTransactions(bookings) {
       const pm = b.payment || { mode: 'online', method: 'Card' };
       const method = pm.method || 'Card';
       tx.push({ txn: pm.txn || b.orderNo || pm.ref || ('TXN' + String(sbHash(b.id)).slice(0, 9)), at: b.paidAt, no: b.piNo, company: b.company, hall: b.stalls.map((x) => x.hall).join(', '),
-        stalls: b.stalls.map((x) => x.name).join(', '), method: method, mode: pm.mode || sbdMode(method), ref: pm.ref || '', origin: b.origin || 'national', amount: b.total, kind: '100% payment' });
+        stalls: b.stalls.map((x) => x.name).join(', '), method: method, mode: pm.mode || sbdMode(method), ref: pm.ref || '', origin: sbdBucket(b), cur: sbdCur(b), amount: b.total, kind: '100% payment',
+        settle: sbpSettlementText(pm, sbdCur(b)), settleAmount: pm.settleAmount, fxRate: pm.fxRate });
     }
     if (b.adjustment && b.adjustment.status === 'paid') {
       const pm = b.adjustment.payment || { mode: 'online', method: 'Card' };
       tx.push({ txn: b.adjustment.orderNo || pm.ref || b.adjustment.no, at: b.adjustment.paidAtIso ? new Date(b.adjustment.paidAtIso) : (parseTs(b.adjustment.paidAt) || new Date()), no: b.adjustment.no, company: b.company,
-        hall: b.stalls.map((x) => x.hall).join(', '), stalls: b.stalls.map((x) => x.name).join(', '), method: pm.method || 'Card', mode: pm.mode || 'online', ref: pm.ref || '', origin: b.origin || 'national', amount: b.adjustment.amount, kind: 'Shift differential' });
+        hall: b.stalls.map((x) => x.hall).join(', '), stalls: b.stalls.map((x) => x.name).join(', '), method: pm.method || 'Card', mode: pm.mode || 'online', ref: pm.ref || '', origin: sbdBucket(b), cur: sbdCur(b), amount: b.adjustment.amount, kind: 'Shift differential',
+        settle: sbpSettlementText(pm, sbdCur(b)), settleAmount: pm.settleAmount, fxRate: pm.fxRate });
     }
   });
   return tx.sort((a, b) => b.at - a.at);
@@ -325,8 +328,8 @@ function sbdTransactions(bookings) {
 function exportSbdTransactions(list) {
   exportWorkbook('Space-Booking-Transactions-' + exportStamp(), [{
     name: 'Transactions',
-    headers: ['Txn ID', 'Paid At', 'Invoice', 'Kind', 'Exhibitor', 'National / International', 'Hall / Chalet Line', 'Stall / Chalet', 'Online / Offline', 'Method', 'Reference', 'Currency', 'Amount', 'Amount (INR equiv.)', 'Status'],
-    rows: list.map((t) => [t.txn, sbdFmt(t.at), t.no, t.kind, t.company, SBDT_ORIGIN[t.origin], t.hall.split(', ').map(sbdZoneLabel).join(', '), t.stalls, SBDT_MODE[t.mode], t.method, t.ref || '-', t.origin === 'international' ? 'USD' : 'INR', t.amount, t.origin === 'international' ? sbdInrEq(t.amount) : t.amount, 'Success']),
+    headers: ['Txn ID', 'Paid At', 'Invoice', 'Kind', 'Exhibitor', 'Billing', 'Hall / Chalet Line', 'Stall / Chalet', 'Online / Offline', 'Method', 'Reference', 'Billed Currency', 'Billed Amount', 'Settled In', 'Settled Amount', 'FX Rate', 'Status'],
+    rows: list.map((t) => [t.txn, sbdFmt(t.at), t.no, t.kind, t.company, t.cur === 'USD' ? 'USD' : 'INR', t.hall.split(', ').map(sbdZoneLabel).join(', '), t.stalls, SBDT_MODE[t.mode], t.method, t.ref || '-', t.cur, t.amount, t.settle ? 'INR' : t.cur, t.settle ? t.settleAmount : t.amount, t.fxRate || '-', 'Success']),
   }]);
 }
 
@@ -337,7 +340,7 @@ function viewBookingTransactions() {
   const allTx = tx;
 
   const cur = (o) => {
-    const bk = books.filter((b) => (b.origin || 'national') === o);
+    const bk = books.filter((b) => sbdBucket(b) === o);
     const val = bk.reduce((a, b) => a + b.total, 0);
     const col = bk.filter((b) => b.status === 'confirmed').reduce((a, b) => a + b.total, 0) + bk.filter((b) => b.adjustment && b.adjustment.status === 'paid').reduce((a, b) => a + b.adjustment.amount, 0);
     const verif = bk.filter((b) => b.status === 'payment_under_verification').reduce((a, b) => a + b.total, 0);
@@ -437,7 +440,7 @@ function viewBookingTransactions() {
     '<td>' + esc(t.hall.split(', ').map(sbdZoneLabel).join(', ')) + '<span class="td-sub">' + esc(t.stalls) + '</span></td>' +
     '<td><span class="mode-chip ' + t.mode + '"><span class="material-symbols-outlined">' + (t.mode === 'online' ? 'language' : 'account_balance') + '</span>' + SBDT_MODE[t.mode] + '</span>' +
       '<span class="td-sub">' + esc(t.method) + (t.ref ? ' · ' + esc(t.ref) : '') + '</span></td>' +
-    '<td class="money">' + sbdAmt(t.amount, t.origin) + (t.origin === 'international' ? '<span class="td-sub">≈ ' + money(sbdInrEq(t.amount)) + '</span>' : '') + '</td>' +
+    '<td class="money">' + sbpFmt(t.amount, t.cur) + (t.settle ? '<span class="td-sub">received ' + sbpFmt(t.settleAmount, 'INR') + ' @ ₹' + esc(String(t.fxRate)) + '/$</span>' : (t.cur === 'USD' ? '<span class="td-sub">≈ ' + money(sbdInrEq(t.amount)) + '</span>' : '')) + '</td>' +
     '<td><span class="pill green">Success</span></td></tr>').join('') ||
     '<tr><td colspan="9" style="color:var(--muted)">No payments for the selected filters.</td></tr>';
 
@@ -554,8 +557,8 @@ function sbaEmailPI(id) {
   sbaApply(b, {}, (r, ex) => {
     sbpAudit(r, SBD_ADMIN, 'Proforma invoice e-mailed', subject);
     sbdNotifyEx(ex, 'mail', 'var(--blue)', 'DEO e-mailed proforma invoice ' + b.piNo + ' for application ' + b.no + ' (stall ' + sbdStallOf(b).name + ').');
-    sbdEmail('reserved', SB_LIVE_COMPANY, subject, 'PI attached · ' + sbdAmt(b.total, b.origin) + ' payable within validity', ex);
-  }, (d) => { d.audit = (b.audit || []).concat([{ at: nowStr(), by: SBD_ADMIN, event: 'Proforma invoice e-mailed', detail: subject }]); sbdEmail('reserved', b.company, subject, 'PI attached · ' + sbdAmt(b.total, b.origin) + ' payable within validity'); });
+    sbdEmail('reserved', SB_LIVE_COMPANY, subject, 'PI attached · ' + sbpFmt(b.total, sbdCur(b)) + ' payable within validity', ex);
+  }, (d) => { d.audit = (b.audit || []).concat([{ at: nowStr(), by: SBD_ADMIN, event: 'Proforma invoice e-mailed', detail: subject }]); sbdEmail('reserved', b.company, subject, 'PI attached · ' + sbpFmt(b.total, sbdCur(b)) + ' payable within validity'); });
   toast('Proforma invoice ' + b.piNo + ' e-mailed to ' + b.company + '.', 'success');
   render(); sbaOpen(id);
 }
@@ -586,7 +589,7 @@ function viewSpaceApplications() {
       '<td><b class="regno" style="font-size:0.95rem">' + esc(s.name) + '</b><span class="td-sub">' + esc(sbdZoneLabel(s.hall)) + ' · ' + sbaTypeLabel(b) + '</span></td>' +
       '<td class="sba-area">' + s.sqm + ' m² · ' + esc(s.size || '') + (s.mezzSqm ? '<br>+ ' + s.mezzSqm + ' m² mezz.' : '') + '</td>' +
       '<td>' + esc(sbdSchemeLabel(s.scheme)) + '<span class="td-sub">' + esc(sbaSides(s)) + '</span></td>' +
-      '<td class="money">' + sbdAmt(b.total, b.origin) + '<span class="td-sub">100% · ' + (b.payment && b.payment.mode ? SBDT_MODE[b.payment.mode] : 'online / offline') + (b.adjustment && b.adjustment.status !== 'paid' ? ' · +' + sbdAmt(b.adjustment.amount, b.origin) + ' diff. due' : '') + '</span></td>' +
+      '<td class="money">' + sbpFmt(b.total, sbdCur(b)) + '<span class="td-sub">100% · ' + (b.payment && b.payment.mode ? SBDT_MODE[b.payment.mode] : 'online / offline') + (b.adjustment && b.adjustment.status !== 'paid' ? ' · +' + sbpFmt(b.adjustment.amount, sbdCur(b)) + ' diff. due' : '') + '</span></td>' +
       '<td>' + sbdHoldCell(b) + '</td>' +
       '<td>' + sbaStatus(b.status) + '</td>' +
       '<td style="white-space:nowrap">' + sbaDate(b.createdAt) + '</td>' +
@@ -735,12 +738,12 @@ function sbaOpen(id) {
   const paySec = b.status === 'payment_under_verification'
     ? '<div class="sba-note"><span class="material-symbols-outlined">hourglass_top</span>Offline payment proof uploaded by the exhibitor — verify the credit in DEO’s bank account, then mark received (the stall is allotted automatically) or reject.</div>' +
       '<div class="tablewrap"><table class="grid">' + payRow('Mode', 'Offline') + payRow('Method', esc(pm.method)) + payRow('UTR / Reference', '<span class="regno">' + esc(pm.ref) + '</span>') +
-        payRow('Payment Date', esc(pm.date || '—')) + payRow('Amount Transferred', f(pm.amount || b.total)) + payRow('Proof File', pm.fileName ? esc(pm.fileName) : '<span style="color:var(--muted)">not attached</span>') +
+        payRow('Payment Date', esc(pm.date || '—')) + payRow('Amount Transferred', (pm.settleCurrency && pm.settleCurrency !== cur ? sbpFmt(pm.settleAmount, pm.settleCurrency) + ' <small style="color:var(--muted)">= ' + f(pm.amount || b.total) + ' at ₹' + esc(String(pm.fxRate)) + '/$</small>' : f(pm.amount || b.total))) + payRow('Proof File', pm.fileName ? esc(pm.fileName) : '<span style="color:var(--muted)">not attached</span>') +
         payRow('Submitted', esc(pm.submittedAt || '—')) + '</table></div>'
     : b.status === 'confirmed'
       ? '<div class="tablewrap"><table class="grid">' + payRow('Status', '<span class="pill green">Paid · 100%</span>') + payRow('Mode', pm ? SBDT_MODE[pm.mode || 'online'] : 'Online') +
         payRow('Method', esc(pm ? pm.method || 'Card' : 'Card')) + payRow('Txn / Reference', '<span class="regno">' + esc((pm && (pm.txn || pm.ref)) || b.orderNo || '—') + '</span>') +
-        payRow('Paid At', b.paidAt ? sbdFmt(b.paidAt) : '—') + (pm && pm.verifiedBy ? payRow('Verified By', esc(pm.verifiedBy) + (pm.verifiedAt ? ' · ' + esc(pm.verifiedAt) : '')) : '') +
+        payRow('Paid At', b.paidAt ? sbdFmt(b.paidAt) : '—') + (sbpSettlementText(pm, cur) ? payRow('Settlement', esc(sbpSettlementText(pm, cur))) : '') + (pm && pm.verifiedBy ? payRow('Verified By', esc(pm.verifiedBy) + (pm.verifiedAt ? ' · ' + esc(pm.verifiedAt) : '')) : '') +
         (b.orderNo ? payRow('Tax Invoice', '<span class="regno">INV-' + esc(String(b.orderNo).replace('ORD-', '')) + '</span> <button class="btn-link" style="padding:0" onclick="sbaDownloadInvoice(\'' + b.id + '\')">Download</button>') : '') + '</table></div>'
       : b.status === 'reserved'
         ? '<div class="sba-note"><span class="material-symbols-outlined">info</span>Awaiting 100% payment of ' + f(b.total) + ' — online through the portal, or offline (NEFT / RTGS / Cheque / Wire) against proforma invoice ' + esc(b.piNo) + '. If the company has transferred directly to DEO’s account, use <b>Mark Offline Payment</b> to record it; the stall is allotted automatically.</div>' +
@@ -832,14 +835,14 @@ function sbaAllotLive(r, ex, payment, by) {
   (ex.orders = ex.orders || []).push({
     id: 'order_' + ex.seq.order, orderNo: orderNo, type: 'space', label: 'Stall ' + s.name + ' — Application ' + r.no + ' · 100% payment',
     sub: r.piNo + ' · ' + r.payment.method + (r.payment.ref ? ' · Ref ' + r.payment.ref : ''), refId: r.id,
-    amount: r.amount, currency: r.pricing.currency, status: 'success', method: r.payment.method, mode: r.payment.mode, ref: r.payment.ref || '',
+    amount: r.payment.settleAmount || r.amount, currency: r.payment.settleCurrency || r.pricing.currency, billedAmount: r.amount, billedCurrency: r.pricing.currency, fxRate: r.payment.fxRate || null, status: 'success', method: r.payment.method, mode: r.payment.mode, ref: r.payment.ref || '',
     paidAt: nowStr(), paidAtIso: at.toISOString(), payer: SB_LIVE_COMPANY,
   });
   if (!ex.stalls.some((x) => x.stall === s.name)) ex.stalls.push({ id: 'st_' + s.name, hall: sbdZoneLabel(s.hall), stall: s.name, area: s.sqm, mezzSqm: s.mezzSqm || 0, scheme: s.scheme, appId: r.id, company: SB_LIVE_COMPANY });
   const ent = sbpApplyEntitlement(ex);
   r.allotment = { at: nowStr(), atIso: at.toISOString(), by: by || 'System (auto-allotment)', company: SB_LIVE_COMPANY, entitlement: ent, locked: true };
   ex.cart = (ex.cart || []).filter((c) => !(c.type === 'space' && c.refId === r.id));
-  sbpAudit(r, by || SBD_ADMIN, '100% payment confirmed', (r.payment.mode === 'offline' ? 'Offline · ' + r.payment.method + ' · Ref ' + r.payment.ref : 'Online · ' + r.payment.method) + ' · ' + sbpFmt(r.amount, r.pricing.currency) + ' · ' + orderNo);
+  sbpAudit(r, by || SBD_ADMIN, '100% payment confirmed', (r.payment.mode === 'offline' ? 'Offline · ' + r.payment.method + ' · Ref ' + r.payment.ref : 'Online · ' + r.payment.method) + ' · ' + sbpFmt(r.amount, r.pricing.currency) + (sbpSettlementText(r.payment, r.pricing.currency) ? ' · ' + sbpSettlementText(r.payment, r.pricing.currency) : '') + ' · ' + orderNo);
   sbpAudit(r, 'System', 'Stall allotted automatically', 'Stall ' + s.name + ' mapped to ' + SB_LIVE_COMPANY + ' · layout updated · tax invoice ' + orderNo.replace('ORD-', 'INV-') + ' · locked');
   sbpAudit(r, 'System', 'Badge & vehicle quota released', ent.allDay + ' all-day passes, ' + ent.oneDay + ' one-day passes, ' + ent.car + ' car pass(es) for ' + ent.sqm + ' sq.m');
   sbdNotifyEx(ex, 'verified', 'var(--green)', 'DEO verified your ' + r.payment.method + ' payment' + (r.payment.ref ? ' (Ref ' + r.payment.ref + ')' : '') + ' — stall ' + s.name + ' allotted to ' + SB_LIVE_COMPANY + ' (application ' + r.no + '). Tax invoice ' + orderNo.replace('ORD-', 'INV-') + ' and your badge / vehicle quota are available.');
@@ -853,7 +856,7 @@ function sbaAllotDemoPatch(b, payment, by) {
   const ent = sbpEntitlement(sbdSqm(b));
   return { status: 'confirmed', paidAtIso: at.toISOString(), pausedAt: null, payment: Object.assign({}, b.payment || {}, payment), orderNo: orderNo,
     allotment: { at: nowStr(), atIso: at.toISOString(), by: by || 'System (auto-allotment)', company: b.company, entitlement: ent, locked: true },
-    audit: sbaAuditDemo(b, '100% payment confirmed', payment.method + (payment.ref ? ' · Ref ' + payment.ref : '') + ' · ' + sbdAmt(b.total, b.origin) + ' · ' + orderNo)
+    audit: sbaAuditDemo(b, '100% payment confirmed', payment.method + (payment.ref ? ' · Ref ' + payment.ref : '') + ' · ' + sbpFmt(b.total, sbdCur(b)) + ' · ' + orderNo)
       .concat([{ at: nowStr(), by: 'System', event: 'Stall allotted automatically', detail: 'Stall ' + sbdStallOf(b).name + ' mapped to ' + b.company + ' · layout updated · tax invoice ' + orderNo.replace('ORD-', 'INV-') + ' · locked' },
         { at: nowStr(), by: 'System', event: 'Badge & vehicle quota released', detail: ent.allDay + ' all-day passes, ' + ent.oneDay + ' one-day passes, ' + ent.car + ' car pass(es)' }]) };
 }
@@ -901,9 +904,11 @@ function sbaDoExtend(id) {
 function sbaMarkReceived(id) {
   const b = sbdBookings().find((x) => x.id === id);
   if (!b || b.status !== 'payment_under_verification') return;
-  if (!confirm('Confirm that ' + sbdAmt(b.total, b.origin) + ' (100%) for ' + b.piNo + ' has been received in DEO’s account?\n' + b.payment.method + ' · Ref ' + b.payment.ref + '\nStall ' + sbaStallNames(b) + ' will be allotted to ' + b.company + ' automatically and a tax invoice issued.')) return;
+  const pm0 = b.payment;
+  const settled = pm0.settleCurrency && pm0.settleCurrency !== sbdCur(b) ? ' (received ' + sbpFmt(pm0.settleAmount, pm0.settleCurrency) + ' at ₹' + pm0.fxRate + '/$)' : '';
+  if (!confirm('Confirm that ' + sbpFmt(b.total, sbdCur(b)) + ' (100%) for ' + b.piNo + settled + ' has been received in DEO’s account?\n' + pm0.method + ' · Ref ' + pm0.ref + '\nStall ' + sbaStallNames(b) + ' will be allotted to ' + b.company + ' automatically and a tax invoice issued.')) return;
   const txn = 'TXN' + String(sbHash(b.id + Date.now())).slice(0, 9);
-  const payment = { verifiedAt: nowStr(), verifiedBy: SBD_ADMIN, txn: txn, amount: b.payment.amount || b.total, mode: 'offline', method: b.payment.method, ref: b.payment.ref };
+  const payment = { verifiedAt: nowStr(), verifiedBy: SBD_ADMIN, txn: txn, amount: b.total, mode: 'offline', method: pm0.method, ref: pm0.ref, settleCurrency: pm0.settleCurrency || sbdCur(b), fxRate: pm0.fxRate || null, settleAmount: pm0.settleAmount || b.total };
   sbaApply(b, {}, (r, ex) => { sbaAllotLive(r, ex, payment, SBD_ADMIN); }, (d) => { Object.assign(d, sbaAllotDemoPatch(b, payment, SBD_ADMIN)); });
   sbaRefresh(id);
   toast(b.piNo + ' marked as paid — stall ' + sbaStallNames(b) + ' allotted to ' + b.company + '.', 'success');
@@ -921,24 +926,41 @@ function sbaRecordOffline(id) {
       '<div class="field"><label>Method <span class="req">*</span></label><select id="sbaOffMethod">' + (b.origin === 'international' ? ['SWIFT (Wire Transfer)', 'Cheque / DD'] : ['NEFT', 'RTGS', 'Cheque / DD']).map((m) => '<option>' + m + '</option>').join('') + '</select><div class="error"></div></div>' +
       '<div class="field"><label>UTR / Reference No. <span class="req">*</span></label><input type="text" id="sbaOffRef" placeholder="as per bank statement"><div class="error"></div></div>' +
       '<div class="field"><label>Credit Date <span class="req">*</span></label><input type="date" id="sbaOffDate" value="' + today + '" max="' + today + '"><div class="error"></div></div>' +
-      '<div class="field"><label>Amount Received (' + cur + ') <span class="req">*</span></label><input type="number" id="sbaOffAmt" value="' + b.total + '" min="1"><div class="error"></div></div>' +
+      (sbpInrSettlementAllowed(cur)
+        ? '<div class="field"><label>Received in</label><select id="sbaOffCur" onchange="sbaOffCurChange(' + b.total + ')"><option value="USD">USD (billing currency)</option><option value="INR">INR at DEO settlement rate</option></select></div>' +
+          '<div class="field"><label>Exchange rate (₹ per USD)</label><input type="number" id="sbaOffFx" value="' + sbpFxRate() + '" step="0.01" min="1" disabled oninput="sbaOffCurChange(' + b.total + ')"><div class="hint">Rate from Space Booking Configuration; override for this receipt if the bank applied a different rate.</div></div>'
+        : '') +
+      '<div class="field"><label><span id="sbaOffAmtLbl">Amount Received (' + cur + ')</span> <span class="req">*</span></label><input type="number" id="sbaOffAmt" value="' + b.total + '" min="1"><div class="error"></div></div>' +
       '<div class="field full"><label>Bank account credited</label><select id="sbaOffBank">' + DEO_BANK.accounts.map((a) => '<option>' + esc(a.bank + ' · ' + a.account) + '</option>').join('') + '</select></div>' +
     '</div><p style="font-size:0.76rem;color:var(--muted);margin:8px 0 0">On saving, the application is marked paid, the stall is allotted automatically to the company, a tax invoice is issued and the exhibitor is notified.</p>',
     '<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="sbaDoRecordOffline(\'' + id + '\')"><span class="material-symbols-outlined">task_alt</span>Mark Received &amp; Allot</button>');
+}
+function sbaOffCurChange(total) {
+  const settle = $('sbaOffCur').value;
+  const fx = $('sbaOffFx');
+  fx.disabled = settle !== 'INR';
+  $('sbaOffAmtLbl').textContent = 'Amount Received (' + settle + ')';
+  $('sbaOffAmt').value = settle === 'INR' ? sbpToInr(total, Number(fx.value) || sbpFxRate()) : total;
 }
 function sbaDoRecordOffline(id) {
   const b = sbdBookings().find((x) => x.id === id);
   if (!b || b.status !== 'reserved') return;
   clearErrs();
   let ok = true;
+  const cur = sbdCur(b);
   const method = $('sbaOffMethod').value, ref = ($('sbaOffRef').value || '').trim(), date = $('sbaOffDate').value, amt = Number($('sbaOffAmt').value), bank = $('sbaOffBank').value;
+  const settle = $('sbaOffCur') ? $('sbaOffCur').value : cur;
+  const rate = $('sbaOffFx') ? (Number($('sbaOffFx').value) || sbpFxRate()) : sbpFxRate();
+  const due = sbpSettleAmount(b.total, cur, settle, rate);
   if (!ref) { setErr('sbaOffRef', 'Reference is required'); ok = false; }
   if (!date) { setErr('sbaOffDate', 'Credit date is required'); ok = false; }
-  if (!amt || amt < b.total) { setErr('sbaOffAmt', '100% (' + sbdAmt(b.total, b.origin) + ') must be received — part payments cannot be allotted'); ok = false; }
+  if (!amt || amt < due) { setErr('sbaOffAmt', '100% (' + sbpFmt(due, settle) + (settle !== cur ? ' = ' + sbpFmt(b.total, cur) + ' at ₹' + rate + '/$' : '') + ') must be received — part payments cannot be allotted'); ok = false; }
   if (!ok) return;
-  const payment = { mode: 'offline', method: method, ref: ref, date: date, amount: amt, bank: bank, submittedAt: nowStr(), verifiedAt: nowStr(), verifiedBy: SBD_ADMIN, txn: 'TXN' + String(sbHash(b.id + Date.now())).slice(0, 9), recordedBy: SBD_ADMIN };
-  sbaApply(b, {}, (r, ex) => { sbpAudit(r, SBD_ADMIN, 'Offline payment recorded by DEO', method + ' · Ref ' + ref + ' · ' + bank); sbaAllotLive(r, ex, payment, SBD_ADMIN); },
-    (d) => { Object.assign(d, sbaAllotDemoPatch(b, payment, SBD_ADMIN)); d.audit.unshift({ at: nowStr(), by: SBD_ADMIN, event: 'Offline payment recorded by DEO', detail: method + ' · Ref ' + ref + ' · ' + bank }); });
+  const payment = { mode: 'offline', method: method, ref: ref, date: date, amount: b.total, bank: bank, submittedAt: nowStr(), verifiedAt: nowStr(), verifiedBy: SBD_ADMIN, txn: 'TXN' + String(sbHash(b.id + Date.now())).slice(0, 9), recordedBy: SBD_ADMIN,
+    settleCurrency: settle, fxRate: settle !== cur ? rate : null, settleAmount: amt };
+  const detail = method + ' · Ref ' + ref + ' · ' + bank + ' · ' + sbpFmt(amt, settle) + (settle !== cur ? ' (' + sbpFmt(b.total, cur) + ' at ₹' + rate + '/$)' : '');
+  sbaApply(b, {}, (r, ex) => { sbpAudit(r, SBD_ADMIN, 'Offline payment recorded by DEO', detail); sbaAllotLive(r, ex, payment, SBD_ADMIN); },
+    (d) => { Object.assign(d, sbaAllotDemoPatch(b, payment, SBD_ADMIN)); d.audit.unshift({ at: nowStr(), by: SBD_ADMIN, event: 'Offline payment recorded by DEO', detail: detail }); });
   closeModal(); sbaRefresh(id);
   toast('Offline payment recorded — stall ' + sbaStallNames(b) + ' allotted to ' + b.company + '.', 'success');
 }
@@ -946,7 +968,7 @@ function sbaDoRecordOffline(id) {
 function sbaMarkAdjReceived(id) {
   const b = sbdBookings().find((x) => x.id === id);
   if (!b || !b.adjustment || b.adjustment.status === 'paid') return;
-  const ref = prompt('Reference / UTR for the differential of ' + sbdAmt(b.adjustment.amount, b.origin) + ' (' + b.adjustment.no + '):', (b.adjustment.payment && b.adjustment.payment.ref) || '');
+  const ref = prompt('Reference / UTR for the differential of ' + sbpFmt(b.adjustment.amount, sbdCur(b)) + ' (' + b.adjustment.no + '):', (b.adjustment.payment && b.adjustment.payment.ref) || '');
   if (ref === null) return;
   const pay = Object.assign({}, b.adjustment.payment || { mode: 'offline', method: 'NEFT' }, { ref: ref.trim(), verifiedAt: nowStr(), verifiedBy: SBD_ADMIN, amount: b.adjustment.amount });
   const adj = Object.assign({}, b.adjustment, { status: 'paid', paidAt: nowStr(), paidAtIso: new Date().toISOString(), payment: pay });
@@ -956,7 +978,7 @@ function sbaMarkAdjReceived(id) {
     (ex.orders = ex.orders || []).push({ id: 'order_' + ex.seq.order, orderNo: orderNo, type: 'space', label: 'Stall shift differential — Application ' + r.no, sub: r.adjustment.no + ' · ' + pay.method + (pay.ref ? ' · Ref ' + pay.ref : ''), refId: r.id, amount: r.adjustment.amount, currency: r.pricing.currency, status: 'success', method: pay.method, mode: pay.mode || 'offline', ref: pay.ref || '', paidAt: nowStr(), paidAtIso: new Date().toISOString(), payer: SB_LIVE_COMPANY });
     sbpAudit(r, SBD_ADMIN, 'Shift differential received', sbpFmt(r.adjustment.amount, r.pricing.currency) + (pay.ref ? ' · Ref ' + pay.ref : '') + ' · ' + orderNo);
     sbdNotifyEx(ex, 'task_alt', 'var(--green)', 'DEO recorded the shift differential of ' + sbpFmt(r.adjustment.amount, r.pricing.currency) + ' (' + r.adjustment.no + ') as received.');
-  }, (d) => { d.audit = sbaAuditDemo(b, 'Shift differential received', sbdAmt(b.adjustment.amount, b.origin) + (pay.ref ? ' · Ref ' + pay.ref : '')); });
+  }, (d) => { d.audit = sbaAuditDemo(b, 'Shift differential received', sbpFmt(b.adjustment.amount, sbdCur(b)) + (pay.ref ? ' · Ref ' + pay.ref : '')); });
   sbaRefresh(id);
   toast('Differential ' + b.adjustment.no + ' marked received.', 'success');
 }
@@ -967,7 +989,7 @@ function sbaRejectProof(id) {
   if (!b || b.status !== 'payment_under_verification') return;
   sbaClose();
   openModal('Reject Payment Proof · ' + esc(b.piNo),
-    '<p style="margin:0 0 10px;font-size:0.86rem">' + esc(b.company) + ' · ' + esc(b.payment.method) + ' · Ref ' + esc(b.payment.ref) + ' · ' + sbdAmt(b.payment.amount || b.total, b.origin) + '</p>' +
+    '<p style="margin:0 0 10px;font-size:0.86rem">' + esc(b.company) + ' · ' + esc(b.payment.method) + ' · Ref ' + esc(b.payment.ref) + ' · ' + sbpFmt(b.payment.amount || b.total, sbdCur(b)) + '</p>' +
     '<p style="margin:0 0 10px;font-size:0.8rem;color:var(--muted)">The application returns to the cart and the validity clock resumes from where it paused (' + sbdHold(b).left + ' day(s) remaining).</p>' +
     '<label style="display:block;font-size:0.8rem;font-weight:700;margin-bottom:6px">Remark (shown to the exhibitor) <span style="color:var(--red)">*</span></label>' +
     '<textarea id="sbaRemark" rows="3" placeholder="e.g. UTR not traceable in DEO account / amount short by …" style="width:100%;box-sizing:border-box;' + dateInputStyle + '"></textarea>',
@@ -1034,7 +1056,7 @@ function sbaShift(id) {
   const s = sbdStallOf(b);
   window.__sbaShift = { id: id, hall: s.hall, name: '', scheme: s.scheme, mezz: s.mezzSqm || 0 };
   openModal('Shift Stall · Application ' + esc(b.no),
-    '<p style="margin:0 0 10px;font-size:0.86rem">' + esc(b.company) + ' · currently <b>' + esc(s.name) + ' · ' + esc(sbdZoneLabel(s.hall)) + '</b> · ' + esc(sbdSchemeLabel(s.scheme)) + ' · ' + s.sqm + ' sq.m' + (s.mezzSqm ? ' + ' + s.mezzSqm + ' sq.m mezzanine' : '') + ' · ' + sbdAmt(b.total, b.origin) +
+    '<p style="margin:0 0 10px;font-size:0.86rem">' + esc(b.company) + ' · currently <b>' + esc(s.name) + ' · ' + esc(sbdZoneLabel(s.hall)) + '</b> · ' + esc(sbdSchemeLabel(s.scheme)) + ' · ' + s.sqm + ' sq.m' + (s.mezzSqm ? ' + ' + s.mezzSqm + ' sq.m mezzanine' : '') + ' · ' + sbpFmt(b.total, sbdCur(b)) +
       (b.status === 'confirmed' ? ' · <span class="pill red">Allotted</span> — the allotment moves to the new stall; the price difference is raised as a differential invoice or credit note.' : ' — the proforma invoice is re-issued (new revision) for the new stall.') + '</p>' +
     '<div class="form-grid">' +
       '<div class="field"><label>New hall / zone</label><select id="shHall" onchange="window.__sbaShift.hall=this.value;window.__sbaShift.name=\'\';sbaShiftRefresh()">' + SBD_ZONES.map((z) => '<option value="' + z + '"' + (z === s.hall ? ' selected' : '') + '>' + sbdZoneLabel(z) + '</option>').join('') + '</select></div>' +
@@ -1119,7 +1141,7 @@ function sbaDoShift(id) {
 
 /* ---------------- Reserve a stall for a company (admin-side cart) ---------------- */
 function sbaReserveOpen() {
-  window.__sbaRes = { company: 'live', hall: 'A', name: '', scheme: 'shell', mezz: 0 };
+  window.__sbaRes = { company: 'live', hall: 'A', name: '', scheme: 'shell', mezz: 0, cur: '' };
   const companies = [['live', SB_LIVE_COMPANY + ' (' + SB_LIVE_REGNO + ') · exhibitor portal']].concat(SB_COMPANIES.map((c) => [c.id, c.company + (c.regNo ? ' (' + c.regNo + ')' : '') + (c.origin === 'international' ? ' · USD' : '')]));
   openModal('Reserve a Stall for a Company',
     '<p style="margin:0 0 10px;font-size:0.8rem;color:var(--muted)">Same model as the exhibitor’s cart: the stall is blocked for ' + sbpHoldDays() + ' days, the proforma invoice is generated and e-mailed, and the company pays 100% online (from its portal) or offline (you can mark it received). On payment the stall is allotted automatically.</p>' +
@@ -1129,14 +1151,21 @@ function sbaReserveOpen() {
       '<div class="field"><label>Stall (available only) <span class="req">*</span></label><select id="rsStall" onchange="window.__sbaRes.name=this.value;sbaReserveRefresh()"></select><div class="error"></div></div>' +
       '<div class="field"><label>Scheme</label><select id="rsScheme" onchange="window.__sbaRes.scheme=this.value;sbaReserveRefresh()"></select></div>' +
       '<div class="field"><label>Mezzanine area (sq.m)</label><input type="number" id="rsMezz" min="0" value="0" oninput="window.__sbaRes.mezz=Number(this.value)||0;sbaReserveRefresh()"><div class="hint" id="rsMezzHint"></div><div class="error"></div></div>' +
+      '<div class="field"><label>Bill in</label><select id="rsCur" onchange="window.__sbaRes.cur=this.value;sbaReserveRefresh()"><option value="">Default for the company (INR for Indian, USD for foreign)</option><option value="INR">INR — Indian participant rates</option><option value="USD">USD — foreign participant rates</option></select><div class="hint">A USD invoice can still be paid in INR at the settlement rate (₹' + sbpFxRate() + ' per USD).</div></div>' +
     '</div><div id="rsPreview"></div>',
     '<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="sbaReserveCreate()"><span class="material-symbols-outlined">add_shopping_cart</span>Reserve &amp; E-mail PI</button>');
   sbaReserveRefresh();
 }
+/* registration fee is adjusted once per company — on its earliest live application */
+function sbaCreditFor(companyId) {
+  if (companyId === 'live') { const ex = loadExState() || {}; return !((ex.spaceBooking && ex.spaceBooking.reservations) || []).some((r) => SBD_HOLDING.includes(r.status) && r.pricing && r.pricing.credit > 0); }
+  const comp = SB_COMPANIES.find((c) => c.id === companyId);
+  return !sbdBookings().some((x) => x.company === comp.company && SBD_HOLDING.includes(x.status) && x.pricing && x.pricing.credit > 0);
+}
 function sbaReserveRefresh() {
   const st = window.__sbaRes;
   const comp = st.company === 'live' ? { company: SB_LIVE_COMPANY, origin: 'national' } : SB_COMPANIES.find((c) => c.id === st.company);
-  const cur = comp.origin === 'international' ? 'USD' : 'INR';
+  const cur = st.cur || (comp.origin === 'international' ? 'USD' : 'INR');
   const opts = sbaStallOptions(null, st.hall);
   $('rsStall').innerHTML = '<option value="">— select —</option>' + opts.map((x) => '<option value="' + x.name + '"' + (x.name === st.name ? ' selected' : '') + '>' + x.name + ' · ' + x.sqm + ' sq.m · ' + x.sides + ' open</option>').join('');
   const isCh = st.hall === 'CH';
@@ -1149,7 +1178,7 @@ function sbaReserveRefresh() {
   $('rsMezz').disabled = !eligible;
   $('rsMezzHint').textContent = cand ? (eligible ? 'up to ' + sbpMezzMax(cand) + ' sq.m (' + Math.round(sbpConfig().mezz.maxPct * 100) + '% of ' + cand.sqm + ' sq.m) at ' + sbpFmt(sbpConfig().mezz[sbpRateKey(cur)], cur) + ' per sq.m' : 'mezzanine not eligible on this stall / scheme') : 'select a stall first';
   if (!cand) { $('rsPreview').innerHTML = ''; return; }
-  const p = sbpPrice([cand], { currency: cur, withCredit: true });
+  const p = sbpPrice([cand], { currency: cur, withCredit: sbaCreditFor(st.company) });
   const l = p.lines[0];
   $('rsPreview').innerHTML = '<div class="sb-gw" style="margin-top:12px">' +
     '<div class="sb-gw-sum"><span>' + (l.chalet ? 'Chalet (flat)' : 'Space rental · ' + l.sqm + ' sq.m × ' + sbpFmt(l.rate, cur)) + '</span><b>' + sbpFmt(l.base, cur) + '</b></div>' +
@@ -1176,7 +1205,8 @@ function sbaReserveCreate() {
     if (!ex.spaceBooking.reservations) ex.spaceBooking.reservations = [];
     ex.seq.pi = (ex.seq.pi || 0) + 1;
     const withCredit = !ex.spaceBooking.reservations.some((r) => SBD_HOLDING.includes(r.status) && r.pricing && r.pricing.credit > 0);
-    const pricing = sbpPrice([cand], { currency: 'INR', withCredit: withCredit });
+    const curL = st.cur || 'INR';
+    const pricing = sbpPrice([cand], { currency: curL, withCredit: withCredit });
     piNo = 'PI-AI27-' + String(ex.seq.pi).padStart(4, '0'); no = '#' + String(10000000 + Math.floor(Math.random() * 89999999)); id = 'sbr_' + Date.now() + '_a';
     const r = { id: id, no: no, piNo: piNo, piRev: 0, type: cand.hall === 'CH' ? 'Chalet' : 'Pre-defined Space', stalls: [cand], pricing: pricing, amount: pricing.payable, status: 'reserved', source: 'admin',
       createdAt: nowStr(), createdAtIso: nowIso, holdUntil: holdUntil, extensions: [], reminders: {}, payment: null, audit: [] };
@@ -1184,18 +1214,18 @@ function sbaReserveCreate() {
     sbpAudit(r, SBD_ADMIN, 'Proforma invoice e-mailed', piNo + ' sent to the exhibitor');
     ex.spaceBooking.reservations.unshift(r);
     if (!ex.seq.cart) ex.seq.cart = 0; ex.seq.cart += 1;
-    (ex.cart = ex.cart || []).push({ id: 'cart_' + ex.seq.cart, type: 'space', refId: id, currency: 'INR', label: 'Stall ' + cand.name + ' · ' + sbdZoneLabel(cand.hall) + ' — Application ' + no, sub: piNo + ' · valid till ' + sbpDate(holdUntil), amount: pricing.payable });
-    sbdNotifyEx(ex, 'add_business', 'var(--blue)', 'DEO reserved stall ' + cand.name + ' (' + sbdZoneLabel(cand.hall) + ') for ' + SB_LIVE_COMPANY + ' — application ' + no + ', ' + sbpFmt(pricing.payable, 'INR') + ' payable by ' + sbpDate(holdUntil) + '. The proforma invoice ' + piNo + ' has been e-mailed; open the application to pay.');
-    sbdEmail('reserved', SB_LIVE_COMPANY, 'Proforma invoice ' + piNo + ' — stall ' + cand.name + ' reserved by DEO till ' + sbpDate(holdUntil), 'Application ' + no + ' · ' + sbpFmt(pricing.payable, 'INR') + ' payable within ' + sbpHoldDays() + ' days', ex);
+    (ex.cart = ex.cart || []).push({ id: 'cart_' + ex.seq.cart, type: 'space', refId: id, currency: curL, label: 'Stall ' + cand.name + ' · ' + sbdZoneLabel(cand.hall) + ' — Application ' + no, sub: piNo + ' · valid till ' + sbpDate(holdUntil), amount: pricing.payable });
+    sbdNotifyEx(ex, 'add_business', 'var(--blue)', 'DEO reserved stall ' + cand.name + ' (' + sbdZoneLabel(cand.hall) + ') for ' + SB_LIVE_COMPANY + ' — application ' + no + ', ' + sbpFmt(pricing.payable, curL) + ' payable by ' + sbpDate(holdUntil) + '. The proforma invoice ' + piNo + ' has been e-mailed; open the application to pay.');
+    sbdEmail('reserved', SB_LIVE_COMPANY, 'Proforma invoice ' + piNo + ' — stall ' + cand.name + ' reserved by DEO till ' + sbpDate(holdUntil), 'Application ' + no + ' · ' + sbpFmt(pricing.payable, curL) + ' payable within ' + sbpHoldDays() + ' days', ex);
     saveExState(ex);
   } else {
     const comp = SB_COMPANIES.find((c) => c.id === st.company);
-    const cur = comp.origin === 'international' ? 'USD' : 'INR';
-    const pricing = sbpPrice([cand], { currency: cur, withCredit: true });
+    const cur = st.cur || (comp.origin === 'international' ? 'USD' : 'INR');
+    const pricing = sbpPrice([cand], { currency: cur, withCredit: sbaCreditFor(st.company) });
     const created = (sbDemoStore().__created || []).length;
     piNo = 'PI-AI27-' + String(9001 + created); no = '#' + String(10000000 + (sbHash(piNo + Date.now()) % 89999999)); id = 'sbd_' + cand.name + '_' + Date.now();
     sbDemoCreate({ id: id, no: no, piNo: piNo, piRev: 0, company: comp.company, regNo: comp.regNo || '', origin: comp.origin, exId: comp.id, type: cand.hall === 'CH' ? 'Chalet' : 'Pre-defined Space', stalls: [cand],
-      status: 'reserved', createdAtIso: nowIso, holdUntil: holdUntil, pausedAt: null, extensions: [], payment: null, paidAtIso: '', orderNo: '', remark: '', reservedBy: SBD_ADMIN,
+      status: 'reserved', createdAtIso: nowIso, holdUntil: holdUntil, pausedAt: null, extensions: [], payment: null, paidAtIso: '', orderNo: '', remark: '', reservedBy: SBD_ADMIN, billCurrency: cur,
       audit: [{ at: nowStr(), by: SBD_ADMIN, event: 'Application created by DEO', detail: 'Stall ' + cand.name + ' reserved for ' + comp.company + ' · ' + sbdSchemeLabel(cand.scheme) + ' · ' + cand.sqm + ' sq.m' + (cand.mezzSqm ? ' + ' + cand.mezzSqm + ' mezz.' : '') + ' · valid till ' + sbpDate(holdUntil) },
         { at: nowStr(), by: SBD_ADMIN, event: 'Proforma invoice e-mailed', detail: piNo }] });
     sbdEmail('reserved', comp.company, 'Proforma invoice ' + piNo + ' — stall ' + cand.name + ' reserved by DEO till ' + sbpDate(holdUntil), sbpFmt(pricing.payable, cur) + ' payable within ' + sbpHoldDays() + ' days');
