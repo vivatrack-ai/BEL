@@ -45,6 +45,12 @@ function viewSpaceSettings() {
           '<div class="field full"><label>Applicable space types</label><div>' + chk('mz_raw', c.mezz.schemes.includes('raw'), 'Indoor Raw') + chk('mz_shell', c.mezz.schemes.includes('shell'), 'Indoor Shell') + chk('mz_outdoor', c.mezz.schemes.includes('outdoor'), 'Outdoor') + '</div>' +
             '<div class="hint">Mezzanine is priced per sq.m only — no corner premium. The exhibitor enters the mezzanine area at stall selection; DEO enters it when reserving a stall for a company. Mezzanine area counts towards pass entitlement.</div></div>' +
         '</div>' +
+        '<h2 class="card-title" style="margin-top:16px">Startup Zone (T&amp;C 5f)</h2>' +
+        '<div class="form-grid">' +
+          '<div class="field"><label>Pod fee — INR per pod (excl. GST)</label>' + num('sz_fee', c.startup.podFee, 1000) + '</div>' +
+          '<div class="field"><label>Pod area (sq.m) — layout reference</label>' + num('sz_sqm', c.startup.podSqm, 1, 1, 90) + '</div>' +
+          '<div class="field"><label>Passes per pod — all-day / one-day</label><div style="display:flex;gap:8px">' + num('sz_allday', c.startup.passes.allDay, 1, 0, 70) + num('sz_oneday', c.startup.passes.oneDay, 1, 0, 70) + '</div><div class="hint">Indian startups only, DPIIT / Udyam certificate required; one pod per startup; no corner or mezzanine charges; USD not applicable.</div></div>' +
+        '</div>' +
         '<h2 class="card-title" style="margin-top:16px">Cart &amp; Payment</h2>' +
         '<div class="form-grid">' +
           '<div class="field"><label>Cart validity (days from proforma invoice)</label>' + num('hold', c.holdDays, 1, 1, 90) + '</div>' +
@@ -88,6 +94,7 @@ function sbCfgSave() {
   c.cornerPctPerSide = pos('corner', 'Corner %', true) / 100; c.gst = pos('gst', 'GST', true) / 100; c.minSqm = pos('minSqm', 'Minimum area'); c.usdRate = pos('usdRate', 'USD rate');
   c.mezz.inr = pos('mz_inr', 'Mezzanine INR'); c.mezz.usd = pos('mz_usd', 'Mezzanine USD'); c.mezz.minSqm = pos('mz_min', 'Mezzanine min area', true); c.mezz.maxPct = pos('mz_max', 'Mezzanine max %') / 100;
   c.mezz.schemes = ['raw', 'shell', 'outdoor'].filter((k) => $('mz_' + k).checked);
+  c.startup.podFee = pos('sz_fee', 'Pod fee'); c.startup.podSqm = pos('sz_sqm', 'Pod area'); c.startup.passes = { allDay: pos('sz_allday', 'Pod all-day passes', true), oneDay: pos('sz_oneday', 'Pod one-day passes', true), car: 0 };
   c.holdDays = pos('hold', 'Validity days'); c.regFee.inr = pos('reg_inr', 'Registration INR', true); c.regFee.usd = pos('reg_usd', 'Registration USD', true);
   c.passes.allDayPer50 = pos('p_allday', 'All-day passes', true); c.passes.oneDayPer4 = pos('p_oneday', 'One-day passes', true); c.passes.carPer50 = pos('p_car', 'Car passes', true);
   c.passes.coex = { allDay: pos('p_co_a', 'Co-ex all-day', true), oneDay: pos('p_co_o', 'Co-ex one-day', true), car: pos('p_co_c', 'Co-ex car', true) };

@@ -18,7 +18,7 @@ const SBD_ZONES = SB_ZONES.map((z) => z.id);
 const sbdZoneLabel = sbZoneLabel;
 const sbdZoneUnits = (z) => sbZone(z).stalls.length;
 const sbdZoneSqm = (z) => sbZone(z).stalls.reduce((a, s) => a + s.sqm, 0);
-const SBD_SCHEMES = [['shell', 'Shell'], ['raw', 'Raw'], ['chalet1', 'Chalet · Single Storey'], ['chalet2', 'Chalet · Double Storey']];
+const SBD_SCHEMES = [['shell', 'Shell'], ['raw', 'Raw'], ['chalet1', 'Chalet · Single Storey'], ['chalet2', 'Chalet · Double Storey'], ['pod', 'Startup Pod']];
 const sbdSchemeLabel = sbSchemeLabel;
 const SBD_CAPACITY_SQM = SBD_ZONES.reduce((a, z) => a + sbdZoneSqm(z), 0);
 /* status → [pill class, label, chart colour] — DEO colour code */
@@ -220,7 +220,7 @@ function viewBookingDashboard() {
     all.forEach((b) => { if (seg[b.status] != null) b.stalls.forEach((s) => { if (s.hall === h) seg[b.status]++; }); });
     const used = seg.confirmed + seg.payment_under_verification + seg.reserved;
     const units = sbdZoneUnits(h);
-    const unit = h === 'CH' ? 'chalet(s)' : 'stall(s)';
+    const unit = h === 'CH' ? 'chalet(s)' : h === 'SZ' ? 'pod(s)' : 'stall(s)';
     const avail = Math.max(0, units - used);
     const part = (k, n) => n ? '<i style="flex:' + n + ';background:' + (k === 'available' ? '#1E8E5A' : SBD_STATUS[k][2]) + '" title="' + sbdZoneLabel(h) + ' · ' +
       (k === 'available' ? 'Available' : SBD_STATUS[k][1]) + ': ' + n + ' ' + unit + '"></i>' : '';
@@ -240,11 +240,11 @@ function viewBookingDashboard() {
   });
   const statusRows = Object.keys(SBD_STATUS).map((k) => [SBD_STATUS[k][1], by(k).length, '', SBD_STATUS[k][2]]);
 
-  const typeOf = (s) => (s.scheme === 'raw' ? 'raw' : s.scheme === 'shell' ? 'shell' : 'chalet');
+  const typeOf = (s) => (s.scheme === 'pod' ? 'pod' : s.scheme === 'raw' ? 'raw' : s.scheme === 'shell' ? 'shell' : 'chalet');
   const stallsOf = (list) => list.flatMap((b) => b.stalls).filter((s) => !SBDF.scheme || s.scheme === SBDF.scheme);
   const bookedSt = stallsOf(active);
   const sqmOf = (list, t, h) => list.filter((s) => typeOf(s) === t && (!h || s.hall === h)).reduce((a, s) => a + s.sqm, 0);
-  const AREA_TYPES = [['shell', 'Shell Space', '#2F62D8'], ['raw', 'Raw Space', '#1E8E5A'], ['chalet', 'Chalet', '#C98514']];
+  const AREA_TYPES = [['shell', 'Shell Space', '#2F62D8'], ['raw', 'Raw Space', '#1E8E5A'], ['chalet', 'Chalet', '#C98514'], ['pod', 'Startup Pod', '#6C47C9']];
   const areaTotal = bookedSt.reduce((a, s) => a + s.sqm, 0);
   const fmtSq = (n) => n.toLocaleString('en-IN');
   const areaBlocks = AREA_TYPES.map(([t, lbl, col]) => {
@@ -266,7 +266,7 @@ function viewBookingDashboard() {
     const cap = sbdZoneSqm(h);
     const cell = (x, ok) => '<td class="num">' + (ok ? (x ? fmtSq(x) : '<span style="color:var(--muted)">0</span>') : '<span style="color:var(--muted)">—</span>') + '</td>';
     return '<tr><td class="td-strong">' + sbdZoneLabel(h) + '</td>' +
-      cell(v[0], h !== 'CH') + cell(v[1], h !== 'CH') + cell(v[2], h === 'CH') +
+      cell(v[0], h !== 'CH' && h !== 'SZ') + cell(v[1], h !== 'CH' && h !== 'SZ') + cell(v[2], h === 'CH') + cell(v[3], h === 'SZ') +
       '<td class="num"><b>' + fmtSq(tot) + '</b></td><td class="num">' + fmtSq(cap) + '</td>' +
       '<td class="num">' + Math.round((tot / cap) * 100) + '%</td></tr>';
   }).join('');
@@ -276,7 +276,7 @@ function viewBookingDashboard() {
       '<span class="result-count">Allotted + In cart · ' + fmtSq(areaTotal) + ' sq.m floor · ' + fmtSq(mezzSqm) + ' sq.m mezzanine</span></div>' +
     '<div class="area-blks">' + areaBlocks + '</div>' + areaBar +
     '<div class="tablewrap" style="margin-top:16px"><table class="grid"><tr><th>Hall / Zone</th><th class="num">Shell (sq.m)</th><th class="num">Raw (sq.m)</th>' +
-      '<th class="num">Chalet (sq.m)</th><th class="num">Total Held</th><th class="num">Capacity</th><th class="num">Occupancy</th></tr>' + areaRows + areaFoot + '</table></div></div>';
+      '<th class="num">Chalet (sq.m)</th><th class="num">Pods (sq.m)</th><th class="num">Total Held</th><th class="num">Capacity</th><th class="num">Occupancy</th></tr>' + areaRows + areaFoot + '</table></div></div>';
 
   const valueOf = (list, o) => list.filter((b) => sbdBucket(b) === o).reduce((a, b) => a + b.total, 0);
   return '<div class="card-head-row" style="margin-bottom:4px"><div><h1 class="page-title">Space Booking Dashboard</h1>' +
@@ -525,13 +525,13 @@ function sbaFrom(v) { SBA.from = v; SBA.page = 1; render(); }
 function sbaTo(v) { SBA.to = v; SBA.page = 1; render(); }
 function sbaClear() { Object.assign(SBA, { q: '', type: '', status: '', hall: '', source: '', dateMode: '', from: '', to: '', page: 1 }); render(); }
 
-const sbaType = (b) => (b.stalls.every((s) => s.hall === 'CH') ? 'chalet' : 'space');
-const sbaTypeLabel = (b) => (sbaType(b) === 'chalet' ? 'Chalet' : 'Pre-defined Space');
-const sbaTypeChip = (b) => '<span class="sba-type"><span class="material-symbols-outlined">' + (sbaType(b) === 'chalet' ? 'cottage' : 'apps') + '</span>' + sbaTypeLabel(b) + '</span>';
+const sbaType = (b) => (b.stalls.every((s) => s.hall === 'SZ') ? 'startup' : b.stalls.every((s) => s.hall === 'CH') ? 'chalet' : 'space');
+const sbaTypeLabel = (b) => (sbaType(b) === 'startup' ? 'Startup Pod' : sbaType(b) === 'chalet' ? 'Chalet' : 'Pre-defined Space');
+const sbaTypeChip = (b) => '<span class="sba-type"><span class="material-symbols-outlined">' + (sbaType(b) === 'startup' ? 'rocket_launch' : sbaType(b) === 'chalet' ? 'cottage' : 'apps') + '</span>' + sbaTypeLabel(b) + '</span>';
 const sbaDate = (d) => d.getDate() + ' ' + d.toLocaleString('en-US', { month: 'short' }) + ', ' + String(d.getFullYear()).slice(2);
 const sbaTime = (d) => d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' });
 const sbaStatus = (st) => '<span class="sba-status"><span class="material-symbols-outlined" style="color:' + SBA_STATUS[st][1] + '">' + SBA_STATUS[st][0] + '</span>' + SBA_STATUS[st][2] + '</span>';
-const sbaDesign = (s) => (s.hall === 'CH' ? sbdSchemeLabel(s.scheme) : sbdSchemeLabel(s.scheme) + ' (' + (s.sides || '1 Side') + ')' + (s.mezzSqm ? ' + mezz ' + s.mezzSqm + ' sqm' : ''));
+const sbaDesign = (s) => (s.hall === 'SZ' ? 'Startup Pod' + (s.startup ? ' · ' + s.startup.recognitionNo : '') : s.hall === 'CH' ? sbdSchemeLabel(s.scheme) : sbdSchemeLabel(s.scheme) + ' (' + (s.sides || '1 Side') + ')' + (s.mezzSqm ? ' + mezz ' + s.mezzSqm + ' sqm' : ''));
 const sbaSides = (s) => (s.sides || '1 Side') + ' Open';
 const sbaWho = (b) => ({ billedTo: b.company, regNo: b.regNo, country: b.origin === 'international' ? 'International exhibitor' : 'India', eventName: SBD_EVENT.eventName, eventDates: SBD_EVENT.eventDates });
 const sbaDoc = (b) => ({ piNo: b.piNo, piRev: b.piRev, no: b.no, type: sbaTypeLabel(b), stalls: b.stalls, pricing: b.pricing, createdAt: sbdFmt(b.createdAt), holdUntil: b.holdUntil, status: b.status,
@@ -641,7 +641,7 @@ function viewSpaceApplications() {
           '<input id="sbaQ" placeholder="Search by application no, PI no, exhibitor, stall" value="' + esc(SBA.q) + '" oninput="sbaSetQ(this.value)"></label>' +
         sel('status', Object.keys(SBA_STATUS).map((k) => [k, SBA_STATUS[k][2]]), 'All Stages') +
         sel('hall', SBD_ZONES.map((h) => [h, sbdZoneLabel(h)]), 'All Halls') +
-        sel('type', [['space', 'Pre-defined Space'], ['chalet', 'Chalet']], 'All Types') +
+        sel('type', [['space', 'Pre-defined Space'], ['chalet', 'Chalet'], ['startup', 'Startup Pod']], 'All Types') +
         sel('source', [['national', 'National (INR)'], ['international', 'International (USD)'], ['admin', 'Reserved by DEO'], ['live', 'Exhibitor portal (HAL)']], 'All Exhibitors') +
         dateSel +
         ((SBA.q || SBA.type || SBA.status || SBA.hall || SBA.source || SBA.dateMode)
@@ -713,6 +713,7 @@ function sbaOpen(id) {
   const specs = '<div class="sba-specs">' +
       spec(ch ? 'Zone' : 'Hall', esc(sbdZoneLabel(s.hall))) + spec('Stall No.', esc(s.name)) + spec('Area', s.sqm + ' m² · ' + esc(s.size || '')) +
       spec(ch ? 'Chalet Type' : 'Scheme', esc(sbdSchemeLabel(s.scheme))) + spec('Open Sides', esc(sbaSides(s))) + spec('Mezzanine', s.mezzSqm ? s.mezzSqm + ' m² (' + Math.round((s.mezzSqm / s.sqm) * 100) + '%)' : 'none') +
+      (s.startup ? spec('DPIIT / Udyam', esc(s.startup.recognitionNo) + (s.startup.certFile ? '<br><small style="color:var(--muted)">' + esc(s.startup.certFile) + '</small>' : '')) : '') +
     '</div>';
 
   const h = sbdHold(b);
@@ -735,8 +736,8 @@ function sbaOpen(id) {
   const l = p.lines[0] || {};
   const sum = (k, v, st) => '<div class="sba-sum"><span>' + k + '</span><b' + (st ? ' style="' + st + '"' : '') + '>' + v + '</b></div>';
   const calc =
-    sum(l.chalet ? 'Chalet <small>flat rate</small>' : 'Space Rental <small>' + l.sqm + ' sq.m × ' + f(l.rate) + '</small>', f(p.base)) +
-    sum('Corner Stall Fee <small>' + (l.sidePct ? '+' + Math.round(l.sidePct * 100) + '% · ' + sbaSides(s) : (ch ? 'not applicable on chalet' : '1 side open · no premium')) + '</small>', f(p.side || 0)) +
+    sum(l.pod ? 'Startup Pod <small>concessional flat fee · ' + l.sqm + ' sq.m</small>' : l.chalet ? 'Chalet <small>flat rate</small>' : 'Space Rental <small>' + l.sqm + ' sq.m × ' + f(l.rate) + '</small>', f(p.base)) +
+    (l.pod ? '' : sum('Corner Stall Fee <small>' + (l.sidePct ? '+' + Math.round(l.sidePct * 100) + '% · ' + sbaSides(s) : (ch ? 'not applicable on chalet' : '1 side open · no premium')) + '</small>', f(p.side || 0))) +
     (p.mezz ? sum('Mezzanine Floor <small>' + p.mezzSqm + ' sq.m × ' + f(l.mezzRate) + ' · no corner premium</small>', f(p.mezz)) : '') +
     '<div class="sba-sum line"></div>' +
     sum('Subtotal', f(p.subtotal)) +
@@ -868,7 +869,7 @@ function sbaAllotLive(r, ex, payment, by) {
 function sbaAllotDemoPatch(b, payment, by) {
   const at = new Date();
   const orderNo = 'ORD-2027-' + String(5000 + (sbHash(b.id + at.getTime()) % 4999));
-  const ent = sbpEntitlement(sbdSqm(b));
+  const ent = sbpEntitlementFor(b.stalls);
   return { status: 'confirmed', paidAtIso: at.toISOString(), pausedAt: null, payment: Object.assign({}, b.payment || {}, payment), orderNo: orderNo,
     allotment: { at: nowStr(), atIso: at.toISOString(), by: by || 'System (auto-allotment)', company: b.company, entitlement: ent, locked: true },
     audit: sbaAuditDemo(b, '100% payment confirmed', payment.method + (payment.ref ? ' · Ref ' + payment.ref : '') + ' · ' + sbpFmt(b.total, sbdCur(b)) + ' · ' + orderNo)
@@ -1092,7 +1093,7 @@ function sbaShiftRefresh() {
   const sel = $('shStall');
   sel.innerHTML = '<option value="">— select —</option>' + opts.map((x) => '<option value="' + x.name + '"' + (x.name === st.name ? ' selected' : '') + '>' + x.name + ' · ' + x.sqm + ' sq.m · ' + x.sides + ' open</option>').join('');
   const isCh = st.hall === 'CH';
-  const schemes = isCh ? [['chalet1', 'Single Storey'], ['chalet2', 'Double Storey']] : [['shell', 'Shell'], ['raw', 'Raw']];
+  const schemes = st.hall === 'SZ' ? [['pod', 'Startup Pod']] : isCh ? [['chalet1', 'Single Storey'], ['chalet2', 'Double Storey']] : [['shell', 'Shell'], ['raw', 'Raw']];
   if (!schemes.some((x) => x[0] === st.scheme)) st.scheme = schemes[0][0];
   $('shScheme').innerHTML = schemes.map((x) => '<option value="' + x[0] + '"' + (x[0] === st.scheme ? ' selected' : '') + '>' + x[1] + '</option>').join('');
   const master = st.name ? sbStallMaster(st.hall, st.name) : null;
@@ -1167,6 +1168,7 @@ function sbaReserveOpen() {
       '<div class="field"><label>Stall (available only) <span class="req">*</span></label><select id="rsStall" onchange="window.__sbaRes.name=this.value;sbaReserveRefresh()"></select><div class="error"></div></div>' +
       '<div class="field"><label>Scheme</label><select id="rsScheme" onchange="window.__sbaRes.scheme=this.value;sbaReserveRefresh()"></select></div>' +
       '<div class="field"><label>Mezzanine area (sq.m)</label><input type="number" id="rsMezz" min="0" value="0" oninput="window.__sbaRes.mezz=Number(this.value)||0;sbaReserveRefresh()"><div class="hint" id="rsMezzHint"></div><div class="error"></div></div>' +
+      '<div class="field full" id="rsStartupWrap" style="display:none"><label>DPIIT / Udyam recognition no. (Startup Zone pod) <span class="req">*</span></label><input type="text" id="rsStartup" placeholder="e.g. DIPP123456"><div class="hint">Pods are for Indian startups only; the certificate is kept on file by DEO.</div><div class="error"></div></div>' +
       '<div class="field"><label>Billing currency</label><div id="rsCurNote" style="font-size:0.84rem;font-weight:600;padding:8px 0"></div><div class="hint">Indian participants are billed in INR at the Indian rate card; foreign participants in USD at the foreign rate card. A USD invoice may be settled in INR only as USD × DEO settlement rate (₹' + sbpFxRate() + ' per USD) — never at the Indian rate card.</div></div>' +
     '</div><div id="rsPreview"></div>',
     '<button class="btn btn-outline" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="sbaReserveCreate()"><span class="material-symbols-outlined">add_shopping_cart</span>Reserve &amp; E-mail PI</button>');
@@ -1188,8 +1190,10 @@ function sbaReserveRefresh() {
   const opts = sbaStallOptions(null, st.hall);
   $('rsStall').innerHTML = '<option value="">— select —</option>' + opts.map((x) => '<option value="' + x.name + '"' + (x.name === st.name ? ' selected' : '') + '>' + x.name + ' · ' + x.sqm + ' sq.m · ' + x.sides + ' open</option>').join('');
   const isCh = st.hall === 'CH';
-  const schemes = isCh ? [['chalet1', 'Single Storey'], ['chalet2', 'Double Storey']] : [['shell', 'Shell'], ['raw', 'Raw']];
+  const schemes = st.hall === 'SZ' ? [['pod', 'Startup Pod']] : isCh ? [['chalet1', 'Single Storey'], ['chalet2', 'Double Storey']] : [['shell', 'Shell'], ['raw', 'Raw']];
   if (!schemes.some((x) => x[0] === st.scheme)) st.scheme = schemes[0][0];
+  $('rsStartupWrap').style.display = st.hall === 'SZ' ? '' : 'none';
+  if (st.hall === 'SZ' && comp.origin === 'international') { $('rsPreview').innerHTML = '<div class="sba-note red" style="margin-top:12px"><span class="material-symbols-outlined">block</span>Startup Zone pods are for Indian startups only — ' + esc(comp.company) + ' is a foreign participant.</div>'; $('rsStall').innerHTML = ''; return; }
   $('rsScheme').innerHTML = schemes.map((x) => '<option value="' + x[0] + '"' + (x[0] === st.scheme ? ' selected' : '') + '>' + x[1] + '</option>').join('');
   const master = st.name ? sbStallMaster(st.hall, st.name) : null;
   const cand = master ? Object.assign({}, master, { scheme: st.scheme, mezzSqm: st.mezz }) : null;
@@ -1200,7 +1204,7 @@ function sbaReserveRefresh() {
   const p = sbpPrice([cand], { currency: cur, withCredit: sbaCreditFor(st.company) });
   const l = p.lines[0];
   $('rsPreview').innerHTML = '<div class="sb-gw" style="margin-top:12px">' +
-    '<div class="sb-gw-sum"><span>' + (l.chalet ? 'Chalet (flat)' : 'Space rental · ' + l.sqm + ' sq.m × ' + sbpFmt(l.rate, cur)) + '</span><b>' + sbpFmt(l.base, cur) + '</b></div>' +
+    '<div class="sb-gw-sum"><span>' + (l.pod ? 'Startup pod · concessional flat fee (' + l.sqm + ' sq.m)' : l.chalet ? 'Chalet (flat)' : 'Space rental · ' + l.sqm + ' sq.m × ' + sbpFmt(l.rate, cur)) + '</span><b>' + sbpFmt(l.base, cur) + '</b></div>' +
     (l.side ? '<div class="sb-gw-sum"><span>Corner stall fee +' + Math.round(l.sidePct * 100) + '%</span><b>' + sbpFmt(l.side, cur) + '</b></div>' : '') +
     (l.mezz ? '<div class="sb-gw-sum"><span>Mezzanine · ' + l.mezzSqm + ' sq.m × ' + sbpFmt(l.mezzRate, cur) + '</span><b>' + sbpFmt(l.mezz, cur) + '</b></div>' : '') +
     '<div class="sb-gw-sum"><span>GST ' + Math.round(p.gstPct * 100) + '%</span><b>' + sbpFmt(p.gst, cur) + '</b></div>' +
@@ -1216,6 +1220,13 @@ function sbaReserveCreate() {
   const master = sbStallMaster(st.hall, st.name);
   const cand = Object.assign({}, master, { scheme: st.scheme, mezzSqm: 0 });
   cand.mezzSqm = sbpMezzEligible(cand) ? Math.min(Math.max(0, Math.floor(st.mezz)), sbpMezzMax(cand)) : 0;
+  if (st.hall === 'SZ') {
+    const compR = sbaLiveProfile(st.company) || SB_COMPANIES.find((c) => c.id === st.company);
+    if (compR.origin === 'international') { setErr('rsStall', 'Startup Zone pods are for Indian startups only'); return; }
+    const regNo = ($('rsStartup').value || '').trim();
+    if (!regNo) { setErr('rsStartup', 'Recognition number is required for a pod'); return; }
+    cand.startup = { recognitionNo: regNo, certFile: '', declaredAt: nowStr(), recordedBy: SBD_ADMIN };
+  }
   const nowIso = new Date().toISOString();
   const holdUntil = sbpHoldUntil(Date.now());
   let piNo, no, id;
@@ -1230,7 +1241,7 @@ function sbaReserveCreate() {
     const curL = lp.origin === 'international' ? 'USD' : 'INR';
     const pricing = sbpPrice([cand], { currency: curL, withCredit: withCredit });
     piNo = 'PI-AI27-' + String(ex.seq.pi).padStart(4, '0'); no = '#' + String(10000000 + Math.floor(Math.random() * 89999999)); id = 'sbr_' + Date.now() + '_a';
-    const r = { id: id, no: no, piNo: piNo, piRev: 0, type: cand.hall === 'CH' ? 'Chalet' : 'Pre-defined Space', stalls: [cand], pricing: pricing, amount: pricing.payable, status: 'reserved', source: 'admin',
+    const r = { id: id, no: no, piNo: piNo, piRev: 0, type: cand.hall === 'CH' ? 'Chalet' : cand.scheme === 'pod' ? 'Startup Pod' : 'Pre-defined Space', stalls: [cand], pricing: pricing, amount: pricing.payable, status: 'reserved', source: 'admin',
       createdAt: nowStr(), createdAtIso: nowIso, holdUntil: holdUntil, extensions: [], reminders: {}, payment: null, audit: [] };
     sbpAudit(r, SBD_ADMIN, 'Application created by DEO', 'Stall ' + cand.name + ' (' + sbdZoneLabel(cand.hall) + ') reserved for ' + exCompany(ex) + ' · ' + sbdSchemeLabel(cand.scheme) + ' · ' + cand.sqm + ' sq.m' + (cand.mezzSqm ? ' + ' + cand.mezzSqm + ' sq.m mezzanine' : '') + ' · ' + piNo + ' · valid till ' + sbpDate(holdUntil));
     sbpAudit(r, SBD_ADMIN, 'Proforma invoice e-mailed', piNo + ' sent to the exhibitor');
@@ -1246,7 +1257,7 @@ function sbaReserveCreate() {
     const pricing = sbpPrice([cand], { currency: cur, withCredit: sbaCreditFor(st.company) });
     const created = (sbDemoStore().__created || []).length;
     piNo = 'PI-AI27-' + String(9001 + created); no = '#' + String(10000000 + (sbHash(piNo + Date.now()) % 89999999)); id = 'sbd_' + cand.name + '_' + Date.now();
-    sbDemoCreate({ id: id, no: no, piNo: piNo, piRev: 0, company: comp.company, regNo: comp.regNo || '', origin: comp.origin, exId: comp.id, type: cand.hall === 'CH' ? 'Chalet' : 'Pre-defined Space', stalls: [cand],
+    sbDemoCreate({ id: id, no: no, piNo: piNo, piRev: 0, company: comp.company, regNo: comp.regNo || '', origin: comp.origin, exId: comp.id, type: cand.hall === 'CH' ? 'Chalet' : cand.scheme === 'pod' ? 'Startup Pod' : 'Pre-defined Space', stalls: [cand],
       status: 'reserved', createdAtIso: nowIso, holdUntil: holdUntil, pausedAt: null, extensions: [], payment: null, paidAtIso: '', orderNo: '', remark: '', reservedBy: SBD_ADMIN, billCurrency: cur,
       audit: [{ at: nowStr(), by: SBD_ADMIN, event: 'Application created by DEO', detail: 'Stall ' + cand.name + ' reserved for ' + comp.company + ' · ' + sbdSchemeLabel(cand.scheme) + ' · ' + cand.sqm + ' sq.m' + (cand.mezzSqm ? ' + ' + cand.mezzSqm + ' mezz.' : '') + ' · valid till ' + sbpDate(holdUntil) },
         { at: nowStr(), by: SBD_ADMIN, event: 'Proforma invoice e-mailed', detail: piNo }] });

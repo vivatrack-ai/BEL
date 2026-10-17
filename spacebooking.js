@@ -19,7 +19,7 @@
 
 /* ---------------- state ---------------- */
 /* bump to wipe every portal's demo applications on the next load */
-const SB_CLEAR_SEQ = 6;
+const SB_CLEAR_SEQ = 7;
 (function migrateSpaceBooking() {
   if (!S.spaceBooking) S.spaceBooking = {};
   if (!S.spaceBooking.reservations) { S.spaceBooking.reservations = []; delete S.spaceBooking.applications; }
@@ -46,6 +46,7 @@ function sbClearApplications(silent) {
   S.notifications = (S.notifications || []).filter((n) => !/^nt_/.test(n.id));
   S.emailLog = [];
   S.seq.pi = 0;
+  if (!EXH.seedStalls && typeof sbZeroQuota === 'function') sbZeroQuota(S);
   if (!silent) { save(); window.__sbFilter = ''; render(); toast('All stall applications cleared.', 'success'); }
 }
 
@@ -178,7 +179,15 @@ function viewBookSpace() {
       hallSvg('D', 130, 240, 100, 78) + hallSvg('C', 262, 240, 100, 78) + hallSvg('B', 394, 240, 100, 78) + hallSvg('A', 526, 240, 100, 78) +
       decoSvg('10', 658, 252, 46, 40, 'redb') + decoSvg('H', 736, 244, 80, 62) +
       /* row 3 */
-      decoSvg('12 · 11', 262, 348, 108, 44) + decoSvg('J', 560, 348, 64, 44, 'redb') + decoSvg('19', 740, 348, 56, 44) +
+      decoSvg('12 · 11', 262, 348, 108, 44) +
+      '<g class="hall startup" onclick="location.hash=\'#/space-booking/hall/SZ\'">' +
+        '<title>Startup Zone — ' + availOf(SB_STARTUP) + ' pods available · Indian startups · click to select</title>' +
+        '<rect class="body" x="400" y="348" width="140" height="44" rx="5"/>' +
+        '<text class="cname" x="470" y="374" text-anchor="middle">STARTUP ZONE</text>' +
+        '<circle cx="538" cy="350" r="11" fill="#1E8E5A"/>' +
+        '<text x="538" y="351" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="10" font-weight="800" font-family="Mulish">' + availOf(SB_STARTUP) + '</text>' +
+      '</g>' +
+      decoSvg('J', 560, 348, 64, 44, 'redb') + decoSvg('19', 740, 348, 56, 44) +
       '<g class="park"><rect x="640" y="410" width="96" height="30" rx="5"/><text x="688" y="429" text-anchor="middle">P3 PARKING</text></g>' +
       '<g class="park"><rect x="760" y="400" width="40" height="48" rx="5"/><text x="780" y="427" text-anchor="middle">P4</text></g>' +
       /* entry gates */
@@ -200,9 +209,9 @@ function viewBookSpace() {
         '<span class="pill green">Green = parking</span>' +
       '</div></div>' +
     '<div class="hall-cards">' +
-      SB_HALLS.concat([SB_CHALET]).map((h) => '<div class="hall-card" onclick="location.hash=\'#/space-booking/hall/' + h.id + '\'">' +
-        '<span class="hc-icon"><span class="material-symbols-outlined">' + (h.chalet ? 'cottage' : 'grid_view') + '</span></span>' +
-        '<span><b>' + h.name + '</b><small>' + (h.chalet ? '10 chalets · 1 / 2 Floor' : '12 stalls · Shell &amp; Raw') + '</small></span>' +
+      SB_ZONES.map((h) => '<div class="hall-card" onclick="location.hash=\'#/space-booking/hall/' + h.id + '\'">' +
+        '<span class="hc-icon"><span class="material-symbols-outlined">' + (h.startup ? 'rocket_launch' : h.chalet ? 'cottage' : 'grid_view') + '</span></span>' +
+        '<span><b>' + h.name + '</b><small>' + (h.startup ? '20 pods · 6 sq.m · ' + money(sbpConfig().startup.podFee) + ' per pod · Indian startups' : h.chalet ? '10 chalets · single / double storey' : '12 stalls · Shell &amp; Raw') + '</small></span>' +
         '<span class="hc-count">' + availOf(h) + ' available</span></div>').join('') +
     '</div>';
 }
@@ -223,18 +232,25 @@ function viewHallStalls(hallId) {
   const tiles = hall.stalls.map((st, idx) => {
     const b = booked[hall.id + '|' + st.name];
     const inSel = window.__sbSel.some((s) => s.hall === hall.id && s.name === st.name);
-    const cls = !b ? (inSel ? 'insel' : 'avail') : b.kind === 'allotted' ? (b.mine ? 'allotted mine' : 'allotted') : (b.mine ? 'cart mine' : 'cart');
-    const label = !b ? (inSel ? 'In Selection' : 'Available')
+    const podBlocked = hall.startup && !sbPodEligible();
+    const cls = !b ? (inSel ? 'insel' : podBlocked ? 'avail locked' : 'avail') : b.kind === 'allotted' ? (b.mine ? 'allotted mine' : 'allotted') : (b.mine ? 'cart mine' : 'cart');
+    const label = !b ? (inSel ? 'In Selection' : podBlocked ? 'Indian startups only' : 'Available')
       : b.kind === 'allotted' ? '<span class="co" title="' + esc(b.company) + '">' + esc(b.mine ? 'Your stall · ' + b.company : b.company) + '</span>'
       : b.mine ? (b.status === 'payment_under_verification' ? 'In your cart · under verification' : 'In your cart · till ' + sbpDate(b.res.holdUntil)) : 'Blocked · in cart';
     const title = !b ? st.sqm + ' sq.m · ' + st.sides + ' open' : b.kind === 'allotted' ? 'Allotted (100% paid) to ' + b.company : b.mine ? 'In your cart' : 'Blocked — in another exhibitor’s cart';
     return '<div class="stall-tile ' + cls + '"' + (AREA[idx] ? ' style="grid-area:' + AREA[idx] + '"' : '') + ' title="' + esc(title) + '"' +
-      (b ? (b.mine && b.res ? ' onclick="location.hash=\'#/space-booking/application/' + b.res.id + '\'"' : '') : ' onclick="openStallDetail(\'' + hall.id + '\',\'' + st.name + '\')"') + '>' +
+      (b ? (b.mine && b.res ? ' onclick="location.hash=\'#/space-booking/application/' + b.res.id + '\'"' : '') : podBlocked ? '' : ' onclick="openStallDetail(\'' + hall.id + '\',\'' + st.name + '\')"') + '>' +
       '<b>' + st.name + '</b><span>' + st.size + ' · ' + st.sqm + ' sqm</span>' +
       '<span>' + label + '</span></div>';
   }).join('');
 
-  const floorplan = hall.chalet
+  const floorplan = hall.startup
+    ? '<div class="fp-wrap">' +
+        '<div class="fp-band">STARTUP ZONE — INDIAN STARTUPS (DPIIT / UDYAM RECOGNISED)</div>' +
+        '<div class="pod-grid">' + tiles + '</div>' +
+        '<div class="fp-band bottom">CONCESSIONAL POD · 6 SQ.M · NO CORNER OR MEZZANINE CHARGES</div>' +
+      '</div>'
+    : hall.chalet
     ? '<div class="fp-wrap">' +
         '<div class="fp-band">APRON ROAD — VISITOR SIDE</div>' +
         '<div class="chalet-grid">' + tiles + '</div>' +
@@ -262,12 +278,14 @@ function viewHallStalls(hallId) {
   }).join('');
   const p = window.__sbSel.length ? sbpPrice(window.__sbSel, { currency: cur, withCredit: sbCreditAvailable() }) : null;
 
-  const rateNote = hall.chalet
+  const rateNote = hall.startup
+    ? 'Startup pod ' + cfg.startup.podSqm + ' sq.m · ' + money(cfg.startup.podFee) + ' per pod (excl. GST ' + Math.round(cfg.gst * 100) + '%) · Indian startups only, against a valid DPIIT / Udyam recognition certificate · one pod per startup, not combinable with hall stalls or chalets · no corner or mezzanine charges' + (sbPodEligible() ? '' : ' · not available to foreign participants')
+    : hall.chalet
     ? 'Chalet 6m × 12m · single storey ' + sbMoney(cfg.chalet.chalet1[sbpRateKey(cur)], cur) + ' · double storey ' + sbMoney(cfg.chalet.chalet2[sbpRateKey(cur)], cur) + ' (excl. GST)'
     : 'Rate card: Raw ' + sbMoney(cfg.rates.raw[sbpRateKey(cur)], cur) + ' · Shell ' + sbMoney(cfg.rates.shell[sbpRateKey(cur)], cur) + ' per sq.m · corner +' + Math.round(cfg.cornerPctPerSide * 100) + '% per extra open side · mezzanine ' + sbMoney(cfg.mezz[sbpRateKey(cur)], cur) + ' per sq.m on stalls above ' + cfg.mezz.minSqm + ' sq.m (up to ' + Math.round(cfg.mezz.maxPct * 100) + '%) · all excl. GST ' + Math.round(cfg.gst * 100) + '%';
 
   return '<a class="back-link" href="#/space-booking/book"><span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>Halls</a>' +
-    '<h1 class="page-title">' + esc(hall.name) + (hall.chalet ? ' (Chalet Selection)' : ' (Stall Selection)') + '</h1>' +
+    '<h1 class="page-title">' + esc(hall.name) + (hall.startup ? ' (Pod Selection)' : hall.chalet ? ' (Chalet Selection)' : ' (Stall Selection)') + '</h1>' +
     '<div class="filter-chips" style="margin-bottom:6px">' +
       '<span class="pill green">Available</span><span class="pill pink">Blocked · in cart</span><span class="pill red">Allotted · 100% paid (company shown)</span>' +
       '<span class="pill blue" style="background:var(--blue);color:#fff">In your cart</span><span class="pill blue">In Selection</span></div>' +
@@ -310,6 +328,21 @@ function openStallDetail(hallId, stallName) {
   const st = hall.stalls.find((x) => x.name === stallName);
   const cur = sbCurrency();
   const cfg = sbpConfig();
+  if (st.pod) {
+    if (!sbPodEligible()) { toast('Startup Zone pods are available to Indian startups only.', 'error'); return; }
+    const sel = Object.assign({}, st, { scheme: 'pod', mezzSqm: 0 });
+    openModal('Startup Pod · ' + esc(st.name),
+      '<div class="note" style="margin-top:0"><b class="title">Eligibility — Indian startups only (T&amp;C clause 5f)</b>Concessional pod of ' + st.sqm + ' sq.m at ' + money(cfg.startup.podFee) + ' + GST. Enter your DPIIT / Udyam recognition number and upload the certificate; DEO may release the pod if the certificate is found invalid. One pod per startup; pods cannot be combined with hall stalls or chalets.</div>' +
+      '<div class="form-grid">' +
+        '<div class="field"><label>Startup</label><input type="text" value="' + esc(EVENT.exhibitor) + '" readonly></div>' +
+        '<div class="field"><label>DPIIT / Udyam recognition no. <span class="req">*</span></label><input type="text" id="podRegNo" placeholder="e.g. DIPP123456 or UDYAM-KR-03-0012345"><div class="error"></div></div>' +
+        '<div class="field full"><label>Recognition certificate <span class="req">*</span></label><input type="file" id="podCert" accept=".pdf,.jpg,.jpeg,.png"><div class="hint">DPIIT recognition certificate or Udyam registration — PDF or image.</div><div class="error"></div></div>' +
+        '<div class="field full"><label class="check-item" style="display:inline-flex"><input type="checkbox" id="podDecl"> I declare that ' + esc(EVENT.exhibitor) + ' is an Indian startup with a valid recognition certificate</label><div class="error"></div></div>' +
+      '</div>' + sbPricePreview(sel, cur),
+      '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+      '<button class="btn btn-primary" onclick="sbSelectPod(\'' + stallName + '\')"><span class="material-symbols-outlined">rocket_launch</span>Select Pod</button>');
+    return;
+  }
   if (st.chalet) {
     openModal('Chalet Detail',
       '<b style="display:block;margin-bottom:4px">Chalet Type</b>' +
@@ -364,7 +397,7 @@ function sbPricePreview(sel, cur) {
   const p = sbpPrice([sel], { currency: cur });
   const l = p.lines[0];
   return '<div class="sb-price" style="margin-top:6px;font-size:0.82rem">' +
-    sbSumRow(l.chalet ? 'Chalet (flat rate)' : 'Space rental · ' + l.sqm + ' sq.m × ' + sbMoney(l.rate, cur), sbMoney(l.base, cur)) +
+    sbSumRow(l.pod ? 'Startup pod · concessional flat fee' : l.chalet ? 'Chalet (flat rate)' : 'Space rental · ' + l.sqm + ' sq.m × ' + sbMoney(l.rate, cur), sbMoney(l.base, cur)) +
     (l.side ? sbSumRow('Corner stall fee · +' + Math.round(l.sidePct * 100) + '%', sbMoney(l.side, cur)) : '') +
     (l.mezz ? sbSumRow('Mezzanine · ' + l.mezzSqm + ' sq.m × ' + sbMoney(l.mezzRate, cur), sbMoney(l.mezz, cur)) : '') +
     sbSumRow('GST ' + Math.round(p.gstPct * 100) + '%', sbMoney(p.gst, cur)) +
@@ -383,10 +416,32 @@ function sbMezzPreview(hallId, stallName, scheme) {
   $('sbPricePreview').innerHTML = sbPricePreview(sel, sbCurrency());
 }
 
+/* Startup Zone rules */
+const sbPodEligible = () => EXH.origin !== 'international';
+const sbHasLivePod = () => S.spaceBooking.reservations.some((r) => SB_LIVE.includes(r.status) && sbStall(r).scheme === 'pod') || S.stalls.some((s) => s.scheme === 'pod');
+const sbHasLiveHall = () => S.spaceBooking.reservations.some((r) => SB_LIVE.includes(r.status) && sbStall(r).scheme !== 'pod') || S.stalls.some((s) => s.scheme !== 'pod');
+function sbSelectPod(stallName) {
+  const st = sbStallMaster('SZ', stallName);
+  clearErrs();
+  if (sbBookedSet()['SZ|' + stallName]) { closeModal(); render(); toast(stallName + ' is no longer available.', 'error'); return; }
+  const regNo = ($('podRegNo').value || '').trim();
+  const file = $('podCert').files[0];
+  let ok = true;
+  if (!regNo) { setErr('podRegNo', 'Recognition number is required'); ok = false; }
+  if (!file) { setErr('podCert', 'Upload the recognition certificate'); ok = false; }
+  if (!$('podDecl').checked) { setErr('podDecl', 'Please confirm the declaration'); ok = false; }
+  if (!ok) return;
+  if (sbHasLivePod() || window.__sbSel.some((s) => s.scheme === 'pod')) { toast('One pod per startup — you already have a Startup Zone pod.', 'error'); return; }
+  if (sbHasLiveHall() || window.__sbSel.some((s) => s.scheme !== 'pod')) { toast('Startup Zone pods cannot be combined with hall stalls or chalets.', 'error'); return; }
+  window.__sbSel.push(Object.assign({}, st, { scheme: 'pod', mezzSqm: 0, startup: { recognitionNo: regNo, certFile: file.name, declaredAt: nowStr() } }));
+  closeModal(); render();
+  toast('Pod ' + st.name + ' added to your selection.', 'success');
+}
 function sbSelectStall(hallId, stallName, scheme) {
   const st = sbStallMaster(hallId, stallName);
   const booked = sbBookedSet();
   if (booked[hallId + '|' + stallName]) { closeModal(); render(); toast(stallName + ' is no longer available.', 'error'); return; }
+  if (sbHasLivePod() || window.__sbSel.some((s) => s.scheme === 'pod')) { toast('A Startup Zone pod cannot be combined with hall stalls or chalets.', 'error'); return; }
   const inp = $('sbMezz');
   const sel = Object.assign({}, st, { scheme: scheme, mezzSqm: 0 });
   let mezz = inp ? Math.floor(Number(inp.value) || 0) : 0;
@@ -416,7 +471,7 @@ function sbNewApplication(s, source, by) {
     id: 'sbr_' + Date.now() + '_' + S.seq.pi,
     no: '#' + String(10000000 + Math.floor(Math.random() * 89999999)),
     piNo: 'PI-AI27-' + pad(S.seq.pi, 4), piRev: 0,
-    type: s.hall === 'CH' ? 'Chalet' : 'Pre-defined Space',
+    type: s.hall === 'CH' ? 'Chalet' : s.scheme === 'pod' ? 'Startup Pod' : 'Pre-defined Space',
     stalls: [s],
     pricing: pricing,
     amount: pricing.payable,
@@ -693,14 +748,14 @@ function sbSubmitOffline(resId, kind) {
 
 /* ---------------- shared pieces ---------------- */
 const sbStallTitle = (r) => esc(sbStall(r).name) + ' · ' + esc(sbZoneLabel(sbStall(r).hall));
-const sbStallMeta = (r) => { const s = sbStall(r); return esc(sbSchemeLabel(s.scheme)) + ' · ' + esc(s.size || '') + ' · ' + s.sqm + ' sq.m' + (s.mezzSqm ? ' + ' + s.mezzSqm + ' sq.m mezz.' : '') + ' · ' + esc(s.sides) + ' open'; };
+const sbStallMeta = (r) => { const s = sbStall(r); return s.scheme === 'pod' ? 'Startup Pod · ' + s.sqm + ' sq.m' + (s.startup ? ' · DPIIT / Udyam ' + esc(s.startup.recognitionNo) : '') : esc(sbSchemeLabel(s.scheme)) + ' · ' + esc(s.size || '') + ' · ' + s.sqm + ' sq.m' + (s.mezzSqm ? ' + ' + s.mezzSqm + ' sq.m mezz.' : '') + ' · ' + esc(s.sides) + ' open'; };
 function sbPriceTable(p) {
   const cur = p.currency || 'INR';
   const f = (n) => sbMoney(n, cur);
   const l = p.lines && p.lines[0];
   return '<div class="sb-price">' +
-    (l ? sbSumRow(l.chalet ? 'Chalet (flat rate)' : 'Space rental · ' + l.sqm + ' sq.m × ' + f(l.rate) + ' per sq.m', f(l.base)) : sbSumRow('Base price', f(p.base))) +
-    sbSumRow('Corner stall fee' + (l && l.sidePct ? ' · +' + Math.round(l.sidePct * 100) + '% (' + (sbpSidesN(l) - 1) + ' extra open side' + (sbpSidesN(l) - 1 === 1 ? '' : 's') + ')' : ' · none (1 side open)'), f(p.side || 0)) +
+    (l ? sbSumRow(l.pod ? 'Startup pod · concessional flat fee (' + l.sqm + ' sq.m)' : l.chalet ? 'Chalet (flat rate)' : 'Space rental · ' + l.sqm + ' sq.m × ' + f(l.rate) + ' per sq.m', f(l.base)) : sbSumRow('Base price', f(p.base))) +
+    (l && l.pod ? '' : sbSumRow('Corner stall fee' + (l && l.sidePct ? ' · +' + Math.round(l.sidePct * 100) + '% (' + (sbpSidesN(l) - 1) + ' extra open side' + (sbpSidesN(l) - 1 === 1 ? '' : 's') + ')' : ' · none (1 side open)'), f(p.side || 0))) +
     (p.mezz ? sbSumRow('Mezzanine floor · ' + p.mezzSqm + ' sq.m × ' + f(l.mezzRate) + ' per sq.m', f(p.mezz)) : '') +
     sbSumRow('Subtotal', f(p.subtotal)) +
     sbSumRow('GST ' + Math.round((p.gstPct || 0.18) * 100) + '%', f(p.gst)) +
@@ -836,7 +891,8 @@ function viewApplication(id) {
           '<div class="cell"><div class="k">Hall / Zone</div><div class="v">' + esc(sbZoneLabel(s.hall)) + '</div></div>' +
           '<div class="cell"><div class="k">Scheme</div><div class="v">' + esc(sbSchemeLabel(s.scheme)) + '</div></div>' +
           '<div class="cell"><div class="k">Size / Area</div><div class="v">' + esc(s.size || '') + ' · ' + s.sqm + ' sq.m</div></div>' +
-          '<div class="cell"><div class="k">Mezzanine floor</div><div class="v">' + (s.mezzSqm ? s.mezzSqm + ' sq.m (' + Math.round((s.mezzSqm / s.sqm) * 100) + '% of area)' : 'none') + '</div></div>' +
+          (s.scheme === 'pod' ? '' : '<div class="cell"><div class="k">Mezzanine floor</div><div class="v">' + (s.mezzSqm ? s.mezzSqm + ' sq.m (' + Math.round((s.mezzSqm / s.sqm) * 100) + '% of area)' : 'none') + '</div></div>') +
+          (s.startup ? '<div class="cell"><div class="k">DPIIT / Udyam recognition</div><div class="v">' + esc(s.startup.recognitionNo) + (s.startup.certFile ? '<br><small style="color:var(--muted)">' + esc(s.startup.certFile) + '</small>' : '') + '</div></div>' : '') +
           '<div class="cell"><div class="k">Open sides</div><div class="v">' + esc(s.sides) + '</div></div>' +
           '<div class="cell"><div class="k">Stall design</div><div class="v">' + esc(s.design || '—') + '</div></div>' +
           '<div class="cell"><div class="k">Venue</div><div class="v">Yelahanka Air Force Station, Bengaluru</div></div>' +
@@ -906,7 +962,7 @@ function viewMySpaces() {
       '<div class="tile"><div class="t-label">Expired / Released</div><div class="t-value">' + (count('expired') + count('released')) + '</div><div class="t-sub">stalls returned to inventory</div></div>' +
     '</div>' : '';
   const how = '<div class="card" style="margin-top:16px"><h2 class="card-title">How it works</h2><ol class="sb-how">' +
-      '<li><b>Select</b> a stall on the hall layout (green = available, pink = blocked in a cart, red = allotted). Choose Shell / Raw and, on stalls above ' + sbpConfig().mezz.minSqm + ' sq.m, an optional mezzanine area.</li>' +
+      '<li><b>Select</b> a stall on the hall layout (green = available, pink = blocked in a cart, red = allotted). Choose Shell / Raw and, on stalls above ' + sbpConfig().mezz.minSqm + ' sq.m, an optional mezzanine area. Indian startups can instead take one concessional pod in the Startup Zone (DPIIT / Udyam certificate required).</li>' +
       '<li><b>Hold</b> — each stall becomes its own application, reserved for ' + sbpHoldDays() + ' days from cart creation; the proforma invoice is e-mailed and downloadable.</li>' +
       '<li><b>Pay 100%</b> online from the application page, or offline (NEFT / RTGS / Cheque / Wire) and upload the proof — the clock pauses until DEO verifies.</li>' +
       '<li><b>Allotted automatically</b> on receipt — the stall is mapped to your company on the layout, a tax invoice is issued and badge / vehicle quota released. No changes after allotment.</li></ol></div>';

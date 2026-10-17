@@ -32,6 +32,9 @@ const SBP_DEFAULTS = {
   cornerPctPerSide: 0.03,
   mezz: { inr: 21500, usd: 475, minSqm: 100, maxPct: 0.5, schemes: ['raw', 'shell'] },
   regFee: { inr: 40000, usd: 700 },
+  /* T&C clause 5(f): Startup Zone — concessional pod for Indian startups with valid DPIIT / Udyam certificate;
+     clause 9(q): each pod holder gets 2 all-day passes + 2 single-entry one-day passes */
+  startup: { podFee: 90000, podSqm: 6, passes: { allDay: 2, oneDay: 2, car: 0 } },
   usdRate: 88,                                          // DEO settlement rate, ₹ per USD
   allowInrSettlement: true,                             // USD-billed exhibitors may pay in INR at that rate
   passes: {
@@ -65,6 +68,7 @@ const sbpHoldDays = () => sbpConfig().holdDays;
 const sbpFmt = (n, cur) => (cur === 'USD' ? '$' + Number(n).toLocaleString('en-US') : '₹' + Number(n).toLocaleString('en-IN'));
 const sbpRateKey = (cur) => (cur === 'USD' ? 'usd' : 'inr');
 const sbpIsChalet = (st) => st.hall === 'CH' || st.chalet === true || /^chalet/.test(String(st.scheme));
+const sbpIsPod = (st) => st.hall === 'SZ' || st.pod === true || st.scheme === 'pod';
 const sbpSidesN = (st) => parseInt(st.sides, 10) || 1;
 
 /* ---------------- mezzanine rules ---------------- */
@@ -84,14 +88,15 @@ function sbpPrice(stalls, opts) {
   const k = sbpRateKey(cur);
   const lines = stalls.map((st) => {
     const chalet = sbpIsChalet(st);
-    const rate = chalet ? 0 : (cfg.rates[st.scheme] || cfg.rates.raw)[k];
-    const base = chalet ? cfg.chalet[st.scheme][k] : Math.round(Number(st.sqm) * rate);
-    const sidePct = chalet ? 0 : Math.max(0, sbpSidesN(st) - 1) * cfg.cornerPctPerSide;
+    const pod = sbpIsPod(st);
+    const rate = (chalet || pod) ? 0 : (cfg.rates[st.scheme] || cfg.rates.raw)[k];
+    const base = pod ? cfg.startup.podFee : chalet ? cfg.chalet[st.scheme][k] : Math.round(Number(st.sqm) * rate);
+    const sidePct = (chalet || pod) ? 0 : Math.max(0, sbpSidesN(st) - 1) * cfg.cornerPctPerSide;
     const side = Math.round(base * sidePct);
     const mezzSqm = sbpMezzEligible(st, cfg) ? Math.min(Math.max(0, Math.floor(Number(st.mezzSqm) || 0)), sbpMezzMax(st, cfg)) : 0;
     const mezzRate = cfg.mezz[k];
     const mezz = Math.round(mezzSqm * mezzRate);
-    return { name: st.name, hall: st.hall, sqm: Number(st.sqm), scheme: st.scheme, sides: st.sides || '1 Side', chalet: chalet,
+    return { name: st.name, hall: st.hall, sqm: Number(st.sqm), scheme: st.scheme, sides: st.sides || '1 Side', chalet: chalet, pod: pod,
       rate: rate, base: base, sidePct: sidePct, side: side, mezzSqm: mezzSqm, mezzRate: mezzRate, mezz: mezz, total: base + side + mezz };
   });
   const base = lines.reduce((a, l) => a + l.base, 0);
@@ -136,11 +141,20 @@ function sbpEntitlement(sqm, cfg) {
   const blocks = sqm > 0 ? 1 + Math.floor(Math.max(0, sqm - 50) / 50) : 0;
   return { sqm: sqm, blocks: blocks, allDay: p.allDayPer50 * blocks, oneDay: Math.floor(sqm / 4) * p.oneDayPer4, car: p.carPer50 * blocks };
 }
+/* entitlement for a set of allotted units: hall / chalet area by the sq.m matrix, Startup Zone pods per pod */
+function sbpEntitlementFor(units, cfg) {
+  cfg = cfg || sbpConfig();
+  const isPod = (s) => s.scheme === 'pod' || s.hall === 'SZ' || String(s.hall) === 'Startup Zone';
+  const sqm = units.filter((s) => !isPod(s)).reduce((a, s) => a + Number(s.area != null ? s.area : s.sqm || 0) + Number(s.mezzSqm || 0), 0);
+  const pods = units.filter(isPod).length;
+  const e = sbpEntitlement(sqm, cfg);
+  const p = cfg.startup.passes;
+  return { sqm: sqm, pods: pods, blocks: e.blocks, allDay: e.allDay + pods * p.allDay, oneDay: e.oneDay + pods * p.oneDay, car: e.car + pods * p.car };
+}
 /* apply the entitlement of every allotted stall to the exhibitor's quota categories
    (state = exhibitor S / ex: { stalls, categories }) — returns the entitlement */
 function sbpApplyEntitlement(state) {
-  const sqm = (state.stalls || []).reduce((a, s) => a + Number(s.area || 0) + Number(s.mezzSqm || 0), 0);
-  const e = sbpEntitlement(sqm);
+  const e = sbpEntitlementFor(state.stalls || []);
   const set = (id, n) => { const c = (state.categories || []).find((x) => x.id === id); if (c) c.free = Math.max(c.free, n); };
   set('cat_exh', e.allDay); set('cat_invitee', e.oneDay); set('cat_veh', e.car);
   return e;
@@ -201,17 +215,18 @@ const SBP_DOC_CSS =
   '.foot{margin-top:28px;font-size:11px;color:#6B7686;border-top:1px solid #E6EAF2;padding-top:12px}' +
   '.noprint{margin-top:24px}@media print{.noprint{display:none}}';
 const SBP_PRINT_BTN = '<div class="noprint"><button onclick="window.print()" style="background:#2F62D8;color:#fff;border:none;border-radius:8px;padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer">Print / Save as PDF</button></div>';
-const sbpZoneName = (h) => (h === 'CH' ? 'Chalet Line 1' : 'Hall ' + h);
-const SBP_SCHEME_NAME = { shell: 'Indoor Shell Scheme', raw: 'Indoor Raw Space', outdoor: 'Outdoor Area', chalet1: 'Hospitality Chalet · Single Storey', chalet2: 'Hospitality Chalet · Double Storey' };
+const sbpZoneName = (h) => (h === 'CH' ? 'Chalet Line 1' : h === 'SZ' ? 'Startup Zone' : 'Hall ' + h);
+const SBP_SCHEME_NAME = { shell: 'Indoor Shell Scheme', raw: 'Indoor Raw Space', outdoor: 'Outdoor Area', chalet1: 'Hospitality Chalet · Single Storey', chalet2: 'Hospitality Chalet · Double Storey', pod: 'Startup Zone · Pod' };
 
 /* line items shared by both documents */
 function sbpDocLines(r, p) {
   const cur = p.currency || 'INR';
   const f = (n) => sbpFmt(n, cur);
   return r.stalls.map((s, i) => {
-    const l = p.lines[i] || { base: 0, side: 0, sidePct: 0, mezz: 0, mezzSqm: 0, rate: 0, chalet: sbpIsChalet(s) };
+    const l = p.lines[i] || { base: 0, side: 0, sidePct: 0, mezz: 0, mezzSqm: 0, rate: 0, chalet: sbpIsChalet(s), pod: sbpIsPod(s) };
     return '<tr><td><b>' + esc(s.name) + '</b> · ' + esc(sbpZoneName(s.hall)) + ' · ' + esc(SBP_SCHEME_NAME[s.scheme] || s.scheme) +
-        '<br><span class="muted">' + (l.chalet ? '6m × 12m chalet · flat rate' : s.sqm + ' sq.m (' + esc(s.size || '') + ') × ' + f(l.rate) + ' per sq.m') + ' · ' + esc(s.sides || '1 Side') + ' open</span></td>' +
+        '<br><span class="muted">' + (l.pod ? 'Startup pod ' + s.sqm + ' sq.m · concessional flat fee · Indian startup' + (s.startup && s.startup.recognitionNo ? ' · DPIIT / Udyam ' + esc(s.startup.recognitionNo) : '')
+          : (l.chalet ? '6m × 12m chalet · flat rate' : s.sqm + ' sq.m (' + esc(s.size || '') + ') × ' + f(l.rate) + ' per sq.m') + ' · ' + esc(s.sides || '1 Side') + ' open') + '</span></td>' +
         '<td class="right">' + f(l.base) + '</td></tr>' +
       (l.side ? '<tr><td class="sub">Corner stall fee — ' + Math.round(l.sidePct * 100) + '% of space rental (' + (sbpSidesN(s) - 1) + ' open side' + (sbpSidesN(s) - 1 === 1 ? '' : 's') + ' beyond the first)</td><td class="right">' + f(l.side) + '</td></tr>' : '') +
       (l.mezz ? '<tr><td class="sub">Mezzanine floor — ' + l.mezzSqm + ' sq.m × ' + f(l.mezzRate) + ' per sq.m (no corner premium)</td><td class="right">' + f(l.mezz) + '</td></tr>' : '');
@@ -257,6 +272,7 @@ function sbpProformaHtml(r, who) {
       '<li>Payment may be made online through the exhibitor portal or offline by NEFT / RTGS / Cheque / DD / Wire transfer. For offline payments, upload the proof in the portal — the validity clock pauses until DEO verifies the receipt.</li>' +
       '<li>If the amount is not received within the validity period the application is cancelled automatically and the space released for fresh booking. DEO may extend validity case by case before expiry.</li>' +
       '<li>On confirmation of 100% payment the stall is allotted automatically to the exhibitor; no upgrade / downgrade is permitted thereafter. A tax invoice is issued on allotment.</li>' +
+      (p.lines.some((l) => l.pod) ? '<li>Startup Zone pods are offered at a concessional fee to Indian startups only, against a valid DPIIT / Udyam recognition certificate (T&amp;C clause 5f). DEO may release the pod if the certificate is found invalid.</li>' : '') +
       (p.mezz ? '<li>Mezzanine floor is permitted up to 50% of the allotted area for stalls above 100 sq.m, charged per sq.m without corner premium, subject to DEO’s approved terms.</li>' : '') +
       '<li>Rates as per Aero India 2027 Terms &amp; Conditions, clause 5; all rates exclusive of GST which is charged at ' + Math.round((p.gstPct || 0.18) * 100) + '%.</li></ul>' +
     '<div class="foot"><b>This is a proforma invoice — not a tax invoice.</b> Computer-generated for the organiser · ' + esc(who.eventName) + ' · ' + esc(r.piNo) + '.</div>' + SBP_PRINT_BTN +

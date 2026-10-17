@@ -1138,3 +1138,13 @@ table.grid.sbdt-table th, table.grid.sbdt-table td { padding: 11px 8px; }
 .sb-cfg .field label { font-size: 0.78rem; }
 .sba-head { flex-wrap: wrap; }
 .sba-head .btn { white-space: nowrap; }
+
+/* ---- Startup Zone ---- */
+.pod-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; padding: 16px 14px; }
+.pod-grid .stall-tile { min-height: 84px; display: flex; flex-direction: column; justify-content: center; }
+.stall-tile.avail.locked { background: #F3F5F9; border-color: #D8DEE9; color: var(--muted); cursor: not-allowed; }
+.stall-tile.avail.locked:hover { transform: none; box-shadow: none; }
+.vmap .hall.startup .body { fill: #EFE7FB; stroke: #6C47C9; }
+.vmap .hall.startup .cname { fill: #6C47C9; }
+.vmap .hall.startup text.cname { fill: #6C47C9; font-size: 10px; font-weight: 800; letter-spacing: 2px; font-family: Mulish, sans-serif; pointer-events: none; }
+.vmap .hall.startup:hover text.cname { fill: #fff; }

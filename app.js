@@ -95,8 +95,12 @@ function load() {
 /* HAL carries its pre-allotted stalls; any other login starts without stalls */
 function freshSeed() {
   const seed = JSON.parse(JSON.stringify(SEED));
-  if (!EXH.seedStalls) seed.stalls = [];
+  if (!EXH.seedStalls) { seed.stalls = []; sbZeroQuota(seed); }
   return seed;
+}
+/* logins without pre-allotted stalls start with no space-linked quota — it is released on allotment */
+function sbZeroQuota(state) {
+  (state.categories || []).forEach((c) => { if (['cat_exh', 'cat_invitee', 'cat_veh'].includes(c.id)) c.free = 0; });
 }
 function save() {
   try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch (e) { /* in-memory only */ }

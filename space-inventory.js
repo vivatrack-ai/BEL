@@ -30,11 +30,17 @@ const SB_CHALET = {
   stalls: Array.from({ length: 10 }, (_, i) => ({ name: 'CH-' + String(i + 1).padStart(2, '0'), hall: 'CH', sqm: 72, size: '12X6', chalet: true,
     design: 'Hospitality Chalet', sides: '4 Sides' })),
 };
-const SB_ZONES = SB_HALLS.concat([SB_CHALET]);
-const sbZone = (id) => (id === 'CH' ? SB_CHALET : SB_HALLS.find((h) => h.id === id));
-const sbZoneLabel = (id) => (id === 'CH' ? 'Chalet Line 1' : 'Hall ' + id);
+/* Startup Zone — 20 concessional pods (6 sq.m) for Indian startups (T&C clause 5f) */
+const SB_STARTUP = {
+  id: 'SZ', name: 'Startup Zone', startup: true,
+  stalls: Array.from({ length: 20 }, (_, i) => ({ name: 'SZ-' + String(i + 1).padStart(2, '0'), hall: 'SZ', sqm: 6, size: '3X2', pod: true,
+    design: 'Startup Pod', sides: '1 Side' })),
+};
+const SB_ZONES = SB_HALLS.concat([SB_CHALET, SB_STARTUP]);
+const sbZone = (id) => (id === 'CH' ? SB_CHALET : id === 'SZ' ? SB_STARTUP : SB_HALLS.find((h) => h.id === id));
+const sbZoneLabel = (id) => (id === 'CH' ? 'Chalet Line 1' : id === 'SZ' ? 'Startup Zone' : 'Hall ' + id);
 const sbStallMaster = (hall, name) => { const z = sbZone(hall); return z ? z.stalls.find((s) => s.name === name) : null; };
-const SB_SCHEME_LABEL = { shell: 'Shell', raw: 'Raw', outdoor: 'Outdoor', chalet1: 'Chalet · Single Storey', chalet2: 'Chalet · Double Storey' };
+const SB_SCHEME_LABEL = { shell: 'Shell', raw: 'Raw', outdoor: 'Outdoor', chalet1: 'Chalet · Single Storey', chalet2: 'Chalet · Double Storey', pod: 'Startup Pod' };
 const sbSchemeLabel = (sc) => SB_SCHEME_LABEL[sc] || sc;
 const SB_LIVE_COMPANY = SB_EXHIBITORS[0].company; // legacy name (HAL)
 const SB_LIVE_REGNO = SB_EXHIBITORS[0].regNo;
@@ -90,11 +96,13 @@ function sbDemoBook(taken) {
       : r < 2 ? 'reserved' : r === 2 ? 'payment_under_verification' : r === 3 ? 'expired' : 'confirmed';
     const age = status === 'reserved' ? 1 + (h % 18) : status === 'payment_under_verification' ? 4 + (h % 15) : status === 'expired' ? 24 + (h % 16) : 3 + (h % 27);
     const createdAt = sbDaysAgo(age, h);
-    const company = SB_DEMO_POOL[(k * 7 + h % 5) % SB_DEMO_POOL.length];
+    const pool = st.pod ? SB_DEMO_POOL.filter((c) => c.origin === 'national') : SB_DEMO_POOL; // pods: Indian startups only
+    const company = pool[(k * 7 + h % 5) % pool.length];
     const origin = company.origin;
-    const scheme = st.chalet ? (h % 2 ? 'chalet1' : 'chalet2') : (h % 3 === 0 ? 'raw' : 'shell');
+    const scheme = st.pod ? 'pod' : st.chalet ? (h % 2 ? 'chalet1' : 'chalet2') : (h % 3 === 0 ? 'raw' : 'shell');
     const stall = { hall: st.hall, name: st.name, sqm: st.sqm, size: st.size, scheme: scheme, sides: st.sides, design: st.design,
-      mezzSqm: (!st.chalet && st.sqm > 100 && h % 4 === 0) ? 20 + (h % 35) : 0 };
+      mezzSqm: (!st.chalet && !st.pod && st.sqm > 100 && h % 4 === 0) ? 20 + (h % 35) : 0 };
+    if (st.pod) stall.startup = { recognitionNo: 'DIPP' + String(10000 + (h % 89999)), certFile: 'dpiit-recognition-certificate.pdf', declaredAt: sbFmtDT(createdAt) };
     const mode = ((h >>> 7) % 10) < 7 ? 'online' : 'offline';
     const method = (mode === 'online' ? SB_ONLINE : SB_OFFLINE)[origin][h % (mode === 'online' ? SB_ONLINE : SB_OFFLINE)[origin].length];
     let payment = null, paidAt = null, pausedAt = null;
@@ -111,7 +119,7 @@ function sbDemoBook(taken) {
       pausedAt = sub.toISOString();
     }
     const b = { id: 'sbd_' + st.name, no: '#' + String(40000000 + (h % 59999999)), piNo: 'PI-AI27-' + String(1000 + (h % 8999)), company: company.company, regNo: company.regNo || '',
-      origin: origin, exId: company.id, source: 'demo', type: st.chalet ? 'Chalet' : 'Pre-defined Space', stalls: [stall], status: status,
+      origin: origin, exId: company.id, source: 'demo', type: st.pod ? 'Startup Pod' : st.chalet ? 'Chalet' : 'Pre-defined Space', stalls: [stall], status: status,
       createdAt: createdAt, createdAtIso: createdAt.toISOString(), holdUntil: sbpHoldUntil(createdAt.getTime()), pausedAt: pausedAt, extensions: [], payment: payment,
       paidAt: paidAt, paidAtIso: paidAt ? paidAt.toISOString() : '', orderNo: status === 'confirmed' ? 'ORD-2027-' + String(1000 + (h % 8999)) : '', remark: '', audit: [] };
     if (status === 'confirmed') b.allotment = { at: sbFmtDT(paidAt), by: 'System (auto-allotment)', company: company.company };
@@ -132,6 +140,12 @@ function sbDemoBook(taken) {
     const h = sbHash('sbd' + st.name);
     if (taken['CH|' + st.name] || !(n % 4 === 0 || n === 7 || h % 10 < 6)) return;
     mk(st, h, n % 4 === 0, n === 7);
+  });
+  SB_STARTUP.stalls.forEach((st, i) => {
+    const n = i + 1;
+    const h = sbHash('sbd' + st.name);
+    if (taken['SZ|' + st.name] || !(n % 5 === 0 || n === 3 || h % 10 < 5)) return;
+    mk(st, h, n % 5 === 0, n === 3);
   });
   /* rows DEO reserved for demo companies from the admin */
   (store.__created || []).forEach((rec) => {
