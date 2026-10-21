@@ -577,13 +577,15 @@ function viewAggList() {
   const list = aggregators();
   // Rule (same as co-exhibitors): nothing added yet -> open the Add form directly
   if (list.length === 0) return viewAggAdd(true);
+  aggResetStart();
 
   const rows = list.map((c, i) => {
     const remark = c.status === 'rejected' && c.remark
       ? '<span class="td-sub" style="color:var(--red)">' + esc(c.remark) + '</span>' : '';
     return '<tr>' +
       '<td class="num">' + (i + 1) + '</td>' +
-      '<td><span class="td-strong">' + esc(c.company) + '</span><span class="td-sub">' + esc(c.email) + '</span></td>' +
+      '<td><span class="td-strong">' + esc(c.company) + '</span><span class="td-sub">' + esc(c.email) + '</span>' +
+        (c.linkedRegNo ? '<span class="td-sub">Registered company · ' + esc(c.linkedRegNo) + '</span>' : '') + '</td>' +
       '<td>' + esc(c.nodalFirst + ' ' + c.nodalLast) + (c.nodalMobile ? '<span class="td-sub">' + esc(fmtMobile(c)) + '</span>' : '') + '</td>' +
       '<td class="num"><code>' + esc(c.regNo) + '</code></td>' +
       '<td>' + coexStatusPill(c) + remark + '</td>' +
@@ -614,7 +616,7 @@ function viewAggList() {
     '<div class="card">' +
       '<div class="card-head-row">' +
         '<h2 class="card-title">Aggregator Company List</h2>' +
-        '<a class="btn btn-primary" href="#/aggregators/add"><span class="material-symbols-outlined">add</span>Add Aggregator Company</a>' +
+        '<a class="btn btn-primary" href="#/aggregators/add" onclick="aggResetStart()"><span class="material-symbols-outlined">add</span>Add Aggregator Company</a>' +
       '</div>' +
       '<div class="tablewrap"><table class="grid">' +
         '<tr><th>Sr.</th><th>Company</th><th>Nodal Officer</th><th>Reg. No.</th><th>Approval Status</th><th>Space</th><th>Action</th></tr>' +
@@ -633,27 +635,37 @@ function viewAggAdd(isFirst, editId) {
   const firstNote = isFirst
     ? '<div class="note"><b class="title">No aggregator companies added yet.</b>Add your first aggregator company below. Once added, the listing view will appear here.</div>'
     : '';
-  const v = (k) => esc(editing ? editing[k] || '' : '');
+  // new entry: ask "Do you have a registration number?" once, then prefill from the registered company
+  if (!editing && !window.__aggAsk) setTimeout(openAggStart, 0);
+  const pre = !editing ? window.__aggPrefill : null;
+  const src = editing || (pre ? { company: pre.company, email: pre.email, nodalFirst: pre.first, nodalLast: pre.last, nodalDesig: pre.desig, nodalCc: pre.cc, nodalMobile: pre.mobile } : null);
+  const v = (k) => esc(src ? src[k] || '' : '');
+  const lock = pre ? ' readonly style="background:#F4F6FA"' : '';
+  const preNote = pre
+    ? '<div class="note green"><b class="title">Details fetched from registration ' + esc(pre.regNo) + '</b>' +
+      'Company name and email come from the company’s Aero India 2027 registration. ' + (pre.first ? 'Check the nodal officer details and submit.' : 'Add the nodal officer details and submit.') +
+      ' <button type="button" class="btn-link" onclick="openAggStart()">Use a different registration number</button></div>'
+    : '';
 
   return '' +
     back +
     '<h1 class="page-title">' + (editing ? 'Resubmit Aggregator Company' : 'Add Aggregator Company') + '</h1>' +
     '<p class="page-sub">Enter the aggregator company and its nodal officer details. The request goes to the organiser for approval.</p>' +
-    firstNote +
+    firstNote + preNote +
     (editing ? '<div class="note" style="border-color:var(--red-soft)"><b class="title" style="color:var(--red)">Organiser remark</b>' + esc(editing.remark || '—') + '</div>' : '') +
     '<div class="card">' +
     '<form id="aggForm" onsubmit="return submitAgg(event, \'' + (editId || '') + '\')" novalidate>' +
       '<div class="form-grid">' +
         '<div class="field"><label>Aggregator Company Name <span class="req">*</span></label>' +
-          '<input type="text" id="aggCompany" value="' + v('company') + '" placeholder="e.g. SkyBridge Aerospace Consortium"><div class="error"></div></div>' +
+          '<input type="text" id="aggCompany" value="' + v('company') + '"' + lock + ' placeholder="e.g. SkyBridge Aerospace Consortium"><div class="error"></div></div>' +
         '<div class="field"><label>Company Email <span class="req">*</span></label>' +
-          '<input type="email" id="aggEmail" value="' + v('email') + '" placeholder="name@company.com">' +
+          '<input type="email" id="aggEmail" value="' + v('email') + '"' + lock + ' placeholder="name@company.com">' +
           '<div class="hint">Login credentials will be emailed here after organiser approval.</div><div class="error"></div></div>' +
         '<div class="field"><label>Nodal Officer First Name <span class="req">*</span></label>' +
           '<input type="text" id="aggFirst" value="' + v('nodalFirst') + '"><div class="error"></div></div>' +
         '<div class="field"><label>Nodal Officer Last Name <span class="req">*</span></label>' +
           '<input type="text" id="aggLast" value="' + v('nodalLast') + '"><div class="error"></div></div>' +
-        mobileFieldHtml('agg', 'Nodal Officer Mobile', { required: true, cc: editing && editing.nodalCc, value: editing ? editing.nodalMobile : '' }) +
+        mobileFieldHtml('agg', 'Nodal Officer Mobile', { required: true, cc: src && src.nodalCc, value: src ? src.nodalMobile : '' }) +
         '<div class="field"><label>Nodal Officer Designation</label>' +
           '<input type="text" id="aggDesig" value="' + v('nodalDesig') + '" placeholder="e.g. Business Head"></div>' +
       '</div>' +
@@ -665,12 +677,95 @@ function viewAggAdd(isFirst, editId) {
         '<li>Stall space &amp; pass quotas (badges, invitee, vehicle) can be allotted only after approval — same flow as a Separate co-exhibitor.</li>' +
       '</ul></div>' +
       '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">' +
-        (isFirst ? '' : '<a class="btn btn-outline" href="#/aggregators">Cancel</a>') +
+        (isFirst ? '' : '<a class="btn btn-outline" href="#/aggregators" onclick="aggResetStart()">Cancel</a>') +
         '<button class="btn btn-primary" type="submit"><span class="material-symbols-outlined">' + (editing ? 'replay' : 'check') + '</span>' + (editing ? 'Resubmit for Approval' : 'Submit for Approval') + '</button>' +
       '</div>' +
     '</form>' +
     '</div>' +
     footerTools();
+}
+
+/* ---------------- Add aggregator: "Do you have a registration number?" ----------------
+   Yes → enter the company's Aero India registration number, details are fetched and prefilled.
+   No  → the regular blank form. */
+function aggResetStart() { window.__aggAsk = null; window.__aggPrefill = null; }
+/* '+91 98450 11223' → { cc: '91', mobile: '9845011223' } using the known country codes */
+function aggSplitPhone(phone) {
+  const d = String(phone || '').replace(/\D/g, '');
+  if (!d) return { cc: DEFAULT_CC, mobile: '' };
+  const codes = COUNTRY_CODES.map((c) => String(c[0])).sort((a, b) => b.length - a.length);
+  const cc = String(phone).trim().charAt(0) === '+' ? codes.find((c) => d.indexOf(c) === 0 && d.length - c.length >= 6) : null;
+  return cc ? { cc: cc, mobile: d.slice(cc.length) } : { cc: DEFAULT_CC, mobile: d.slice(-10) };
+}
+/* registered companies: the exhibitor logins (with their profile's primary contact) and the registration report */
+function aggRegistryLookup(regNo) {
+  const key = String(regNo || '').trim().toUpperCase();
+  if (!key) return null;
+  const login = SB_EXHIBITORS.find((p) => String(p.regNo || '').toUpperCase() === key);
+  if (login) {
+    const st = sbReadState(login.lsKey);
+    const pc = (st && st.profile && st.profile.contacts && st.profile.contacts.primary) || {};
+    const ph = aggSplitPhone(pc.phone);
+    return { regNo: login.regNo, company: login.company, email: login.email || pc.email || '', first: pc.first || '', last: pc.last || '', desig: pc.designation || '', cc: ph.cc, mobile: ph.mobile };
+  }
+  const r = ((window.ADMIN_DATA && window.ADMIN_DATA.exhibitors) || []).find((x) => x.regNo && x.regNo.toUpperCase() === key);
+  if (r) { const ph = aggSplitPhone(r.phone); return { regNo: r.regNo, company: r.company, email: r.email || '', first: '', last: '', desig: '', cc: ph.cc, mobile: ph.mobile }; }
+  return null;
+}
+function openAggStart() {
+  window.__aggAsk = 'asking';
+  openModal('Add Aggregator Company',
+    '<p style="margin-top:0;font-size:0.95rem;font-weight:700">Do you have a registration number?</p>' +
+    '<p style="margin-top:-4px;color:var(--muted);font-size:0.84rem">If the aggregator company is already registered for Aero India 2027, enter its registration number and its details are filled in automatically.</p>' +
+    '<div class="radio-cards" style="margin-bottom:12px">' +
+      '<label class="radio-card" id="aggHasYes" onclick="aggStartPick(true)"><input type="radio" name="aggHas" value="yes"><b>Yes</b><small>I have the registration number</small></label>' +
+      '<label class="radio-card" id="aggHasNo" onclick="aggStartPick(false)"><input type="radio" name="aggHas" value="no"><b>No</b><small>Enter the details manually</small></label>' +
+    '</div>' +
+    '<form id="aggRegForm" onsubmit="return aggStartSubmit(event)" novalidate style="display:none">' +
+      '<div class="field"><label>Registration Number <span class="req">*</span></label>' +
+        '<input type="text" id="aggRegNo" placeholder="e.g. ERD00203" autocomplete="off" style="text-transform:uppercase"><div class="error"></div></div>' +
+    '</form>',
+    '<button class="btn btn-outline" onclick="aggStartCancel()">Cancel</button>' +
+    '<button class="btn btn-primary" id="aggStartBtn" onclick="aggStartSubmit()" disabled><span class="material-symbols-outlined">arrow_forward</span>Continue</button>');
+}
+function aggStartPick(yes) {
+  setTimeout(() => {
+    $('aggHasYes').classList.toggle('selected', yes);
+    $('aggHasNo').classList.toggle('selected', !yes);
+    $('aggRegForm').style.display = yes ? '' : 'none';
+    $('aggStartBtn').disabled = false;
+    $('aggStartBtn').innerHTML = '<span class="material-symbols-outlined">' + (yes ? 'search' : 'arrow_forward') + '</span>' + (yes ? 'Submit' : 'Continue');
+    if (yes) $('aggRegNo').focus();
+  }, 0);
+}
+function aggStartCancel() {
+  closeModal();
+  // nothing chosen: a list with entries goes back to it, the first-time form stays as a blank form
+  if (S.coexhibitors.some((c) => c.type === 'aggregator')) { aggResetStart(); location.hash = '#/aggregators'; }
+  else { window.__aggAsk = 'done'; window.__aggPrefill = null; }
+}
+function aggStartSubmit(e) {
+  if (e) e.preventDefault();
+  const yes = $('aggHasYes').classList.contains('selected');
+  if (!yes) { window.__aggAsk = 'done'; window.__aggPrefill = null; closeModal(); aggOpenForm(); return false; }
+  clearErrs($('aggRegForm'));
+  const regNo = $('aggRegNo').value.trim().toUpperCase();
+  if (!regNo) { setErr('aggRegNo', 'Enter the registration number'); return false; }
+  if (regNo === String(EVENT.exhibitorRegNo || '').toUpperCase()) { setErr('aggRegNo', 'This is your own registration number'); return false; }
+  const found = aggRegistryLookup(regNo);
+  if (!found) { setErr('aggRegNo', 'No registered company found with this registration number. Check it, or choose No to enter the details manually.'); return false; }
+  const dup = S.coexhibitors.find((c) => (c.linkedRegNo && c.linkedRegNo.toUpperCase() === regNo) ||
+    (c.email && found.email && c.email.toLowerCase() === found.email.toLowerCase()));
+  if (dup) { setErr('aggRegNo', found.company + ' is already added (' + (dup.type === 'aggregator' ? 'aggregator' : 'co-exhibitor') + ').'); return false; }
+  window.__aggAsk = 'done'; window.__aggPrefill = found;
+  closeModal(); aggOpenForm();
+  toast('Details of ' + found.company + ' fetched — review and submit for approval.', 'success');
+  return false;
+}
+/* show the add form (the list route shows it inline while no aggregator exists) */
+function aggOpenForm() {
+  const target = S.coexhibitors.some((c) => c.type === 'aggregator') ? '#/aggregators/add' : '#/aggregators';
+  if (location.hash === target) render(); else location.hash = target;
 }
 
 function submitAgg(e, editId) {
@@ -696,6 +791,7 @@ function submitAgg(e, editId) {
   const ph = readMobile('agg', true);
   if (!ph) ok = false;
   if (!ok) return false;
+  const pre = editId ? null : window.__aggPrefill;
 
   if (editId) {
     // Resubmit a rejected company with corrected details
@@ -716,7 +812,9 @@ function submitAgg(e, editId) {
       nodalFirst: first, nodalLast: last, nodalCc: ph.cc, nodalMobile: ph.mobile, nodalDesig: desig,
       regNo: regNo, status: 'pending_approval', remark: '',
       createdAt: nowStr(), submittedAt: nowStr(), approvedAt: '',
+      linkedRegNo: pre ? pre.regNo : '', // registered Aero India company the details were fetched from
     });
+    aggResetStart();
     save();
     toast('Reference ' + regNo + ' generated. "' + company + '" sent to the organiser for approval.', 'success');
   }
