@@ -39,7 +39,7 @@ function cxQuota(ex, catId) {
   const q = (ex.quotas || []).find((x) => x.coexId === CX.coexId && x.catId === catId);
   return q ? q.quota : 0;
 }
-function cxUsed(ex, catId) { return (ex.passes || []).filter((p) => p.catId === catId && p.coexId === CX.coexId).length; }
+function cxUsed(ex, catId) { return (ex.passes || []).filter((p) => p.catId === catId && p.coexId === CX.coexId && p.status !== 'rejected').length; }
 function cxCats(ex, kind) { return (ex.categories || []).filter((cat) => cat.kind === kind && cxQuota(ex, cat.id) > 0); }
 const CX_KINDS = ['badge', 'invitee', 'vehicle'];
 
@@ -340,9 +340,14 @@ function cxViewStall() {
    VIEW · Passes (badge | invitee | vehicle) — fill against quota
    ============================================================ */
 const CX_KIND_TITLE = { badge: 'Badge Details', invitee: 'Invitee Details', vehicle: 'Vehicle Pass Details' };
+function cxInvPill(p) {
+  if (p.status === 'pending_approval') return '<span class="pill amber">Pending Approval</span>';
+  if (p.status === 'rejected') return '<span class="pill red">Rejected</span>' + (p.remark ? '<span class="td-sub" style="color:var(--red)">' + esc(p.remark) + '</span>' : '');
+  return '<span class="pill green">' + (p.approvedAt ? 'Approved' : 'Issued') + '</span>' + (p.approvedAt ? '<span class="td-sub">' + esc(p.approvedAt) + '</span>' : '');
+}
 const CX_KIND_SUB = {
   badge: 'Badge quota assigned to you by the main exhibitor. Register your team members against the quota.',
-  invitee: 'Invitee pass quota assigned to you. Registration is date-wise for each event day.',
+  invitee: 'Invitee pass quota assigned to you. Registration is date-wise for each event day. Each invitee is confirmed only after the main exhibitor’s nodal officer approves it; rejected entries release the quota.',
   vehicle: 'Vehicle pass quota assigned to you. Register driver & vehicle details against the quota.',
 };
 
@@ -387,13 +392,13 @@ function cxViewPasses(kind) {
       '<td>' + esc(p.createdAt) + '</td></tr>').join('');
   } else {
     passHead = '<tr><th>No.</th><th>Name</th><th>Email / Mobile</th><th>Designation</th>' +
-      (kind === 'invitee' ? '<th>Event Dates</th>' : '') + '<th>Category</th><th>Created</th></tr>';
+      (kind === 'invitee' ? '<th>Event Dates</th><th>Status</th>' : '') + '<th>Category</th><th>Created</th></tr>';
     passRows = myPasses.map((p, i) =>
       '<tr><td>' + (i + 1) + '</td>' +
       '<td class="td-strong">' + esc(p.data.firstName + ' ' + p.data.lastName) + '</td>' +
       '<td class="contact-cell">' + esc(p.data.email) + '<br><span class="ph">' + esc(p.data.mobile || '') + '</span></td>' +
       '<td>' + esc(p.data.designation || '—') + '</td>' +
-      (kind === 'invitee' ? '<td>' + esc((p.data.dates || []).join(', ')) + '</td>' : '') +
+      (kind === 'invitee' ? '<td>' + esc((p.data.dates || []).join(', ')) + '</td><td>' + cxInvPill(p) + '</td>' : '') +
       '<td>' + esc(catName(p.catId)) + '</td>' +
       '<td>' + esc(p.createdAt) + '</td></tr>').join('');
   }
@@ -488,14 +493,21 @@ function cxSaveBadgePass(e, catId) {
   }
   if (!ok) return false;
   if (cxQuota(ex, catId) - cxUsed(ex, catId) <= 0) { toast('No quota balance left in this category.', 'error'); return false; }
+  const isInvitee = cat.kind === 'invitee';
   ex.passes.push({
     id: cxUid(ex, 'pass'), catId: catId, coexId: CX.coexId,
     data: { firstName: first, lastName: last, email: email, mobile: mobile, designation: $('pDesig').value.trim(), dates: days },
-    status: 'issued', amount: 0, createdAt: nowStr(),
+    // invitee entries are confirmed only after the main exhibitor's nodal officer approves them
+    status: isInvitee ? 'pending_approval' : 'issued', amount: 0, createdAt: nowStr(), submittedBy: CX.company,
   });
+  if (isInvitee) {
+    if (!ex.notifications) ex.notifications = [];
+    ex.notifications.unshift({ id: 'nt_' + Date.now(), icon: 'how_to_reg', color: 'var(--amber)',
+      text: CX.company + ' submitted invitee ' + first + ' ' + last + ' — awaiting your nodal officer approval.', time: nowStr(), read: false });
+  }
   cxSaveEx(ex);
   closeModal(); render();
-  toast('Pass saved for ' + first + ' ' + last, 'success');
+  toast(isInvitee ? 'Invitee ' + first + ' ' + last + ' submitted — awaiting approval by ' + cxMain() + '’s nodal officer.' : 'Pass saved for ' + first + ' ' + last, 'success');
   return false;
 }
 

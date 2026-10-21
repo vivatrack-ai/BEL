@@ -134,10 +134,12 @@ function stallById(id) { return S.stalls.find((s) => s.id === id); }
 
 /* ----- Quota math (single source of truth) ----- */
 function catTotal(cat) { return cat.free + cat.paid; }
-function usedByExhibitor(catId) { return S.passes.filter((p) => p.catId === catId && !p.coexId).length; }
+/* a rejected invitee no longer consumes quota (pending ones hold it until the nodal officer decides) */
+const passLive = (p) => p.status !== 'rejected';
+function usedByExhibitor(catId) { return S.passes.filter((p) => p.catId === catId && !p.coexId && passLive(p)).length; }
 function allocatedToCoex(catId) { return S.quotas.filter((q) => q.catId === catId).reduce((a, q) => a + q.quota, 0); }
 function exhibitorBalance(catId) { const c = catById(catId); return catTotal(c) - usedByExhibitor(catId) - allocatedToCoex(catId); }
-function quotaUsed(coexId, catId) { return S.passes.filter((p) => p.catId === catId && p.coexId === coexId).length; }
+function quotaUsed(coexId, catId) { return S.passes.filter((p) => p.catId === catId && p.coexId === coexId && passLive(p)).length; }
 function quotaFor(coexId, catId) { const q = S.quotas.find((x) => x.coexId === coexId && x.catId === catId); return q ? q.quota : 0; }
 function stallAllocated(stallId) { return S.allocations.filter((a) => a.stallId === stallId).reduce((s, a) => s + a.sqm, 0); }
 function stallAvailable(stallId, excludeAllocId) {
@@ -1062,7 +1064,7 @@ function saveAllSpaceReqs() {
    ============================================================ */
 function catRow(cat, i, coexLabel) {
   const total = catTotal(cat);
-  const used = usedByExhibitor(cat.id) + S.passes.filter((p) => p.catId === cat.id && p.coexId).length;
+  const used = usedByExhibitor(cat.id) + S.passes.filter((p) => p.catId === cat.id && p.coexId && passLive(p)).length;
   const bal = exhibitorBalance(cat.id);
   const pct = total ? Math.round((used / total) * 100) : 0;
   return '<tr>' +
@@ -1116,7 +1118,7 @@ function bqGoto(i) { window.__bqIdx = i; render(); }
 
 function openViewQuota() {
   const badgeCats = S.categories.filter((c) => c.kind === 'badge');
-  const catUsed = (c) => usedByExhibitor(c.id) + S.passes.filter((p) => p.catId === c.id && p.coexId).length;
+  const catUsed = (c) => usedByExhibitor(c.id) + S.passes.filter((p) => p.catId === c.id && p.coexId && passLive(p)).length;
   openModal('View Quota',
     '<div class="tablewrap"><table class="grid">' +
     '<tr><th>Category</th><th>Free</th><th>Paid</th><th>Total</th><th>Used</th><th>Balance</th></tr>' +
@@ -1134,7 +1136,7 @@ function eBadgeDownload(passId) {
 
 function viewBadges() {
   const badgeCats = S.categories.filter((c) => c.kind === 'badge');
-  const catUsed = (c) => usedByExhibitor(c.id) + S.passes.filter((p) => p.catId === c.id && p.coexId).length;
+  const catUsed = (c) => usedByExhibitor(c.id) + S.passes.filter((p) => p.catId === c.id && p.coexId && passLive(p)).length;
   const totals = badgeCats.reduce((a, c) => { a.total += catTotal(c); a.used += catUsed(c); return a; }, { total: 0, used: 0 });
 
   /* left — quota tiles (ticket watermarks) */
@@ -1429,15 +1431,18 @@ function submitPass(e, catId, coexId) {
   if (!ok) return false;
   if (passContextCheck(catId, coexId) === -1) return false;
 
+  const isInvitee = cat.kind === 'invitee';
   S.passes.push({
     id: uid('pass'), catId: catId, coexId: coexId,
     data: { firstName: first, lastName: last, email: email, mobile: mobile, designation: $('pDesig').value.trim(), dates: days },
-    status: 'issued', amount: 0, createdAt: nowStr(),
+    // invitee entries are confirmed only after the exhibitor's nodal officer approves them
+    status: isInvitee ? 'pending_approval' : 'issued', amount: 0, createdAt: nowStr(),
+    submittedBy: coexId ? coexById(coexId).company : EVENT.exhibitor,
   });
   save();
-  const wantCar = cat.kind === 'invitee' && $('addCarPass') && $('addCarPass').checked;
+  const wantCar = isInvitee && $('addCarPass') && $('addCarPass').checked;
   closeModal(); render();
-  toast('Pass saved for ' + first + ' ' + last, 'success');
+  toast(isInvitee ? 'Invitee ' + first + ' ' + last + ' submitted — awaiting nodal officer approval.' : 'Pass saved for ' + first + ' ' + last, 'success');
   if (wantCar) {
     const vehCat = S.categories.find((c) => c.kind === 'vehicle');
     openVehicleForm(vehCat.id, coexId);
@@ -1494,9 +1499,7 @@ function openViewPasses(catId, coexId) {
     : '<tr><th>Sr.</th><th>Name</th><th>Email / Mobile</th>' + (cat.kind === 'invitee' ? '<th>Event Dates</th>' : '') + '<th>Filled By</th><th>Status</th><th>Created</th></tr>';
   const rows = list.map((p, i) => {
     const by = p.coexId ? esc(coexById(p.coexId).company) : 'Exhibitor';
-    const st = p.status === 'issued'
-      ? '<span class="pill green">Issued</span>'
-      : '<span class="pill amber">Payment Pending</span>';
+    const st = passStatusPill(p);
     if (isVeh) {
       return '<tr><td class="num">' + (i + 1) + '</td>' +
         '<td><span class="td-strong">' + esc(p.data.driverName) + '</span><span class="td-sub">' + esc(p.data.driverMobile) + '</span></td>' +
@@ -1519,10 +1522,83 @@ function openViewPasses(catId, coexId) {
 /* ============================================================
    VIEW · Passes › Exhibitor Invitee Details
    ============================================================ */
+/* ---------------- invitee approval by the exhibitor's nodal officer ---------------- */
+function passStatusPill(p) {
+  if (p.status === 'pending_approval') return '<span class="pill amber">Pending Approval</span>';
+  if (p.status === 'rejected') return '<span class="pill red">Rejected</span>' + (p.remark ? '<span class="td-sub" style="color:var(--red)">' + esc(p.remark) + '</span>' : '');
+  if (p.status === 'issued') return '<span class="pill green">' + (p.approvedAt ? 'Approved' : 'Issued') + '</span>' + (p.approvedAt ? '<span class="td-sub">' + esc(p.approvedAt) + '</span>' : '');
+  return '<span class="pill amber">Payment Pending</span>';
+}
+function nodalOfficerName() {
+  const pc = (S.profile && S.profile.contacts && S.profile.contacts.primary) || {};
+  const nm = [pc.first, pc.last].filter(Boolean).join(' ');
+  return nm || 'Nodal Officer';
+}
+const inviteePasses = () => S.passes.filter((p) => (catById(p.catId) || {}).kind === 'invitee');
+window.__invTab = window.__invTab || 'pending_approval';
+function invDecide(passId, approve, silent) {
+  const p = S.passes.find((x) => x.id === passId);
+  if (!p || p.status !== 'pending_approval') return false;
+  const who = nodalOfficerName() + ' (Nodal Officer)';
+  const name = p.data.firstName + ' ' + p.data.lastName;
+  if (approve) {
+    p.status = 'issued'; p.approvedAt = nowStr(); p.approvedBy = who;
+    if (!S.notifications) S.notifications = [];
+    S.notifications.unshift({ id: 'nt_' + Date.now() + '_' + p.id, icon: 'mark_email_read', color: 'var(--green)',
+      text: 'Invitee ' + name + ' approved — confirmation with the e-pass sent to ' + p.data.email + '.', time: nowStr(), read: false });
+  } else {
+    const remark = prompt('Reason for rejecting ' + name + ' (sent to the submitter):', '');
+    if (remark === null) return false;
+    p.status = 'rejected'; p.rejectedAt = nowStr(); p.rejectedBy = who; p.remark = remark.trim() || 'Rejected by nodal officer';
+  }
+  if (!silent) {
+    save(); render();
+    toast(approve ? name + ' approved — confirmation e-mail sent to ' + p.data.email + '.' : name + ' rejected — quota released.', approve ? 'success' : 'error');
+  }
+  return true;
+}
+function approveInvitee(id) { invDecide(id, true); }
+function rejectInvitee(id) { invDecide(id, false); }
+function approveAllInvitees() {
+  const ids = inviteePasses().filter((p) => p.status === 'pending_approval').map((p) => p.id);
+  if (!ids.length || !confirm('Approve all ' + ids.length + ' pending invitee(s)? A confirmation e-mail goes to each invitee.')) return;
+  ids.forEach((id) => invDecide(id, true, true));
+  save(); render();
+  toast(ids.length + ' invitee(s) approved — confirmation e-mails sent.', 'success');
+}
+function inviteeApprovalCard() {
+  const all = inviteePasses();
+  const n = (st) => all.filter((p) => p.status === st).length;
+  const tab = window.__invTab;
+  const list = all.filter((p) => (tab === 'all' ? true : p.status === tab)).slice().reverse();
+  const tabBtn = (v, l, c) => '<button class="chip' + (tab === v ? ' on' : '') + '" onclick="window.__invTab=\'' + v + '\';render()">' + l + ' <b>' + c + '</b></button>';
+  const rows = list.map((p, i) =>
+    '<tr><td class="num">' + (i + 1) + '</td>' +
+    '<td class="td-strong">' + esc(p.data.firstName + ' ' + p.data.lastName) + (p.data.designation ? '<span class="td-sub">' + esc(p.data.designation) + '</span>' : '') + '</td>' +
+    '<td>' + esc(p.data.email) + '<span class="td-sub">' + esc(p.data.mobile) + '</span></td>' +
+    '<td>' + (p.data.dates || []).map((d) => d.split(' ')[0] + ' Feb').join(', ') + '</td>' +
+    '<td>' + (p.coexId ? esc(coexById(p.coexId) ? coexById(p.coexId).company : 'Co-exhibitor') + '<span class="td-sub">co-exhibitor quota</span>' : 'Exhibitor') + '</td>' +
+    '<td class="num">' + esc(p.createdAt) + '</td>' +
+    '<td>' + passStatusPill(p) + (p.approvedBy && p.status === 'issued' ? '<span class="td-sub">by ' + esc(p.approvedBy) + '</span>' : '') + '</td>' +
+    '<td class="td-actions">' + (p.status === 'pending_approval'
+      ? '<button class="btn-link" style="color:var(--green)" onclick="approveInvitee(\'' + p.id + '\')">Approve</button>' +
+        '<button class="btn-link danger" onclick="rejectInvitee(\'' + p.id + '\')">Reject</button>'
+      : '') + '</td></tr>').join('') ||
+    '<tr><td colspan="8" style="color:var(--muted)">' + (tab === 'pending_approval' ? 'No invitee entries waiting for approval.' : 'No invitee entries in this view.') + '</td></tr>';
+  return '<div class="card section-gap"><div class="card-head-row" style="flex-wrap:wrap;gap:10px">' +
+      '<div><h2 class="card-title" style="margin:0">Invitee Approvals</h2>' +
+      '<span class="result-count">Approved by the nodal officer · ' + esc(nodalOfficerName()) + ' — a confirmation e-mail with the e-pass goes to the invitee on approval</span></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+        '<div class="filter-chips" style="margin:0">' + tabBtn('pending_approval', 'Pending', n('pending_approval')) + tabBtn('issued', 'Approved', n('issued')) + tabBtn('rejected', 'Rejected', n('rejected')) + tabBtn('all', 'All', all.length) + '</div>' +
+        (n('pending_approval') ? '<button class="btn btn-primary btn-sm" onclick="approveAllInvitees()"><span class="material-symbols-outlined" style="font-size:16px">done_all</span>Approve All</button>' : '') +
+      '</div></div>' +
+    '<div class="tablewrap"><table class="grid"><tr><th>Sr.</th><th>Invitee</th><th>Email / Mobile</th><th>Event Dates</th><th>Submitted By</th><th>Submitted</th><th>Status</th><th>Action</th></tr>' + rows + '</table></div></div>';
+}
+
 function viewInvitee() {
   const cats = S.categories.filter((c) => c.kind === 'invitee');
   return '<h1 class="page-title">Exhibitor Invitee Details</h1>' +
-    '<p class="page-sub">Invitee passes for your guests. Registration is date-wise for each event day.</p>' +
+    '<p class="page-sub">Invitee passes for your guests. Registration is date-wise for each event day. Every invitee entry — yours or a co-exhibitor’s — is confirmed only after the nodal officer approves it.</p>' +
     '<div class="note green"><b class="title">Auto-allocated on space booking</b>' +
     'On confirmation of your space booking, Exhibitor Invitee category passes were automatically allocated to you. ' +
     'Badge registrations are <b>date-wise</b> — each invitee selects entry date(s): 11th, 12th &amp; 13th Feb 2027.</div>' +
@@ -1530,7 +1606,7 @@ function viewInvitee() {
     '<div class="tablewrap"><table class="grid">' +
     '<tr><th>No.</th><th>Category Name</th><th>Area Wise (Total)</th><th>Paid</th><th>Total Badges</th><th>Balance</th><th>Action</th></tr>' +
     cats.map((c, i) => catRow(c, i)).join('') +
-    '</table></div></div>' + footerTools();
+    '</table></div></div>' + inviteeApprovalCard() + footerTools();
 }
 
 /* ============================================================
@@ -1817,6 +1893,12 @@ function viewExhibitorDashboard() {
 
   /* --- Pending actions (only what actually needs attention) --- */
   const actions = [];
+  const invPending = (S.passes || []).filter((p) => p.status === 'pending_approval').length;
+  if (invPending) actions.push({
+    icon: 'how_to_reg', title: invPending + ' invitee entr' + (invPending === 1 ? 'y' : 'ies') + ' awaiting nodal officer approval',
+    sub: 'Approve to confirm the invitee and send the e-pass confirmation, or reject to release the quota.',
+    btn: '<a class="btn btn-primary btn-sm" href="#/passes/invitee" onclick="window.__invTab=\'pending_approval\'">Review</a>',
+  });
   ((S.spaceBooking && S.spaceBooking.reservations) || []).forEach((r) => {
     if (r.status === 'reserved') {
       const left = sbpDaysLeft(r.holdUntil);
