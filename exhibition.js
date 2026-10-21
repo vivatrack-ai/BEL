@@ -508,6 +508,11 @@ function confirmBooking(kind, roomId) {
   if (S.bookings.some((b) => b.roomId === roomId && b.date === date && b.slot === slot)) {
     toast('You already booked this slot for this room.', 'error'); return;
   }
+  // rooms are shared by every exhibitor, co-exhibitor and aggregator — one booking per room · date · slot
+  if (typeof sbWorkspaces === 'function' && sbWorkspaces().some((ws) => ws.key !== LS_KEY &&
+      ((sbReadState(ws.key) || {}).bookings || []).some((b) => b.roomId === roomId && b.date === date && b.slot === slot))) {
+    toast(r.name + ' is already booked by another exhibitor on ' + date + ' at ' + slot + ' — pick another slot.', 'error'); return;
+  }
   const id = uid('cart') + '_bk';
   S.bookings.push({ id: id, kind: kind, roomId: roomId, name: r.name, date: date, slot: slot, price: r.price, createdAt: nowStr() });
   S.cart.push({

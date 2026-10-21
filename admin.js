@@ -327,7 +327,7 @@ function render() {
 }
 window.addEventListener('hashchange', render);
 // Live-refresh when the exhibitor (another tab) adds an aggregator company
-window.addEventListener('storage', (e) => { if (e.key === 'evenuefy_coex_module_v1') render(); });
+window.addEventListener('storage', (e) => { if (sbIsWsKey(e.key)) render(); }); // any company workspace
 
 /* Requested area split by setup type (Chalet is counted in units — no sqm) */
 function sqmByType(list) {
@@ -642,8 +642,7 @@ const payKey = (a) => a.status === 'registered' ? 'success'
   : (a.status === 'approved' && a.price != null ? 'pending' : (a.paymentFailed ? 'failed' : '-'));
 
 function filteredAircraftApps() {
-  const ex = loadExState();
-  let list = (ex && ex.aircraft) ? ex.aircraft : [];
+  let list = sbAllIn('aircraft'); // every company: main exhibitors, co-exhibitors, aggregators
   if (AF.status) list = list.filter((a) => appStatusKey(a) === AF.status);
   if (AF.pay) list = list.filter((a) => payKey(a) === AF.pay);
   if (AF.disp) list = list.filter((a) => a.displayType === AF.disp);
@@ -715,8 +714,7 @@ function acPayPill(a) {
 }
 
 function viewAircraftApprovals() {
-  const ex = loadExState();
-  const all = (ex && ex.aircraft) ? ex.aircraft : [];
+  const all = sbAllIn('aircraft');
   const list = filteredAircraftApps();
   const counts = {
     total: all.length,
@@ -749,9 +747,9 @@ function viewAircraftApprovals() {
   const rows = list.map((a) =>
     '<tr>' +
     '<td><span class="regno">' + esc(a.appNo || '—') + '</span></td>' +
-    '<td><div class="profile-cell"><span class="avatar">' + esc(EX_COMPANY.charAt(0)) + '</span>' +
+    '<td><div class="profile-cell"><span class="avatar">' + esc(sbWsCompany(a).charAt(0)) + '</span>' +
       '<span><span class="td-strong">' + esc(a.model) + '</span>' +
-      '<span class="td-sub">' + esc(EX_COMPANY) + '</span>' +
+      '<span class="td-sub">' + esc(sbWsCompany(a)) + (a.__ws && a.__ws.role !== 'exhibitor' ? ' · ' + esc(sbWsRole(a.__ws)) : '') + '</span>' +
       '<span class="td-sub">' + esc(a.usage) + ' · ' + Number(a.weight).toLocaleString('en-IN') + ' kg · <span class="regno">' + esc(a.regNo) + '</span></span></span></div></td>' +
     '<td>' + dispPill(a.displayType) + '</td>' +
     '<td class="money">' + acFmtFee(a) + '</td>' +
@@ -793,7 +791,7 @@ function aircraftExportRows(list) {
   const payLabel = (a) => a.status === 'registered' ? 'Paid'
     : a.status === 'approved' ? (a.price != null ? 'Payment Pending' : 'No Fee') : '-';
   return list.map((a, i) => [
-    i + 1, a.appNo || '-', EX_COMPANY, a.model, a.make, a.usage, a.displayType,
+    i + 1, a.appNo || '-', sbWsCompany(a), a.model, a.make, a.usage, a.displayType,
     a.weight, a.regNo, a.yearOfReg || '-', a.regWithOrg || '-', a.mfgYear || '-', a.imageName || '-',
     a.price != null ? a.price : '-', a.feeCurrency || '-',
     a.air7a ? 'Yes' : 'No', a.air4 ? 'Yes' : 'No', a.air7b ? 'Yes' : 'No',
@@ -837,25 +835,32 @@ function ofSetFrom(v) { OF.from = v; render(); }
 function ofSetTo(v) { OF.to = v; render(); }
 function ofClear() { OF.type = null; OF.status = null; OF.dateMode = ''; OF.from = ''; OF.to = ''; render(); }
 
+/* every company workspace — main exhibitors, co-exhibitors and aggregators pay from their own carts */
 function ordersData() {
-  const ex = loadExState();
-  if (!ex) return [];
-  const pending = (ex.cart || []).map((i) => ({
-    id: 'pend-' + i.id, orderNo: '—', type: i.type, label: i.label, sub: i.sub || '',
-    amount: i.amount, currency: i.currency || 'INR', status: 'pending', paidAt: '', payer: EX_COMPANY,
-  }));
-  const paid = (ex.orders || []).slice().reverse(); // newest first
-  // Backfill: aircraft paid BEFORE the orders ledger existed have no order
-  // record — synthesize one from the application so old payments still show.
-  const seen = new Set(paid.map((o) => o.refId));
-  (ex.aircraft || [])
-    .filter((a) => a.status === 'registered' && a.price != null && !seen.has(a.id))
-    .forEach((a) => paid.push({
-      id: 'legacy-' + a.id, orderNo: '—', type: 'aircraft_reg',
-      label: 'Aircraft Registration — ' + a.model, sub: a.appNo || a.regNo, refId: a.id,
-      amount: a.price, currency: a.feeCurrency || 'INR', status: 'success',
-      paidAt: a.approvedAt || '', payer: EX_COMPANY,
+  const pending = [], paid = [];
+  sbWorkspaces().forEach((ws) => {
+    const ex = sbReadState(ws.key);
+    if (!ex) return;
+    const who = ws.company + (ws.role === 'exhibitor' ? '' : ' (' + sbWsRole(ws) + ')');
+    (ex.cart || []).forEach((i) => pending.push({
+      id: 'pend-' + ws.key + '-' + i.id, orderNo: '—', type: i.type, label: i.label, sub: i.sub || '',
+      amount: i.amount, currency: i.currency || 'INR', status: 'pending', paidAt: '', payer: who,
     }));
+    const mine = (ex.orders || []).slice().reverse().map((o) => Object.assign({}, o, { payer: who })); // newest first
+    // Backfill: aircraft paid BEFORE the orders ledger existed have no order
+    // record — synthesize one from the application so old payments still show.
+    const seen = new Set(mine.map((o) => o.refId));
+    (ex.aircraft || [])
+      .filter((a) => a.status === 'registered' && a.price != null && !seen.has(a.id))
+      .forEach((a) => mine.push({
+        id: 'legacy-' + a.id, orderNo: '—', type: 'aircraft_reg',
+        label: 'Aircraft Registration — ' + a.model, sub: a.appNo || a.regNo, refId: a.id,
+        amount: a.price, currency: a.feeCurrency || 'INR', status: 'success',
+        paidAt: a.approvedAt || '', payer: who,
+      }));
+    mine.forEach((o) => paid.push(o));
+  });
+  paid.sort((x, y) => String(y.paidAtIso || '').localeCompare(String(x.paidAtIso || ''))); // newest first across companies
   return pending.concat(paid);
 }
 
@@ -967,8 +972,8 @@ function uploadLink(acftId, path, name) {
 }
 
 async function viewUpload(acftId, path) {
-  const ex = loadExState();
-  const a = ex && ex.aircraft ? ex.aircraft.find((x) => x.id === acftId) : null;
+  const f = sbFindIn('aircraft', acftId); // aircraft of any company workspace
+  const a = f ? f.item : null;
   if (!a) return;
   const parts = path.split('.');
   const obj = parts.length === 2 ? (a[parts[0]] || {}) : a;
@@ -1004,15 +1009,15 @@ function pendingCard(title) {
 }
 
 function viewAircraftApplication(id) {
-  const ex = loadExState();
-  const a = ex && ex.aircraft ? ex.aircraft.find((x) => x.id === id) : null;
+  const f = sbFindIn('aircraft', id);
+  const a = f ? Object.assign({}, f.item, { id: f.ref }) : null; // buttons & uploads carry the cross-workspace ref
   if (!a) { location.hash = '#/aircraft-approvals'; return ''; }
 
   const head =
     '<a class="back-link" href="#/aircraft-approvals"><span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>Back to Aircraft Approvals</a>' +
     '<div class="card-head-row"><div>' +
       '<h1 class="page-title">' + esc(a.model) + ' <span class="regno" style="font-size:1rem">' + esc(a.appNo || '') + '</span></h1>' +
-      '<p class="page-sub" style="margin-bottom:0">' + esc(EX_COMPANY) + ' · ' + acStatusPill(a.status) + ' ' + acPayPill(a) +
+      '<p class="page-sub" style="margin-bottom:0">' + esc(f.ws.company) + (f.ws.role !== 'exhibitor' ? ' (' + esc(sbWsRole(f.ws)) + ')' : '') + ' · ' + acStatusPill(a.status) + ' ' + acPayPill(a) +
       (a.submittedForApprovalAt ? ' · Submitted: ' + esc(a.submittedForApprovalAt) : '') +
       (a.approvedBy ? ' · Approved by: ' + esc(a.approvedBy) : '') +
       (a.status === 'rejected' && a.remark ? ' · <span style="color:var(--red)">' + esc(a.remark) + '</span>' : '') + '</p>' +
@@ -1099,26 +1104,26 @@ function viewAircraftApplication(id) {
 }
 
 function approveAircraft(id) {
-  const ex = loadExState(); if (!ex) return;
-  const a = ex.aircraft.find((x) => x.id === id); if (!a) return;
+  const f = sbFindIn('aircraft', id); if (!f) return;
+  const a = f.item;
   if (!confirm('Approve application ' + (a.appNo || '') + ' (' + a.model + ')?\nThe registration fee ' + acFmtFee(a) + ' will be enabled for payment in the exhibitor’s cart.')) return;
   a.status = 'approved';
   a.approvedAt = new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   a.approvedBy = 'Organiser Admin';
   a.remark = '';
-  saveExState(ex);
+  sbWsSave(f);
   render();
   toast('Application ' + (a.appNo || '') + ' approved — fee enabled for payment.', 'success');
 }
 
 function rejectAircraft(id) {
-  const ex = loadExState(); if (!ex) return;
-  const a = ex.aircraft.find((x) => x.id === id); if (!a) return;
+  const f = sbFindIn('aircraft', id); if (!f) return;
+  const a = f.item;
   const remark = prompt('Reason for rejection (shown to the exhibitor):', '');
   if (remark === null) return;
   a.status = 'rejected';
   a.remark = remark.trim() || 'Rejected by committee';
-  saveExState(ex);
+  sbWsSave(f);
   render();
   toast('Application ' + (a.appNo || '') + ' rejected.', 'error');
 }
@@ -1141,9 +1146,8 @@ function gfSetTo(v) { GF.to = v; render(); }
 function gfSetQ(v) { GF.q = v; render(); const el = $('gfQ'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
 function gfClear() { GF.status = null; GF.dateMode = ''; GF.from = ''; GF.to = ''; GF.q = ''; render(); }
 
-function allAggregators() {
-  const ex = loadExState();
-  return ((ex && ex.coexhibitors) || []).filter((c) => c.type === 'aggregator');
+function allAggregators() { // added by any main exhibitor portal; ids are cross-workspace refs
+  return sbAllIn('coexhibitors', (ws) => ws.role === 'exhibitor').filter((c) => c.type === 'aggregator');
 }
 function filteredAggregators() {
   let list = allAggregators();
@@ -1196,7 +1200,7 @@ function viewAggregatorApprovals() {
       '<span class="td-sub">' + esc(c.email) + '</span></span></div></td>' +
     '<td>' + esc(c.nodalFirst + ' ' + c.nodalLast) +
       '<span class="td-sub">' + (c.nodalDesig ? esc(c.nodalDesig) + ' · ' : '') + (c.nodalMobile ? esc(fmtMobile(c)) : '—') + '</span></td>' +
-    '<td><span class="td-strong">' + esc(EX_COMPANY) + '</span><span class="td-sub">Main exhibitor</span></td>' +
+    '<td><span class="td-strong">' + esc(sbWsCompany(c)) + '</span><span class="td-sub">Main exhibitor</span></td>' +
     '<td>' + esc(c.submittedAt || c.createdAt || '—') + '</td>' +
     '<td>' + aggStatusPill(c.status) +
       (c.status === 'active' && c.approvedAt ? '<span class="td-sub">' + esc(c.approvedAt) + ' · credentials emailed</span>' : '') +
@@ -1229,11 +1233,11 @@ function viewAggregatorApprovals() {
 }
 
 function openAggDetail(id) {
-  const ex = loadExState(); if (!ex) return;
-  const c = (ex.coexhibitors || []).find((x) => x.id === id); if (!c) return;
-  const allocs = (ex.allocations || []).filter((a) => a.coexId === id);
+  const f = sbFindIn('coexhibitors', id); if (!f) return;
+  const ex = f.st, c = f.item;
+  const allocs = (ex.allocations || []).filter((a) => a.coexId === c.id);
   const stallOf = (sid) => ((ex.stalls || []).find((s) => s.id === sid) || {});
-  const quotas = (ex.quotas || []).filter((q) => q.coexId === id);
+  const quotas = (ex.quotas || []).filter((q) => q.coexId === c.id);
   const catOf = (cid) => ((ex.categories || []).find((x) => x.id === cid) || {});
   const aRows = allocs.map((a) => '<tr><td>' + esc(stallOf(a.stallId).hall || '—') + '</td><td>' + esc(stallOf(a.stallId).stall || '—') + '</td><td class="num">' + a.sqm + ' sqm</td></tr>').join('') ||
     '<tr><td colspan="3" style="color:var(--muted)">No stall space allotted yet</td></tr>';
@@ -1243,7 +1247,7 @@ function openAggDetail(id) {
   openModal('Aggregator Company · ' + esc(c.company),
     kvGrid([
       ['Registration No.', c.regNo], ['Status', aggStatusPill(c.status), 'html'],
-      ['Company Email (login)', c.email], ['Added By', EX_COMPANY],
+      ['Company Email (login)', c.email], ['Added By', f.ws.company],
       ['Nodal Officer', c.nodalFirst + ' ' + c.nodalLast], ['Designation', c.nodalDesig || '—'],
       ['Nodal Mobile', fmtMobile(c) || '—'], ['Submitted', c.submittedAt || c.createdAt],
       ['Approved', c.approvedAt || '—'], ['Approved By', c.approvedBy || '—'],
@@ -1254,8 +1258,8 @@ function openAggDetail(id) {
     '<h3 style="margin:18px 0 6px;font-size:0.9rem">Pass Quotas</h3>' +
     '<div class="tablewrap"><table class="grid"><tr><th>Category</th><th>Quota</th></tr>' + qRows + '</table></div>',
     (c.status === 'pending_approval'
-      ? '<button class="btn btn-outline" onclick="closeModal();rejectAggregator(\'' + c.id + '\')">Reject</button>' +
-        '<button class="btn btn-primary" onclick="closeModal();approveAggregator(\'' + c.id + '\')"><span class="material-symbols-outlined">check</span>Approve &amp; Send Credentials</button>'
+      ? '<button class="btn btn-outline" onclick="closeModal();rejectAggregator(\'' + f.ref + '\')">Reject</button>' +
+        '<button class="btn btn-primary" onclick="closeModal();approveAggregator(\'' + f.ref + '\')"><span class="material-symbols-outlined">check</span>Approve &amp; Send Credentials</button>'
       : '<button class="btn btn-outline" onclick="closeModal()">Close</button>'), true);
 }
 
@@ -1266,8 +1270,8 @@ function notifyExhibitor(ex, icon, color, text) {
 }
 
 function approveAggregator(id) {
-  const ex = loadExState(); if (!ex) return;
-  const c = (ex.coexhibitors || []).find((x) => x.id === id && x.type === 'aggregator'); if (!c) return;
+  const f = sbFindIn('coexhibitors', id); if (!f || f.item.type !== 'aggregator') return;
+  const ex = f.st, c = f.item;
   if (!confirm('Approve aggregator company "' + c.company + '" (' + (c.regNo || '') + ')?\n\nA login will be created and the credentials emailed to ' + c.email + '. The exhibitor can then allot stall space & pass quotas to this company.')) return;
   c.status = 'active';
   c.approvedAt = nowStr();
@@ -1276,14 +1280,14 @@ function approveAggregator(id) {
   c.credentialsSentTo = c.email;
   notifyExhibitor(ex, 'check_circle', 'var(--green)',
     'Aggregator company "' + c.company + '" approved by the organiser — login credentials sent to ' + c.email + '. You can now allot stall space & pass quotas.');
-  saveExState(ex);
+  sbWsSave(f);
   render();
   toast('"' + c.company + '" approved — login credentials emailed to ' + c.email + '.', 'success');
 }
 
 function rejectAggregator(id) {
-  const ex = loadExState(); if (!ex) return;
-  const c = (ex.coexhibitors || []).find((x) => x.id === id && x.type === 'aggregator'); if (!c) return;
+  const f = sbFindIn('coexhibitors', id); if (!f || f.item.type !== 'aggregator') return;
+  const ex = f.st, c = f.item;
   const remark = prompt('Reason for rejection (shown to the exhibitor):', '');
   if (remark === null) return;
   c.status = 'rejected';
@@ -1291,7 +1295,7 @@ function rejectAggregator(id) {
   c.rejectedAt = nowStr();
   notifyExhibitor(ex, 'cancel', 'var(--red)',
     'Aggregator company "' + c.company + '" was rejected by the organiser: ' + c.remark);
-  saveExState(ex);
+  sbWsSave(f);
   render();
   toast('"' + c.company + '" rejected.', 'error');
 }
@@ -1301,7 +1305,7 @@ function exportAggregators() {
   const statusLabel = { pending_approval: 'Pending Approval', active: 'Approved', rejected: 'Rejected' };
   const headers = ['Sr.', 'Reg. No.', 'Company', 'Company Email', 'Nodal Officer', 'Designation', 'Mobile', 'Added By', 'Submitted', 'Status', 'Approved At', 'Approved By', 'Remark'];
   const rows = list.map((c, i) => [i + 1, c.regNo, c.company, c.email, c.nodalFirst + ' ' + c.nodalLast, c.nodalDesig || '', fmtMobile(c),
-    EX_COMPANY, c.submittedAt || c.createdAt, statusLabel[c.status] || c.status, c.approvedAt || '', c.approvedBy || '', c.remark || '']);
+    sbWsCompany(c), c.submittedAt || c.createdAt, statusLabel[c.status] || c.status, c.approvedAt || '', c.approvedBy || '', c.remark || '']);
   exportToExcel('aggregator-companies-' + exportStamp(), 'Aggregators', headers, rows);
 }
 

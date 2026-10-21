@@ -9,12 +9,14 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block">
 <link rel="stylesheet" href="styles.css">
+<!-- this page hosts the shared exhibitor modules for a co-exhibitor / aggregator workspace -->
+<script>window.EVENUEFY_PORTAL = 'coex';</script>
 </head>
 <body>
 
 <!-- ================= Co-Exhibitor Login ================= -->
 <div id="loginScreen" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:20px">
-  <div class="card" style="width:100%;max-width:440px">
+  <div class="card" style="width:100%;max-width:460px">
     <div class="logo" style="text-align:center;padding-bottom:4px">e<span>venuefy</span></div>
     <p style="text-align:center;color:var(--muted);font-size:0.85rem;margin:0 0 18px">
       Aero India 2027 · <b>Co-Exhibitor / Aggregator Login</b>
@@ -22,7 +24,7 @@
     <div id="noCoexNote" style="display:none">
       <div class="note amber"><b class="title">No eligible company login yet</b>
         Login is enabled for <b>Separate</b> co-exhibitor companies whose registration
-        payment has been completed by the main exhibitor (HAL), and for <b>Aggregator</b>
+        payment has been completed by their main exhibitor, and for <b>Aggregator</b>
         companies approved by the organiser. Subsidiary companies do not get a login.
         Ask your main exhibitor to register you first.</div>
       <a class="btn btn-outline" href="index.html" style="width:100%;justify-content:center;margin-top:6px">
@@ -32,7 +34,7 @@
       <div class="field" style="margin-bottom:14px">
         <label>Company <span class="req">*</span></label>
         <select id="lgCoex"></select>
-        <div class="hint">Demo — co-exhibitor &amp; aggregator companies added by the main exhibitor appear here.</div>
+        <div class="hint">Demo — co-exhibitor &amp; aggregator companies added by any main exhibitor appear here.</div>
       </div>
       <div class="field" style="margin-bottom:14px">
         <label>Email <span class="req">*</span></label>
@@ -66,25 +68,58 @@
       <a class="nav-item" data-route="dashboard" href="#/dashboard">
         <span class="material-symbols-outlined">home</span>Dashboard
       </a>
-      <a class="nav-item" data-route="stall" href="#/stall" id="navStall">
+      <a class="nav-item" data-route="stall" href="#/stall">
         <span class="material-symbols-outlined">dashboard_customize</span>My Stall Space
+      </a>
+      <a class="nav-item" data-route="orders" href="#/orders">
+        <span class="material-symbols-outlined">receipt_long</span>My Orders
       </a>
     </div>
 
+    <div class="nav-group-label">Exhibition Services</div>
+    <div class="nav-sub">
+      <a class="nav-item" data-route="exhibition-forms" href="#/exhibition-forms">
+        <span class="material-symbols-outlined">assignment</span>Exhibition Form
+      </a>
+      <a class="nav-item" data-route="digital-showcase" href="#/digital-showcase">
+        <span class="material-symbols-outlined">storefront</span>Digital Showcase
+      </a>
+      <a class="nav-item" data-route="aircraft" href="#/aircraft">
+        <span class="material-symbols-outlined">flight</span>Aircraft Registration
+      </a>
+    </div>
+
+    <!-- only the pass types the main exhibitor has allocated quota for are shown (coex.js) -->
     <div class="nav-group-label" id="navPassLabel">Passes</div>
     <div class="nav-sub" id="navPassGroup">
-      <a class="nav-item" data-route="badges" href="#/badges">
+      <a class="nav-item" data-route="passes/badges" href="#/passes/badges" id="navPass_badge">
         <span class="material-symbols-outlined">badge</span>Badge Details
       </a>
-      <a class="nav-item" data-route="invitee" href="#/invitee">
+      <a class="nav-item" data-route="passes/invitee" href="#/passes/invitee" id="navPass_invitee">
         <span class="material-symbols-outlined">mail</span>Invitee Details
       </a>
-      <a class="nav-item" data-route="vehicle" href="#/vehicle">
+      <a class="nav-item" data-route="passes/vehicle" href="#/passes/vehicle" id="navPass_vehicle">
         <span class="material-symbols-outlined">directions_car</span>Vehicle Pass Details
       </a>
     </div>
 
+    <div class="nav-group-label">Meetings &amp; Networking</div>
+    <div class="nav-sub">
+      <a class="nav-item" data-route="b2b-matchmaking" href="#/b2b-matchmaking">
+        <span class="material-symbols-outlined">hub</span>B2B Matchmaking
+      </a>
+      <a class="nav-item" data-route="conference-hall" href="#/conference-hall">
+        <span class="material-symbols-outlined">meeting_room</span>Meeting Rooms
+      </a>
+      <a class="nav-item" data-route="meeting-room" href="#/meeting-room">
+        <span class="material-symbols-outlined">groups_2</span>B2B Meetings
+      </a>
+    </div>
+
     <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:12px">
+      <a class="nav-item" href="index.html">
+        <span class="material-symbols-outlined">switch_account</span>Main Exhibitor Login
+      </a>
       <button class="nav-item" onclick="coexLogout()" style="cursor:pointer">
         <span class="material-symbols-outlined">logout</span>Logout
       </button>
@@ -96,13 +131,28 @@
       <div class="event">Aero India 2027<small>10th to 15th Feb 2027 (Asia/Kolkata)</small></div>
       <div class="spacer"></div>
       <span class="chip-user" id="chipCoex">Co-Exhibitor</span>
+      <button class="cart-btn" onclick="openNotifications()" aria-label="Notifications">
+        <span class="material-symbols-outlined">notifications</span>
+        <span class="cart-count" id="notifCount" style="display:none">0</span>
+      </button>
+      <button class="cart-btn" onclick="openCart()" aria-label="Cart">
+        <span class="material-symbols-outlined">shopping_cart</span>
+        <span class="cart-count" id="cartCount" style="display:none">0</span>
+      </button>
     </div>
-    <div class="view" id="view"><!-- rendered by coex.js --></div>
+    <div class="view" id="view"><!-- rendered by app.js router + coex.js views --></div>
   </main>
 </div>
 
 <div id="toasts"></div>
 <script src="phone.js"></script>
+<script src="exhibitors.js"></script>
+<script src="app.js"></script>
+<script src="matchmaking-data.js"></script>
+<script src="profile.js"></script>
+<script src="exhibition.js"></script>
+<script src="b2b.js"></script>
+<script src="aircraft.js"></script>
 <script src="coex.js"></script>
 </body>
 </html>

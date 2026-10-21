@@ -845,7 +845,7 @@ function sbaAllotLive(r, ex, payment, by) {
   const at = new Date();
   if (!ex.seq.order) ex.seq.order = 0;
   ex.seq.order += 1;
-  const orderNo = 'ORD-2027-' + String(ex.seq.order).padStart(4, '0');
+  const orderNo = sbNextOrderNo(ex); // one series across every company
   r.status = 'confirmed'; r.paidAt = nowStr(); r.paidAtIso = at.toISOString(); r.pausedAt = null;
   r.payment = Object.assign({}, r.payment || {}, payment); r.orderNo = orderNo;
   (ex.orders = ex.orders || []).push({
@@ -990,7 +990,7 @@ function sbaMarkAdjReceived(id) {
   const adj = Object.assign({}, b.adjustment, { status: 'paid', paidAt: nowStr(), paidAtIso: new Date().toISOString(), payment: pay });
   sbaApply(b, { adjustment: adj }, (r, ex) => {
     if (!ex.seq.order) ex.seq.order = 0; ex.seq.order += 1;
-    const orderNo = 'ORD-2027-' + String(ex.seq.order).padStart(4, '0'); r.adjustment.orderNo = orderNo;
+    const orderNo = sbNextOrderNo(ex); r.adjustment.orderNo = orderNo; // one series across every company
     (ex.orders = ex.orders || []).push({ id: 'order_' + ex.seq.order, orderNo: orderNo, type: 'space', label: 'Stall shift differential — Application ' + r.no, sub: r.adjustment.no + ' · ' + pay.method + (pay.ref ? ' · Ref ' + pay.ref : ''), refId: r.id, amount: r.adjustment.amount, currency: r.pricing.currency, status: 'success', method: pay.method, mode: pay.mode || 'offline', ref: pay.ref || '', paidAt: nowStr(), paidAtIso: new Date().toISOString(), payer: exCompany(ex) });
     sbpAudit(r, SBD_ADMIN, 'Shift differential received', sbpFmt(r.adjustment.amount, r.pricing.currency) + (pay.ref ? ' · Ref ' + pay.ref : '') + ' · ' + orderNo);
     sbdNotifyEx(ex, 'task_alt', 'var(--green)', 'DEO recorded the shift differential of ' + sbpFmt(r.adjustment.amount, r.pricing.currency) + ' (' + r.adjustment.no + ') as received.');

@@ -543,7 +543,7 @@ function sbCreateOrder(r, method, mode, ref, kind, settle) {
   const billed = adj ? r.adjustment.amount : r.amount;
   const st = settle || { settleCurrency: r.pricing.currency, settleAmount: billed };
   const order = {
-    id: uid('order'), orderNo: 'ORD-2027-' + pad(S.seq.order, 4),
+    id: uid('order'), orderNo: sbNextOrderNo(S), // one series across every company
     type: 'space', label: (adj ? 'Stall shift differential — ' : 'Stall ' + sbStall(r).name + ' — ') + 'Application ' + r.no + (adj ? '' : ' · 100% payment'),
     sub: (adj ? r.adjustment.no : r.piNo) + ' · ' + method + (ref ? ' · Ref ' + ref : ''), refId: r.id,
     amount: st.settleAmount, currency: st.settleCurrency, billedAmount: billed, billedCurrency: r.pricing.currency, fxRate: st.fxRate || null, status: 'success', method: method, mode: mode, ref: ref || '',

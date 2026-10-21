@@ -1,105 +1,54 @@
 /* ============================================================
-   Evenuefy — Co-Exhibitor Portal
-   Login for companies the main exhibitor (HAL) registered as
-   co-exhibitors. Each co-exhibitor sees ONLY what is assigned
-   to it: its registration profile, allocated stall space and
-   pass quotas — and can fill passes against those quotas.
-   Business rules (same as the main app):
-     · Subsidiary  — profile only; NOT entitled to passes & services
-     · Separate   — stall space & pass quotas unlock only after the
-       ₹40,000 registration payment is completed by the main exhibitor
-     · Aggregator — login is created when the ORGANISER approves the
-       company (credentials emailed); then same entitlements as Separate
-   Reads/writes the exhibitor app's state (same-origin localStorage);
-   in production this is the co-exhibitor API with role-based access.
+   Evenuefy — Co-Exhibitor / Aggregator Portal (coex.html)
+   Login for companies a main exhibitor registered as co-exhibitors
+   (Separate, registration paid) or Aggregators (approved by the
+   organiser). Subsidiary companies have no login.
+
+   The portal hosts the SAME modules as the main exhibitor app
+   (app.js core + profile / exhibition / b2b / aircraft) on the
+   company's own workspace (exhibitors.js → sbCoexProfile), so
+   Exhibition Forms, Digital Showcase, Aircraft Registration,
+   B2B Matchmaking, Meeting Rooms and B2B Meetings behave exactly
+   as for a main exhibitor, with the company's own cart, orders,
+   invoices and notifications. Admin and committee read every
+   workspace (exhibitors.js → sbWorkspaces).
+
+   Stall space and pass quotas stay in the MAIN exhibitor's state:
+   only what the main exhibitor allocates is shown, and passes are
+   filled against that quota (written back to the main exhibitor).
    ============================================================ */
 
 'use strict';
 
-const SESSION_KEY = 'evenuefy_coexlogin_session';
-const EX_LS_KEY = 'evenuefy_coex_module_v1';
-const MAIN_EXHIBITOR = 'Hindustan Aeronautics Limited (HAL)';
-const EVENT_DAYS = ['11 Feb 2027', '12 Feb 2027', '13 Feb 2027'];
+const CX = EXH && EXH.parent ? EXH : null;     // logged-in company profile (null on the login screen)
+const CX_EVENT_DAYS = EVENT.eventDays;
+const cxMain = () => (CX ? CX.parent.company : 'the main exhibitor');
 
-/* ---------------- helpers ---------------- */
-const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const money = (n) => '₹' + Number(n).toLocaleString('en-IN');
-const nowStr = () => new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MOBILE_RE = /^[6-9]\d{9}$/;
-const VEHNO_RE = /^[A-Z]{2}[ -]?\d{1,2}[ -]?[A-Z]{1,3}[ -]?\d{3,4}$/i;
+/* ---------------- main exhibitor's state (stall allocation & pass quota) ---------------- */
+function cxEx() { return CX ? sbReadState(CX.parent.lsKey) : null; }
+function cxSaveEx(st) { try { localStorage.setItem(CX.parent.lsKey, JSON.stringify(st)); } catch (e) { /* ignore */ } }
+function cxRecord(ex) { return ((ex && ex.coexhibitors) || []).find((c) => c.id === CX.coexId) || null; }
+function cxUid(st, k) { st.seq[k] = (st.seq[k] || 0) + 1; return k + '_' + st.seq[k]; }
 
-function toast(msg, type) {
-  const t = document.createElement('div');
-  t.className = 'toast' + (type ? ' ' + type : '');
-  t.textContent = msg;
-  $('toasts').appendChild(t);
-  setTimeout(() => t.remove(), 4200);
-}
+const cxIsAgg = (c) => !!c && c.type === 'aggregator';
+const cxTypeLabel = (c) => (cxIsAgg(c) ? 'Aggregator Company' : c.type === 'separate' ? 'Separate Company' : 'Subsidiary Company');
+const cxRoleLabel = (c) => (cxIsAgg(c) ? 'Aggregator' : 'Co-Exhibitor');
 
-function openModal(title, bodyHtml, footHtml, wide) {
-  closeModal();
-  const ov = document.createElement('div');
-  ov.className = 'modal-overlay';
-  ov.id = 'modalOverlay';
-  ov.innerHTML =
-    '<div class="modal' + (wide ? ' wide' : '') + '" role="dialog" aria-modal="true">' +
-    '<div class="modal-head"><h3>' + title + '</h3>' +
-    '<button class="modal-close" onclick="closeModal()" aria-label="Close"><span class="material-symbols-outlined">close</span></button></div>' +
-    '<div class="modal-body">' + bodyHtml + '</div>' +
-    (footHtml ? '<div class="modal-foot">' + footHtml + '</div>' : '') +
-    '</div>';
-  ov.addEventListener('click', (e) => { if (e.target === ov) closeModal(); });
-  document.body.appendChild(ov);
+/* ---------------- quota math (mirror of app.js, on the main exhibitor's state) ---------------- */
+function cxQuota(ex, catId) {
+  const q = (ex.quotas || []).find((x) => x.coexId === CX.coexId && x.catId === catId);
+  return q ? q.quota : 0;
 }
-function closeModal() { const m = $('modalOverlay'); if (m) m.remove(); }
+function cxUsed(ex, catId) { return (ex.passes || []).filter((p) => p.catId === catId && p.coexId === CX.coexId).length; }
+function cxCats(ex, kind) { return (ex.categories || []).filter((cat) => cat.kind === kind && cxQuota(ex, cat.id) > 0); }
+const CX_KINDS = ['badge', 'invitee', 'vehicle'];
 
-function setErr(id, msg) {
-  const f = $(id).closest('.field');
-  if (!f) return;
-  f.classList.add('invalid');
-  const e = f.querySelector('.error');
-  if (e) e.textContent = msg;
-}
-function clearErrs() {
-  document.querySelectorAll('.field.invalid').forEach((f) => f.classList.remove('invalid'));
-}
-
-function loadExState() {
-  try { const raw = localStorage.getItem(EX_LS_KEY); return raw ? JSON.parse(raw) : null; }
-  catch (e) { return null; }
-}
-function saveExState(st) {
-  try { localStorage.setItem(EX_LS_KEY, JSON.stringify(st)); } catch (e) { /* ignore */ }
-}
-function uidEx(st, k) { st.seq[k] += 1; return k + '_' + st.seq[k]; }
-
-/* ---------------- session / login ---------------- */
-function currentCoex() {
-  try {
-    const id = sessionStorage.getItem(SESSION_KEY);
-    if (!id) return null;
-    const ex = loadExState();
-    return ex ? (ex.coexhibitors || []).find((c) => c.id === id) || null : null;
-  } catch (e) { return null; }
-}
-
-/* LOGIN RULE: Separate co-exhibitors whose registration payment is complete,
-   and Aggregator companies approved by the organiser, get a working login.
-   Subsidiary companies have no login. */
-const isAgg = (c) => !!c && c.type === 'aggregator';
-const typeLabel = (c) => isAgg(c) ? 'Aggregator Company' : c.type === 'separate' ? 'Separate Company' : 'Subsidiary Company';
-const roleLabel = (c) => isAgg(c) ? 'Aggregator' : 'Co-Exhibitor';
-function loginEligible(ex) {
-  return (ex && ex.coexhibitors || []).filter((c) => c.status === 'active' && (c.type === 'separate' || c.type === 'aggregator'));
-}
-
-function fillLoginOptions() {
-  const ex = loadExState();
-  const list = loginEligible(ex);
+/* ============================================================
+   Login / logout
+   ============================================================ */
+function cxFillLogin() {
+  const list = sbCoexLogins();
   const sel = $('lgCoex');
-  if (!sel) return;
   if (!list.length) {
     $('noCoexNote').style.display = '';
     $('loginForm').style.display = 'none';
@@ -108,110 +57,134 @@ function fillLoginOptions() {
   $('noCoexNote').style.display = 'none';
   $('loginForm').style.display = '';
   sel.innerHTML = list.map((c) =>
-    '<option value="' + c.id + '">' + esc(c.company) + (isAgg(c) ? ' — Aggregator' : ' — Co-Exhibitor') + '</option>').join('');
-  syncLoginEmail();
+    '<option value="' + esc(c.value) + '">' + esc(c.company) + ' — ' + (c.type === 'aggregator' ? 'Aggregator' : 'Co-Exhibitor') + ' of ' + esc(c.parent.company) + '</option>').join('');
+  cxSyncLoginEmail();
 }
-function syncLoginEmail() {
-  const ex = loadExState();
-  const c = ex ? (ex.coexhibitors || []).find((x) => x.id === $('lgCoex').value) : null;
+function cxSyncLoginEmail() {
+  const c = sbCoexLogins().find((x) => x.value === $('lgCoex').value);
   $('lgEmail').value = c ? c.email : '';
 }
-
 function coexLogin(e) {
   e.preventDefault();
   clearErrs();
   if (!$('lgPassword').value) { setErr('lgPassword', 'Password is required'); return false; }
-  const id = $('lgCoex').value;
-  if (!id) return false;
+  const value = $('lgCoex').value;
+  const c = sbCoexLogins().find((x) => x.value === value);
   // Guard: login works only for paid Separate co-exhibitors / approved Aggregators
-  if (!loginEligible(loadExState()).some((c) => c.id === id)) {
+  if (!c) {
     toast('Login is enabled only after the registration payment is completed by the main exhibitor (co-exhibitor) or organiser approval (aggregator).', 'error');
     return false;
   }
-  try { sessionStorage.setItem(SESSION_KEY, id); } catch (err) { /* ignore */ }
-  enterApp();
-  const c = currentCoex();
-  toast('Logged in as ' + (c ? c.company : 'company'), 'success');
+  try { sessionStorage.setItem(SB_COEX_SESSION_KEY, value); sessionStorage.setItem('evenuefy_coex_welcome', c.company); } catch (err) { /* ignore */ }
+  location.hash = '#/dashboard';
+  location.reload(); // load the company's own workspace
   return false;
 }
-
 function coexLogout() {
-  try { sessionStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ }
+  try { sessionStorage.removeItem(SB_COEX_SESSION_KEY); } catch (e) { /* ignore */ }
   location.hash = '';
-  $('appShell').style.display = 'none';
-  $('loginScreen').style.display = 'flex';
-  document.title = 'Co-Exhibitor / Aggregator · Evenuefy';
-  fillLoginOptions();
+  location.reload();
 }
 
-/* A company gets stall space & passes only when it is a Separate
-   co-exhibitor whose registration payment is complete, or an Aggregator
-   company approved by the organiser. */
-const entitled = (c) => c.status === 'active' && (c.type === 'separate' || c.type === 'aggregator');
+/* ============================================================
+   Workspace: one-time identity seeding + stall sync
+   ============================================================ */
+/* module migrations seed demo data for HAL — replace it once with this company's own identity */
+function cxBlank(o) {
+  Object.keys(o).forEach((k) => {
+    const v = o[k];
+    if (typeof v === 'string') o[k] = '';
+    else if (Array.isArray(v)) o[k] = [];
+    else if (v && typeof v === 'object') cxBlank(v);
+  });
+  return o;
+}
+function cxSeedWorkspace(rec) {
+  if (S.wsIdentity === CX.id) return;
+  const phone = rec.nodalMobile ? (rec.nodalCc || '+91') + ' ' + rec.nodalMobile : '';
+  const nodal = [rec.nodalFirst, rec.nodalLast].filter(Boolean).join(' ') || rec.company;
+  const p = S.profile;
+  const docs = (p.documents || []).map((d) => ({ id: d.id, name: d.name, file: '', at: '' }));
+  cxBlank(p);
+  p.documents = docs;
+  p.company.email = rec.email;
+  p.company.phone = phone;
+  p.compliance.msme = 'No';
+  p.compliance.selfCert = 'No';
+  p.regAddress.country = CX.country;
+  p.billing.country = CX.country;
+  Object.assign(p.contacts.primary, { first: rec.nodalFirst || '', last: rec.nodalLast || '', designation: rec.nodalDesig || '', email: rec.email, phone: phone });
+  p.approved = false; p.approvedAt = '';
+  p.matchmaking = { keywords: [], exCats: {}, offering: {}, lookingFor: {} };
+  S.booth = { videos: [], documents: [] };
+  S.b2b.meetings = []; S.b2b.favs = []; S.b2b.prefsDone = false; S.b2b.noDemo = true;
+  S.b2b.team = [{ id: 'tm_main', name: nodal, desig: 'Nodal Officer (Main Login)', email: rec.email }];
+  S.notifications = [
+    { id: 'cxn1', icon: 'waving_hand', color: 'var(--green)', text: 'Welcome, ' + rec.company + ' — your ' + cxRoleLabel(rec).toLowerCase() + ' login is active. Stall space and pass quotas are allotted by ' + cxMain() + '.', time: 'Just now', read: false },
+    { id: 'cxn2', icon: 'warning', color: 'var(--amber)', text: 'Exhibition forms are due by 31 Dec 2026 — 5 forms pending.', time: 'Just now', read: false },
+    { id: 'cxn3', icon: 'flight', color: 'var(--blue)', text: 'Aircraft registration window is open for Static & Flying Display.', time: 'Just now', read: true },
+  ];
+  S.wsIdentity = CX.id;
+  save();
+}
+/* stall space allotted by the main exhibitor → this workspace's stalls (forms, showcase booth labels) */
+function cxSyncStalls() {
+  const ex = cxEx();
+  const allocs = ((ex && ex.allocations) || []).filter((a) => a.coexId === CX.coexId);
+  S.stalls = allocs.map((a) => {
+    const st = (ex.stalls || []).find((s) => s.id === a.stallId) || {};
+    return { id: 'alloc_' + a.id, hall: st.hall || '—', stall: st.stall || '—', area: a.sqm, allocated: true };
+  });
+  save();
+}
+/* Passes: show only the pass types the main exhibitor has allocated quota for */
+function cxUpdateNav() {
+  const ex = cxEx() || {};
+  let any = false;
+  CX_KINDS.forEach((k) => {
+    const has = cxCats(ex, k).length > 0;
+    any = any || has;
+    const el = $('navPass_' + k); if (el) el.style.display = has ? '' : 'none';
+  });
+  $('navPassLabel').style.display = any ? '' : 'none';
+  $('navPassGroup').style.display = any ? '' : 'none';
+}
 
-function enterApp() {
-  const c = currentCoex();
-  if (!c || !entitled(c)) { coexLogout(); return; }
+function cxEnterApp() {
+  const ex = cxEx();
+  const rec = cxRecord(ex);
+  if (!sbCoexEligible(rec)) { coexLogout(); return; }
+  cxSeedWorkspace(rec);
+  cxSyncStalls();
   $('loginScreen').style.display = 'none';
   $('appShell').style.display = 'flex';
-  $('chipCoex').textContent = c.company;
-  $('navCompanyName').textContent = c.company;
-  const roleTag = $('portalRole'); if (roleTag) roleTag.textContent = roleLabel(c).toUpperCase();
-  // Stall & pass navigation only for entitled (Separate + paid) companies
-  const show = entitled(c) ? '' : 'none';
-  $('navStall').style.display = show;
-  $('navPassLabel').style.display = show;
-  $('navPassGroup').style.display = show;
-  document.title = c.company + ' · ' + roleLabel(c) + ' · Evenuefy';
-  if (!location.hash || (!entitled(c) && location.hash !== '#/dashboard')) location.hash = '#/dashboard';
+  $('chipCoex').textContent = rec.company;
+  $('navCompanyName').textContent = rec.company;
+  $('portalRole').textContent = cxRoleLabel(rec).toUpperCase();
+  document.title = rec.company + ' · ' + cxRoleLabel(rec) + ' · Evenuefy';
+  cxUpdateNav();
+  if (!location.hash) location.hash = '#/dashboard';
   render();
-}
-
-/* ---------------- shared quota math (mirror of app.js) ---------------- */
-function quotaFor(ex, coexId, catId) {
-  const q = (ex.quotas || []).find((x) => x.coexId === coexId && x.catId === catId);
-  return q ? q.quota : 0;
-}
-function quotaUsed(ex, coexId, catId) {
-  return (ex.passes || []).filter((p) => p.catId === catId && p.coexId === coexId).length;
-}
-function myCats(ex, c, kind) {
-  return (ex.categories || []).filter((cat) => cat.kind === kind && quotaFor(ex, c.id, cat.id) > 0);
+  let welcome = null;
+  try { welcome = sessionStorage.getItem('evenuefy_coex_welcome'); sessionStorage.removeItem('evenuefy_coex_welcome'); } catch (e) { /* ignore */ }
+  if (welcome) toast('Logged in as ' + welcome, 'success');
 }
 
 /* ============================================================
-   ROUTER
+   Routes hosted by this portal (app.js router)
    ============================================================ */
-function render() {
-  const c = currentCoex();
-  if (!c) return;
-  const route = location.hash.replace(/^#\//, '') || 'dashboard';
-  let html = '';
-  if (route === 'stall' && entitled(c)) html = viewStall();
-  else if (route === 'badges' && entitled(c)) html = viewPasses('badge');
-  else if (route === 'invitee' && entitled(c)) html = viewPasses('invitee');
-  else if (route === 'vehicle' && entitled(c)) html = viewPasses('vehicle');
-  else html = viewDashboard();
-  document.querySelectorAll('.nav-item[data-route]').forEach((el) => {
-    const r = el.getAttribute('data-route');
-    el.classList.toggle('active', route === r || (r === 'dashboard' && ['stall', 'badges', 'invitee', 'vehicle'].indexOf(route) < 0));
-  });
-  $('view').innerHTML = html;
-  window.scrollTo(0, 0);
+const CX_EXACT = ['dashboard', 'stall', 'orders', 'passes/badges', 'passes/invitee', 'passes/vehicle',
+  'digital-showcase', 'products', 'conference-hall', 'meeting-room'];
+const CX_PREFIX = ['exhibition-forms', 'aircraft', 'b2b-matchmaking', 'booth'];
+function portalRouteAllowed(route) {
+  return CX_EXACT.indexOf(route) >= 0 || CX_PREFIX.some((p) => route === p || route.indexOf(p + '/') === 0);
 }
-window.addEventListener('hashchange', render);
-// Live-refresh when the main exhibitor (another tab) assigns stall/quota or pays
-window.addEventListener('storage', (e) => {
-  if (e.key !== EX_LS_KEY) return;
-  if (currentCoex()) enterApp();
-  else fillLoginOptions();
-});
 
 /* ============================================================
-   VIEW · Dashboard — registration profile + assignment summary
+   VIEW · Dashboard — registration profile + services + allocations
    ============================================================ */
-function statusPill(c) {
-  if (isAgg(c)) {
+function cxStatusPill(c) {
+  if (cxIsAgg(c)) {
     if (c.status === 'active') return '<span class="pill green">Approved by Organiser</span>';
     if (c.status === 'rejected') return '<span class="pill red">Rejected</span>';
     return '<span class="pill amber">Pending Organiser Approval</span>';
@@ -220,52 +193,83 @@ function statusPill(c) {
   return '<span class="pill amber">Registration Payment Pending</span>';
 }
 
-function viewDashboard() {
-  const ex = loadExState();
-  const c = currentCoex();
+function cxViewDashboard() {
+  if (!CX) return '';
+  const ex = cxEx();
+  const c = cxRecord(ex);
+  if (!c) return '';
   const allocs = (ex.allocations || []).filter((a) => a.coexId === c.id);
   const totalSqm = allocs.reduce((a, x) => a + (x.sqm || 0), 0);
   const totalQuota = (ex.quotas || []).filter((q) => q.coexId === c.id).reduce((a, q) => a + q.quota, 0);
   const totalPasses = (ex.passes || []).filter((p) => p.coexId === c.id).length;
 
   let note = '';
-  if (c.type === 'subsidiary') {
-    note = '<div class="note"><b class="title">Subsidiary company</b>' +
-      'As a Subsidiary of ' + esc(MAIN_EXHIBITOR) + ', this login can view and maintain the company profile. ' +
-      'Subsidiary companies are <b>not entitled</b> to separate stall space, passes &amp; services.</div>';
-  } else if (isAgg(c) && c.status === 'active' && totalSqm === 0 && totalQuota === 0) {
+  if (cxIsAgg(c) && totalSqm === 0 && totalQuota === 0) {
     note = '<div class="note green"><b class="title">Approved by the organiser</b>' +
       'Your aggregator registration was approved on ' + esc(c.approvedAt || '') + ' and login credentials were emailed to ' + esc(c.email) + '. ' +
-      'Stall space and pass quotas will appear here once ' + esc(MAIN_EXHIBITOR) + ' allots them.</div>';
-  } else if (c.status !== 'active') {
-    note = '<div class="note amber"><b class="title">Registration payment pending</b>' +
-      'Your ' + money(40000) + ' registration fee has not been paid yet by the main exhibitor. ' +
-      'Stall space &amp; pass quotas unlock automatically once ' + esc(MAIN_EXHIBITOR) + ' completes the payment from its cart.</div>';
+      'Stall space and pass quotas will appear here once ' + esc(cxMain()) + ' allots them.</div>';
   } else if (totalSqm === 0 && totalQuota === 0) {
     note = '<div class="note"><b class="title">Nothing assigned yet</b>' +
-      'Your registration is active, but the main exhibitor has not allocated stall space or pass quotas yet. ' +
+      'Your registration is active, but ' + esc(cxMain()) + ' has not allocated stall space or pass quotas yet. ' +
       'They will appear here automatically once assigned.</div>';
   }
 
   const tiles =
     '<div class="tiles">' +
-      '<div class="tile blue"><div class="t-label">Company Type</div><div class="t-value" style="font-size:1.15rem">' + (isAgg(c) ? 'Aggregator' : c.type === 'separate' ? 'Separate' : 'Subsidiary') + '</div></div>' +
-      '<div class="tile"><div class="t-label">Registration Status</div><div class="t-value" style="font-size:1rem;padding-top:6px">' + statusPill(c) + '</div></div>' +
-      (entitled(c)
-        ? '<div class="tile accent"><div class="t-label">Allocated Space</div><div class="t-value">' + totalSqm + '<span style="font-size:0.85rem;color:var(--muted);font-weight:600"> sqm</span></div></div>' +
-          '<div class="tile"><div class="t-label">Pass Quota / Filled</div><div class="t-value">' + totalQuota + '<span style="font-size:0.85rem;color:var(--muted);font-weight:600"> / ' + totalPasses + ' filled</span></div></div>'
-        : '') +
+      '<div class="tile blue"><div class="t-label">Company Type</div><div class="t-value" style="font-size:1.15rem">' + (cxIsAgg(c) ? 'Aggregator' : 'Separate') + '</div></div>' +
+      '<div class="tile"><div class="t-label">Registration Status</div><div class="t-value" style="font-size:1rem;padding-top:6px">' + cxStatusPill(c) + '</div></div>' +
+      '<div class="tile accent"><div class="t-label">Allocated Space</div><div class="t-value">' + totalSqm + '<span style="font-size:0.85rem;color:var(--muted);font-weight:600"> sqm</span></div></div>' +
+      '<div class="tile"><div class="t-label">Pass Quota / Filled</div><div class="t-value">' + totalQuota + '<span style="font-size:0.85rem;color:var(--muted);font-weight:600"> / ' + totalPasses + ' filled</span></div></div>' +
+    '</div>';
+
+  /* services — same modules as the main exhibitor, on this company's workspace */
+  const feat = (route, color, icon, title, sub) =>
+    '<div class="feat-card" onclick="location.hash=\'' + route + '\'">' +
+      '<span class="material-symbols-outlined fgo">arrow_forward</span>' +
+      '<span class="ficon ' + color + '"><span class="material-symbols-outlined">' + icon + '</span></span>' +
+      '<span class="ftitle">' + title + '</span>' + (sub ? '<span class="fsub">' + sub + '</span>' : '') + '</div>';
+  const products = ((S.profile.business && S.profile.business.products) || []).length;
+  const boothItems = ((S.booth && S.booth.videos) || []).length + ((S.booth && S.booth.documents) || []).length;
+  const kindCount = (k) => (S.bookings || []).filter((b) => b.kind === k).length;
+  const formsDone = typeof exFormsSubmitted === 'function' ? exFormsSubmitted() : 0;
+  const services =
+    '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Exhibition Services</h2>' +
+      (S.cart.length ? '<button class="btn btn-primary btn-sm" onclick="openCart()"><span class="material-symbols-outlined" style="font-size:16px">shopping_cart</span>' + S.cart.length + ' item(s) in cart</button>' : '') + '</div>' +
+      '<div class="feat-grid" style="margin-top:0">' +
+        feat('#/exhibition-forms', 'fc-purple', 'assignment', 'Exhibition Forms', formsDone + ' of ' + (typeof EXFORM_META !== 'undefined' ? EXFORM_META.length : 5) + ' forms submitted') +
+        feat('#/digital-showcase', 'fc-red', 'storefront', 'Digital Showcase', products + ' product(s) · ' + boothItems + ' booth item(s)') +
+        feat('#/aircraft', 'fc-cyan', 'flight', 'Aircraft Registration', (S.aircraft || []).length + ' application(s)') +
+      '</div></div>' +
+    '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Meetings &amp; Networking</h2></div>' +
+      '<div class="feat-grid" style="margin-top:0">' +
+        feat('#/b2b-matchmaking', 'fc-teal', 'hub', 'B2B Matchmaking', ((S.b2b && S.b2b.meetings) || []).length + ' meeting request(s)') +
+        feat('#/conference-hall', 'fc-blue', 'meeting_room', 'Meeting Rooms', kindCount('conference') + ' booking(s)') +
+        feat('#/meeting-room', 'fc-orange', 'groups_2', 'B2B Meetings', kindCount('b2b') + ' table booking(s)') +
+      '</div></div>';
+
+  /* passes allocated by the main exhibitor */
+  const passRows = CX_KINDS.flatMap((k) => cxCats(ex, k).map((cat) => {
+    const q = cxQuota(ex, cat.id), used = cxUsed(ex, cat.id);
+    const route = k === 'badge' ? 'passes/badges' : k === 'invitee' ? 'passes/invitee' : 'passes/vehicle';
+    return '<tr><td class="td-strong">' + esc(cat.name) + '</td><td class="num">' + q + '</td><td class="num">' + used + '</td><td class="num">' + (q - used) + '</td>' +
+      '<td class="td-actions"><a class="btn-link" href="#/' + route + '">Manage</a></td></tr>';
+  })).join('');
+  const passes = '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Passes Allocated</h2>' +
+      '<span class="result-count">allocated by ' + esc(cxMain()) + '</span></div>' +
+    (passRows
+      ? '<div class="tablewrap"><table class="grid"><tr><th>Category</th><th>Quota</th><th>Filled</th><th>Balance</th><th></th></tr>' + passRows + '</table></div>'
+      : '<p style="font-size:0.84rem;color:var(--muted);margin:0">No pass quota allocated yet — ' + esc(cxMain()) + ' allocates badges, invitee and vehicle passes from its portal.</p>') +
     '</div>';
 
   const profile =
     '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">My Registration</h2>' +
-      '<span class="result-count">Registered by ' + esc(MAIN_EXHIBITOR) + ' · ' + esc(c.createdAt || '') + '</span></div>' +
-    '<form onsubmit="return saveProfile(event)" novalidate>' +
+      '<span class="result-count">Registered by ' + esc(cxMain()) + ' · ' + esc(c.createdAt || '') + '</span></div>' +
+    '<form onsubmit="return cxSaveProfile(event)" novalidate>' +
     '<div class="form-grid">' +
       '<div class="field"><label>Company Name</label><input type="text" value="' + esc(c.company) + '" readonly><div class="hint">Set at registration — contact the organiser to change.</div></div>' +
       '<div class="field"><label>Registration Number</label><input type="text" value="' + esc(c.regNo || '—') + '" readonly></div>' +
       '<div class="field"><label>Login Email</label><input type="email" value="' + esc(c.email) + '" readonly><div class="hint">This is your login identity.</div></div>' +
-      '<div class="field"><label>Company Type</label><input type="text" value="' + typeLabel(c) + '" readonly></div>' +
+      '<div class="field"><label>Company Type</label><input type="text" value="' + cxTypeLabel(c) + '" readonly></div>' +
       '<div class="field"><label>Nodal Person — First Name <span class="req">*</span></label><input type="text" id="pfFirst" value="' + esc(c.nodalFirst || '') + '"><div class="error"></div></div>' +
       '<div class="field"><label>Nodal Person — Last Name <span class="req">*</span></label><input type="text" id="pfLast" value="' + esc(c.nodalLast || '') + '"><div class="error"></div></div>' +
       mobileFieldHtml('pf', 'Nodal Contact Number', { cc: c.nodalCc, value: c.nodalMobile || '' }) +
@@ -275,12 +279,12 @@ function viewDashboard() {
       '<button class="btn btn-primary" type="submit"><span class="material-symbols-outlined">save</span>Save Profile</button>' +
     '</div></form></div>';
 
-  return '<h1 class="page-title">' + roleLabel(c) + ' Dashboard</h1>' +
-    '<p class="page-sub">Welcome, <b>' + esc(c.company) + '</b> — ' + (isAgg(c) ? 'aggregator company' : 'co-exhibitor') + ' of ' + esc(MAIN_EXHIBITOR) + '.</p>' +
-    tiles + note + profile;
+  return '<h1 class="page-title">' + cxRoleLabel(c) + ' Dashboard</h1>' +
+    '<p class="page-sub">Welcome, <b>' + esc(c.company) + '</b> — ' + (cxIsAgg(c) ? 'aggregator company' : 'co-exhibitor') + ' of ' + esc(cxMain()) + '.</p>' +
+    tiles + note + services + passes + profile;
 }
 
-function saveProfile(e) {
+function cxSaveProfile(e) {
   e.preventDefault();
   clearErrs();
   const first = $('pfFirst').value.trim();
@@ -291,12 +295,12 @@ function saveProfile(e) {
   const ph = readMobile('pf', false);
   if (!ph) ok = false;
   if (!ok) return false;
-  const ex = loadExState();
-  const c = (ex.coexhibitors || []).find((x) => x.id === sessionStorage.getItem(SESSION_KEY));
+  const ex = cxEx();
+  const c = cxRecord(ex);
   if (!c) return false;
   c.nodalFirst = first; c.nodalLast = last;
   c.nodalCc = ph.cc; c.nodalMobile = ph.mobile; c.nodalDesig = $('pfDesig').value.trim();
-  saveExState(ex);
+  cxSaveEx(ex);
   render();
   toast('Profile updated', 'success');
   return false;
@@ -305,24 +309,22 @@ function saveProfile(e) {
 /* ============================================================
    VIEW · My Stall Space (read-only — allotted by main exhibitor)
    ============================================================ */
-function viewStall() {
-  const ex = loadExState();
-  const c = currentCoex();
-  const allocs = (ex.allocations || []).filter((a) => a.coexId === c.id);
-  const stallById = (id) => (ex.stalls || []).find((s) => s.id === id) || {};
+function cxViewStall() {
+  if (!CX) return '';
+  const ex = cxEx();
+  const allocs = (ex.allocations || []).filter((a) => a.coexId === CX.coexId);
+  const stallOf = (id) => (ex.stalls || []).find((s) => s.id === id) || {};
   const totalSqm = allocs.reduce((a, x) => a + (x.sqm || 0), 0);
-
   const rows = allocs.map((a, i) => {
-    const st = stallById(a.stallId);
+    const st = stallOf(a.stallId);
     return '<tr><td>' + (i + 1) + '</td>' +
       '<td class="td-strong">' + esc(st.hall || '—') + '</td>' +
       '<td><span class="regno">' + esc(st.stall || '—') + '</span></td>' +
       '<td class="num">' + a.sqm + ' sqm</td></tr>';
   }).join('') ||
     '<tr><td colspan="4" style="color:var(--muted)">No stall space allocated yet — the main exhibitor allocates it from its portal.</td></tr>';
-
   return '<h1 class="page-title">My Stall Space</h1>' +
-    '<p class="page-sub">Space allotted to you by ' + esc(MAIN_EXHIBITOR) + ' from its booked stalls. Allocation is managed by the main exhibitor.</p>' +
+    '<p class="page-sub">Space allotted to you by ' + esc(cxMain()) + ' from its booked stalls. Allocation is managed by the main exhibitor.</p>' +
     '<div class="tiles">' +
       '<div class="tile blue"><div class="t-label">Total Allocated</div><div class="t-value">' + totalSqm + '<span style="font-size:0.85rem;color:var(--muted);font-weight:600"> sqm</span></div></div>' +
       '<div class="tile"><div class="t-label">Allocations</div><div class="t-value">' + allocs.length + '</div></div>' +
@@ -337,41 +339,39 @@ function viewStall() {
 /* ============================================================
    VIEW · Passes (badge | invitee | vehicle) — fill against quota
    ============================================================ */
-const KIND_TITLE = { badge: 'Badge Details', invitee: 'Invitee Details', vehicle: 'Vehicle Pass Details' };
-const KIND_SUB = {
+const CX_KIND_TITLE = { badge: 'Badge Details', invitee: 'Invitee Details', vehicle: 'Vehicle Pass Details' };
+const CX_KIND_SUB = {
   badge: 'Badge quota assigned to you by the main exhibitor. Register your team members against the quota.',
   invitee: 'Invitee pass quota assigned to you. Registration is date-wise for each event day.',
   vehicle: 'Vehicle pass quota assigned to you. Register driver & vehicle details against the quota.',
 };
 
-function viewPasses(kind) {
-  const ex = loadExState();
-  const c = currentCoex();
-  const cats = myCats(ex, c, kind);
-
+function cxViewPasses(kind) {
+  if (!CX) return '';
+  const ex = cxEx();
+  const cats = cxCats(ex, kind);
   if (!cats.length) {
-    return '<h1 class="page-title">' + KIND_TITLE[kind] + '</h1>' +
-      '<p class="page-sub">' + KIND_SUB[kind] + '</p>' +
+    return '<h1 class="page-title">' + CX_KIND_TITLE[kind] + '</h1>' +
+      '<p class="page-sub">' + CX_KIND_SUB[kind] + '</p>' +
       '<div class="card"><div class="empty"><span class="material-symbols-outlined">' +
       (kind === 'vehicle' ? 'directions_car' : kind === 'invitee' ? 'mail' : 'badge') + '</span>' +
-      '<h3>No quota assigned</h3><p>' + esc(MAIN_EXHIBITOR) + ' has not assigned you any ' +
+      '<h3>No quota assigned</h3><p>' + esc(cxMain()) + ' has not assigned you any ' +
       (kind === 'vehicle' ? 'vehicle pass' : kind === 'invitee' ? 'invitee' : 'badge') +
       ' quota yet. It will appear here automatically once assigned.</p></div></div>';
   }
 
   const quotaRows = cats.map((cat, i) => {
-    const q = quotaFor(ex, c.id, cat.id);
-    const used = quotaUsed(ex, c.id, cat.id);
+    const q = cxQuota(ex, cat.id);
+    const used = cxUsed(ex, cat.id);
     const bal = q - used;
     return '<tr><td>' + (i + 1) + '</td>' +
       '<td class="td-strong">' + esc(cat.name) + '</td>' +
       '<td class="num">' + q + '</td><td class="num">' + used + '</td><td class="num">' + bal + '</td>' +
-      '<td class="td-actions"><button class="btn btn-outline btn-sm" onclick="openPassForm(\'' + cat.id + '\')"' + (bal <= 0 ? ' disabled' : '') + '>' +
+      '<td class="td-actions"><button class="btn btn-outline btn-sm" onclick="cxOpenPassForm(\'' + cat.id + '\')"' + (bal <= 0 ? ' disabled' : '') + '>' +
         '<span class="material-symbols-outlined" style="font-size:16px">add</span>Add</button></td></tr>';
   }).join('');
 
-  const myPasses = (ex.passes || []).filter((p) => p.coexId === c.id &&
-    cats.some((cat) => cat.id === p.catId));
+  const myPasses = (ex.passes || []).filter((p) => p.coexId === CX.coexId && cats.some((cat) => cat.id === p.catId));
   const catName = (id) => ((ex.categories || []).find((x) => x.id === id) || {}).name || '—';
 
   let passHead, passRows;
@@ -399,8 +399,8 @@ function viewPasses(kind) {
   }
   passRows = passRows || '<tr><td colspan="7" style="color:var(--muted)">No passes filled yet — use the Add button above to register against your quota.</td></tr>';
 
-  return '<h1 class="page-title">' + KIND_TITLE[kind] + '</h1>' +
-    '<p class="page-sub">' + KIND_SUB[kind] + '</p>' +
+  return '<h1 class="page-title">' + CX_KIND_TITLE[kind] + '</h1>' +
+    '<p class="page-sub">' + CX_KIND_SUB[kind] + '</p>' +
     '<div class="card"><div class="card-head-row"><h2 class="card-title">My Quota</h2>' +
       '<button class="btn btn-outline btn-sm" onclick="render()"><span class="material-symbols-outlined" style="font-size:16px">refresh</span>Refresh</button></div>' +
     '<div class="tablewrap"><table class="grid">' +
@@ -411,27 +411,25 @@ function viewPasses(kind) {
 }
 
 /* ---------------- Add pass (badge / invitee / vehicle) ---------------- */
-function toggleDay(i) {
+function cxToggleDay(i) {
   const cb = $('day' + i);
   cb.checked = !cb.checked;
   $('dayChk' + i).classList.toggle('selected', cb.checked);
 }
 
-function openPassForm(catId) {
-  const ex = loadExState();
-  const c = currentCoex();
+function cxOpenPassForm(catId) {
+  const ex = cxEx();
   const cat = (ex.categories || []).find((x) => x.id === catId);
   if (!cat) return;
-  const bal = quotaFor(ex, c.id, catId) - quotaUsed(ex, c.id, catId);
+  const bal = cxQuota(ex, catId) - cxUsed(ex, catId);
   if (bal <= 0) { toast('No quota balance left in this category.', 'error'); return; }
-
   const balNote = '<div class="note" style="margin-top:0"><b class="title">' + esc(cat.name) + '</b>' +
     'Balance quota: <b>' + bal + '</b>. This pass will consume your assigned quota.</div>';
 
   if (cat.kind === 'vehicle') {
     openModal('Add Vehicle Pass — ' + esc(cat.name),
       balNote +
-      '<form id="vForm" onsubmit="return saveVehiclePass(event, \'' + catId + '\')" novalidate>' +
+      '<form id="vForm" onsubmit="return cxSaveVehiclePass(event, \'' + catId + '\')" novalidate>' +
       '<div class="form-grid">' +
         '<div class="field"><label>Driver Name <span class="req">*</span></label><input type="text" id="vName"><div class="error"></div></div>' +
         '<div class="field"><label>Driver Mobile <span class="req">*</span></label><input type="tel" id="vMobile" placeholder="10-digit mobile"><div class="error"></div></div>' +
@@ -447,14 +445,14 @@ function openPassForm(catId) {
 
   const dateChecks = cat.kind === 'invitee'
     ? '<div class="field full"><label>Event Date Selection <span class="req">*</span></label>' +
-      '<div class="checks">' + EVENT_DAYS.map((d, i) =>
-        '<label class="check-item" id="dayChk' + i + '" onclick="toggleDay(' + i + ')"><input type="checkbox" id="day' + i + '" value="' + d + '">' + d + '</label>').join('') +
+      '<div class="checks">' + CX_EVENT_DAYS.map((d, i) =>
+        '<label class="check-item" id="dayChk' + i + '" onclick="cxToggleDay(' + i + ')"><input type="checkbox" id="day' + i + '" value="' + d + '">' + d + '</label>').join('') +
       '</div><div class="error" id="dayErr" style="display:none;color:var(--red);font-size:0.75rem;font-weight:600;margin-top:4px">Select at least one event date</div></div>'
     : '';
 
   openModal('Add ' + (cat.kind === 'invitee' ? 'Invitee' : 'Badge') + ' — ' + esc(cat.name),
     balNote +
-    '<form id="pForm" onsubmit="return saveBadgePass(event, \'' + catId + '\')" novalidate>' +
+    '<form id="pForm" onsubmit="return cxSaveBadgePass(event, \'' + catId + '\')" novalidate>' +
     '<div class="form-grid">' +
       '<div class="field"><label>First Name <span class="req">*</span></label><input type="text" id="pFirst"><div class="error"></div></div>' +
       '<div class="field"><label>Last Name <span class="req">*</span></label><input type="text" id="pLast"><div class="error"></div></div>' +
@@ -467,11 +465,10 @@ function openPassForm(catId) {
     '<button class="btn btn-primary" onclick="document.getElementById(\'pForm\').requestSubmit()"><span class="material-symbols-outlined">save</span>Save Pass</button>', true);
 }
 
-function saveBadgePass(e, catId) {
+function cxSaveBadgePass(e, catId) {
   e.preventDefault();
   clearErrs();
-  const ex = loadExState();
-  const c = currentCoex();
+  const ex = cxEx();
   const cat = (ex.categories || []).find((x) => x.id === catId);
   const first = $('pFirst').value.trim();
   const last = $('pLast').value.trim();
@@ -486,29 +483,26 @@ function saveBadgePass(e, catId) {
   else if (!MOBILE_RE.test(mobile)) { setErr('pMobile', 'Enter a valid 10-digit mobile'); ok = false; }
   let days = [];
   if (cat.kind === 'invitee') {
-    days = EVENT_DAYS.filter((d, i) => $('day' + i).checked);
+    days = CX_EVENT_DAYS.filter((d, i) => $('day' + i).checked);
     if (!days.length) { $('dayErr').style.display = 'block'; ok = false; }
   }
   if (!ok) return false;
-  if (quotaFor(ex, c.id, catId) - quotaUsed(ex, c.id, catId) <= 0) {
-    toast('No quota balance left in this category.', 'error'); return false;
-  }
+  if (cxQuota(ex, catId) - cxUsed(ex, catId) <= 0) { toast('No quota balance left in this category.', 'error'); return false; }
   ex.passes.push({
-    id: uidEx(ex, 'pass'), catId: catId, coexId: c.id,
+    id: cxUid(ex, 'pass'), catId: catId, coexId: CX.coexId,
     data: { firstName: first, lastName: last, email: email, mobile: mobile, designation: $('pDesig').value.trim(), dates: days },
     status: 'issued', amount: 0, createdAt: nowStr(),
   });
-  saveExState(ex);
+  cxSaveEx(ex);
   closeModal(); render();
   toast('Pass saved for ' + first + ' ' + last, 'success');
   return false;
 }
 
-function saveVehiclePass(e, catId) {
+function cxSaveVehiclePass(e, catId) {
   e.preventDefault();
   clearErrs();
-  const ex = loadExState();
-  const c = currentCoex();
+  const ex = cxEx();
   const name = $('vName').value.trim();
   const mobile = $('vMobile').value.trim();
   const vehNo = $('vNo').value.trim();
@@ -523,27 +517,40 @@ function saveVehiclePass(e, catId) {
   if (!dlNo) { setErr('vDl', 'Driving licence number is required'); ok = false; }
   if (!dlFile) { setErr('vDlFile', 'Upload the DL copy'); ok = false; }
   if (!ok) return false;
-  if (quotaFor(ex, c.id, catId) - quotaUsed(ex, c.id, catId) <= 0) {
-    toast('No quota balance left in this category.', 'error'); return false;
-  }
+  if (cxQuota(ex, catId) - cxUsed(ex, catId) <= 0) { toast('No quota balance left in this category.', 'error'); return false; }
   ex.passes.push({
-    id: uidEx(ex, 'pass'), catId: catId, coexId: c.id,
+    id: cxUid(ex, 'pass'), catId: catId, coexId: CX.coexId,
     data: {
       driverName: name, driverMobile: mobile, vehicleNo: vehNo.toUpperCase(),
-      dlNumber: dlNo, dlFile: dlFile.name, seater: $('vSeater').value, company: c.company,
+      dlNumber: dlNo, dlFile: dlFile.name, seater: $('vSeater').value, company: CX.company,
     },
     status: 'issued', amount: 0, createdAt: nowStr(),
   });
-  saveExState(ex);
+  cxSaveEx(ex);
   closeModal(); render();
   toast('Vehicle pass saved for ' + name, 'success');
   return false;
 }
 
+/* ---------------- routes (override the main exhibitor's dashboard & pass pages) ---------------- */
+ROUTES.dashboard = cxViewDashboard;
+ROUTES.stall = cxViewStall;
+ROUTES['passes/badges'] = () => cxViewPasses('badge');
+ROUTES['passes/invitee'] = () => cxViewPasses('invitee');
+ROUTES['passes/vehicle'] = () => cxViewPasses('vehicle');
+
+// Live-refresh when the main exhibitor (another tab) allocates space / quota or changes the registration
+window.addEventListener('storage', (e) => {
+  if (!CX || e.key !== CX.parent.lsKey) return;
+  if (!sbCoexEligible(cxRecord(cxEx()))) { coexLogout(); return; }
+  cxSyncStalls(); cxUpdateNav(); render();
+});
+
 /* ---------------- boot ---------------- */
 document.addEventListener('DOMContentLoaded', () => {
+  if (CX) { cxEnterApp(); return; }
+  try { sessionStorage.removeItem(SB_COEX_SESSION_KEY); } catch (e) { /* stale session for a removed company */ }
   const sel = $('lgCoex');
-  if (sel) sel.addEventListener('change', syncLoginEmail);
-  fillLoginOptions();
-  if (currentCoex()) enterApp();
+  if (sel) sel.addEventListener('change', cxSyncLoginEmail);
+  cxFillLogin();
 });

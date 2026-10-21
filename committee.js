@@ -218,11 +218,9 @@ function toolbarDateSel(F, modeFn, fromFn, toFn) {
 }
 
 /* Applications visible to the logged-in committee: ONLY its category */
-function committeeApps() {
+function committeeApps() { // every company: main exhibitors, co-exhibitors, aggregators
   const c = currentCommittee();
-  const ex = loadExState();
-  const list = (ex && ex.aircraft) ? ex.aircraft : [];
-  return list.filter((a) => a.displayType === c.category);
+  return sbAllIn('aircraft').filter((a) => a.displayType === c.category);
 }
 
 /* ---------------- Approvals filters (status · payment [static only] · date) ---------------- */
@@ -312,7 +310,7 @@ function exportCommitteeApps() {
     .concat(c.payment ? ['Payment Status'] : [])
     .concat(['Created At', 'Submitted At', 'Approved By', 'Remark']);
   const rows = list.map((a, i) =>
-    [i + 1, a.appNo || '-', EX_COMPANY, a.model, a.make, a.usage, a.displayType,
+    [i + 1, a.appNo || '-', sbWsCompany(a), a.model, a.make, a.usage, a.displayType,
       a.weight, a.regNo, a.yearOfReg || '-', a.regWithOrg || '-', a.mfgYear || '-', a.imageName || '-']
       .concat(c.payment ? [a.price != null ? a.price : '-', a.feeCurrency || '-'] : [])
       .concat([a.air7a ? 'Yes' : 'No', a.air4 ? 'Yes' : 'No', a.air7b ? 'Yes' : 'No', statusLabel[a.status] || a.status])
@@ -343,7 +341,7 @@ function render() {
 }
 window.addEventListener('hashchange', render);
 // Live-refresh when the exhibitor (another tab) submits a new application
-window.addEventListener('storage', (e) => { if (e.key === EX_LS_KEY && currentCommittee()) render(); });
+window.addEventListener('storage', (e) => { if (sbIsWsKey(e.key) && currentCommittee()) render(); }); // any company workspace
 
 /* ============================================================
    VIEW · Aircraft Approvals (category-filtered)
@@ -364,9 +362,9 @@ function viewApprovals() {
   const rows = list.map((a) =>
     '<tr>' +
     '<td><span class="regno">' + esc(a.appNo || '—') + '</span></td>' +
-    '<td><div class="profile-cell"><span class="avatar">' + esc(EX_COMPANY.charAt(0)) + '</span>' +
+    '<td><div class="profile-cell"><span class="avatar">' + esc(sbWsCompany(a).charAt(0)) + '</span>' +
       '<span><span class="td-strong">' + esc(a.model) + '</span>' +
-      '<span class="td-sub">' + esc(EX_COMPANY) + '</span>' +
+      '<span class="td-sub">' + esc(sbWsCompany(a)) + (a.__ws && a.__ws.role !== 'exhibitor' ? ' · ' + esc(sbWsRole(a.__ws)) : '') + '</span>' +
       '<span class="td-sub">' + esc(a.usage) + ' · ' + esc(a.displayType) + ' · ' + Number(a.weight).toLocaleString('en-IN') + ' kg · <span class="regno">' + esc(a.regNo) + '</span></span></span></div></td>' +
     (c.payment ? '<td class="money">' + acFmtFee(a) + '</td>' : '') +
     '<td style="min-width:170px">' + formsDone(a) + '</td>' +
@@ -422,8 +420,8 @@ function viewApprovals() {
 /* ---------------- approve / reject (recorded with committee name) ---------------- */
 function approveApp(id) {
   const c = currentCommittee();
-  const ex = loadExState(); if (!ex) return;
-  const a = ex.aircraft.find((x) => x.id === id); if (!a) return;
+  const f = sbFindIn('aircraft', id); if (!f) return;
+  const a = f.item;
   if (a.displayType !== c.category) { toast('This application belongs to another committee.', 'error'); return; }
   const confirmMsg = c.payment
     ? 'Approve application ' + (a.appNo || '') + ' (' + a.model + ')?\nThe registration fee ' + acFmtFee(a) + ' will be enabled for payment in the exhibitor’s cart.'
@@ -433,22 +431,22 @@ function approveApp(id) {
   a.approvedAt = nowStr();
   a.approvedBy = c.name;
   a.remark = '';
-  saveExState(ex);
+  sbWsSave(f);
   render();
   toast('Application ' + (a.appNo || '') + ' approved by ' + c.name + '.', 'success');
 }
 
 function rejectApp(id) {
   const c = currentCommittee();
-  const ex = loadExState(); if (!ex) return;
-  const a = ex.aircraft.find((x) => x.id === id); if (!a) return;
+  const f = sbFindIn('aircraft', id); if (!f) return;
+  const a = f.item;
   if (a.displayType !== c.category) { toast('This application belongs to another committee.', 'error'); return; }
   const remark = prompt('Reason for rejection (shown to the exhibitor):', '');
   if (remark === null) return;
   a.status = 'rejected';
   a.remark = remark.trim() || 'Rejected by ' + c.name;
   a.rejectedBy = c.name;
-  saveExState(ex);
+  sbWsSave(f);
   render();
   toast('Application ' + (a.appNo || '') + ' rejected.', 'error');
 }
@@ -483,8 +481,8 @@ function uploadLink(acftId, path, name) {
 }
 
 async function viewUpload(acftId, path) {
-  const ex = loadExState();
-  const a = ex && ex.aircraft ? ex.aircraft.find((x) => x.id === acftId) : null;
+  const f = sbFindIn('aircraft', acftId); // aircraft of any company workspace
+  const a = f ? f.item : null;
   if (!a) return;
   const parts = path.split('.');
   const obj = parts.length === 2 ? (a[parts[0]] || {}) : a;
@@ -512,8 +510,8 @@ async function viewUpload(acftId, path) {
 
 function viewApplication(id) {
   const c = currentCommittee();
-  const ex = loadExState();
-  const a = ex && ex.aircraft ? ex.aircraft.find((x) => x.id === id) : null;
+  const f = sbFindIn('aircraft', id);
+  const a = f ? Object.assign({}, f.item, { id: f.ref }) : null; // buttons & uploads carry the cross-workspace ref
   if (!a) { location.hash = '#/approvals'; return ''; }
   // Category guard: a committee can open only its own category's applications
   if (a.displayType !== c.category) {
@@ -526,7 +524,7 @@ function viewApplication(id) {
     '<a class="back-link" href="#/approvals"><span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>Back to Aircraft Approvals</a>' +
     '<div class="card-head-row"><div>' +
       '<h1 class="page-title">' + esc(a.model) + ' <span class="regno" style="font-size:1rem">' + esc(a.appNo || '') + '</span></h1>' +
-      '<p class="page-sub" style="margin-bottom:0">' + esc(EX_COMPANY) + ' · ' + acStatusPill(a.status) + (c.payment ? ' ' + acPayPill(a) : '') +
+      '<p class="page-sub" style="margin-bottom:0">' + esc(f.ws.company) + (f.ws.role !== 'exhibitor' ? ' (' + esc(sbWsRole(f.ws)) + ')' : '') + ' · ' + acStatusPill(a.status) + (c.payment ? ' ' + acPayPill(a) : '') +
       (a.submittedForApprovalAt ? ' · Submitted: ' + esc(a.submittedForApprovalAt) : '') +
       (a.approvedBy ? ' · Approved by: ' + esc(a.approvedBy) : '') +
       (a.status === 'rejected' && a.remark ? ' · <span style="color:var(--red)">' + esc(a.remark) + '</span>' : '') + '</p>' +
@@ -627,26 +625,32 @@ function ofClear() { OF.status = null; OF.dateMode = ''; OF.from = ''; OF.to = '
    (Static Display) — co-exhibitor / vehicle payments stay with the admin. */
 function ordersData() {
   const c = currentCommittee();
-  const ex = loadExState();
-  if (!ex) return [];
-  const cat = (ex.aircraft || []).filter((a) => a.displayType === c.category);
-  const catIds = new Set(cat.map((a) => a.id));
-  const mine = (o) => o.type === 'aircraft_reg' && catIds.has(o.refId);
-  const pending = (ex.cart || []).filter(mine).map((i) => ({
-    id: 'pend-' + i.id, orderNo: '—', type: i.type, label: i.label, sub: i.sub || '',
-    amount: i.amount, currency: i.currency || 'INR', status: 'pending', paidAt: '', payer: EX_COMPANY,
-  }));
-  const paid = (ex.orders || []).filter(mine).slice().reverse(); // newest first
-  // Backfill: aircraft paid BEFORE the orders ledger existed have no order
-  // record — synthesize one from the application so old payments still show.
-  const seen = new Set(paid.map((o) => o.refId));
-  cat.filter((a) => a.status === 'registered' && a.price != null && !seen.has(a.id))
-    .forEach((a) => paid.push({
-      id: 'legacy-' + a.id, orderNo: '—', type: 'aircraft_reg',
-      label: 'Aircraft Registration — ' + a.model, sub: a.appNo || a.regNo, refId: a.id,
-      amount: a.price, currency: a.feeCurrency || 'INR', status: 'success',
-      paidAt: a.approvedAt || '', payer: EX_COMPANY,
+  const pending = [], paid = [];
+  sbWorkspaces().forEach((ws) => { // every company workspace
+    const ex = sbReadState(ws.key);
+    if (!ex) return;
+    const who = ws.company + (ws.role === 'exhibitor' ? '' : ' (' + sbWsRole(ws) + ')');
+    const cat = (ex.aircraft || []).filter((a) => a.displayType === c.category);
+    const catIds = new Set(cat.map((a) => a.id));
+    const mine = (o) => o.type === 'aircraft_reg' && catIds.has(o.refId);
+    (ex.cart || []).filter(mine).forEach((i) => pending.push({
+      id: 'pend-' + ws.key + '-' + i.id, orderNo: '—', type: i.type, label: i.label, sub: i.sub || '',
+      amount: i.amount, currency: i.currency || 'INR', status: 'pending', paidAt: '', payer: who,
     }));
+    const list = (ex.orders || []).filter(mine).slice().reverse().map((o) => Object.assign({}, o, { payer: who })); // newest first
+    // Backfill: aircraft paid BEFORE the orders ledger existed have no order
+    // record — synthesize one from the application so old payments still show.
+    const seen = new Set(list.map((o) => o.refId));
+    cat.filter((a) => a.status === 'registered' && a.price != null && !seen.has(a.id))
+      .forEach((a) => list.push({
+        id: 'legacy-' + a.id, orderNo: '—', type: 'aircraft_reg',
+        label: 'Aircraft Registration — ' + a.model, sub: a.appNo || a.regNo, refId: a.id,
+        amount: a.price, currency: a.feeCurrency || 'INR', status: 'success',
+        paidAt: a.approvedAt || '', payer: who,
+      }));
+    list.forEach((o) => paid.push(o));
+  });
+  paid.sort((x, y) => String(y.paidAtIso || '').localeCompare(String(x.paidAtIso || ''))); // newest first across companies
   return pending.concat(paid);
 }
 function filteredOrders() {

@@ -498,7 +498,14 @@ async function submitAircraft(e) {
     gotoNextStep(editing); // continue with whichever step is still pending
   } else {
     const id = uid('acft');
-    const appNo = 'ACR-2027-' + String(S.seq.acft).padStart(4, '0'); // unique per application
+    // application numbers are one series across every company (main exhibitors, co-exhibitors, aggregators)
+    let serial = S.seq.acft;
+    if (typeof sbWorkspaces === 'function') {
+      const nos = sbWorkspaces().filter((ws) => ws.key !== LS_KEY).flatMap((ws) => ((sbReadState(ws.key) || {}).aircraft || []))
+        .concat(S.aircraft).map((a) => parseInt(String(a.appNo || '').slice(-4), 10) || 0);
+      serial = Math.max(serial, 1 + Math.max(0, ...nos));
+    }
+    const appNo = 'ACR-2027-' + String(serial).padStart(4, '0'); // unique per application
     S.aircraft.push({
       id: id, appNo: appNo, usage: usage, model: model, make: make, displayType: displayType, weight: weight,
       participant: participant, yearOfReg: yearReg, regWithOrg: org, regNo: regNo, mfgYear: mfgYear,

@@ -58,7 +58,7 @@
   }
   /* more demo meetings across statuses, dates & slots so the Meetings &
      Requests table, its filters and pagination can be tested */
-  if (!S.b2b.meetings.some((m) => m.id === 'mtg_seed4')) {
+  if (!S.b2b.noDemo && !S.b2b.meetings.some((m) => m.id === 'mtg_seed4')) { // co-exhibitor workspaces start clean
     const mk = (n, partId, name, company, memberId, date, slot, venue, title, note, direction, status, extra) =>
       Object.assign({ id: 'mtg_seed' + n, partId: partId, name: name, company: company, memberId: memberId,
         date: date, slot: slot, venue: venue, title: title, note: note, direction: direction, status: status,

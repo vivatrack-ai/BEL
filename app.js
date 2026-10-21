@@ -63,6 +63,7 @@ const LS_KEY = EXH.lsKey; // one portal state per exhibitor login
 let S = load();
 
 function load() {
+  if (!LS_KEY) return freshSeed(); // co-exhibitor portal before login: in-memory only
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) {
@@ -103,6 +104,7 @@ function sbZeroQuota(state) {
   (state.categories || []).forEach((c) => { if (['cat_exh', 'cat_invitee', 'cat_veh'].includes(c.id)) c.free = 0; });
 }
 function save() {
+  if (!LS_KEY) return;
   try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch (e) { /* in-memory only */ }
 }
 function resetDemo() {
@@ -228,6 +230,8 @@ function currentRoute() {
 
 function render() {
   const route = currentRoute();
+  // a portal hosting a subset of the app (co-exhibitor portal) whitelists its routes
+  if (typeof portalRouteAllowed === 'function' && !portalRouteAllowed(route)) { location.hash = '#/dashboard'; return; }
   // dynamic routes: passes/badges/coex/<catId>  ·  passes/vehicle/coex/<catId>
   let view = null, arg = null;
   const mCoex = route.match(/^passes\/(badges|invitee|vehicle)\/coex\/(.+)$/);
@@ -247,7 +251,7 @@ function render() {
   else if (mHall) { view = viewHallStalls; arg = mHall[1]; }
   else if (mSbApp) { view = viewApplication; arg = mSbApp[1]; }
   else if (mB2b) { view = viewB2BProfile; arg = mB2b[1]; }
-  else view = ROUTES[route] || viewExhibitorDashboard;
+  else view = ROUTES[route] || ROUTES.dashboard || viewExhibitorDashboard;
 
   // sidebar active state
   document.querySelectorAll('.nav-item[data-route]').forEach((el) => {
@@ -1724,7 +1728,7 @@ function payCart() {
     // Payment ledger record (Orders page reads this)
     const order = {
       id: uid('order'),
-      orderNo: 'ORD-2027-' + pad(S.seq.order, 4),
+      orderNo: sbNextOrderNo(S), // one series across every company
       type: i.type, label: i.label, sub: i.sub || '', refId: i.refId,
       amount: i.amount, currency: i.currency || 'INR',
       status: 'success', method: 'Card', mode: 'online',
@@ -2335,6 +2339,7 @@ function enterExhibitorApp() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  if (window.EVENUEFY_PORTAL === 'coex') return; // coex.js owns the co-exhibitor login
   loginCompanyFill();
   if (exhibitorLoggedIn()) enterExhibitorApp();
   // not logged in → the login screen stays visible; the shell renders after login
