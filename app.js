@@ -35,7 +35,7 @@ const SEED = {
     { id: 'st1', hall: 'Hall A', stall: 'A8.5', area: 110 },
     { id: 'st2', hall: 'Hall 2', stall: 'C-25', area: 36 },
   ],
-  // Pass categories. kind: badge | invitee | vehicle
+  // Pass categories. kind: badge | invitee | vehicle | ceremony (inaugural / dinner invites)
   categories: [
     { id: 'cat_exh',      kind: 'badge',   name: 'Exhibitor',                     free: 6,   paid: 0 },
     { id: 'cat_staff',    kind: 'badge',   name: 'Exhibitor Support Staff',       free: 3,   paid: 0 },
@@ -44,6 +44,9 @@ const SEED = {
     { id: 'cat_invitee',  kind: 'invitee', name: 'Exhibitor Invitee',             free: 30,  paid: 0 },
     { id: 'cat_veh',      kind: 'vehicle', name: 'Vehicle Pass',                  free: 2,   paid: 0 },
     { id: 'cat_veh12',    kind: 'vehicle', name: 'Vehicle Pass (Above 12 Seater)',free: 0,   paid: 2 },
+    // T&C 9(y) — counts come from sbCeremonySync (space booked + co-exhibitors + sponsorship)
+    { id: 'cat_inaug',    kind: 'ceremony', name: 'Inaugural Function Invite',   free: 0,   paid: 0 },
+    { id: 'cat_dinner',   kind: 'ceremony', name: 'Dinner Invite',               free: 0,   paid: 0 },
   ],
   /* Companies added by the exhibitor. `type` decides the flow:
        subsidiary | separate  → Co-Exhibitor (status: active | payment_pending)
@@ -88,6 +91,8 @@ function load() {
       parsed.spaceRequirements.forEach((r) => { if (!r.source) r.source = 'exhibitor-portal'; });
       // Chalet requirements carry no sqm — only floor selection
       parsed.spaceRequirements.forEach((r) => { if (r.setupType === 'Chalet') r.sqm = null; });
+      // Migration: inaugural & dinner invite categories (T&C 9(y))
+      sbCeremonySync(parsed);
       return parsed;
     }
   } catch (e) { /* storage unavailable — run in-memory */ }
@@ -97,6 +102,7 @@ function load() {
 function freshSeed() {
   const seed = JSON.parse(JSON.stringify(SEED));
   if (!EXH.seedStalls) { seed.stalls = []; sbZeroQuota(seed); }
+  sbCeremonySync(seed);
   return seed;
 }
 /* logins without pre-allotted stalls start with no space-linked quota — it is released on allotment */
@@ -223,7 +229,10 @@ const ROUTES = {
   'passes/badges': viewBadges,
   'passes/invitee': viewInvitee,
   'passes/vehicle': viewVehicle,
+  'passes/ceremony': viewCeremony,
 };
+/* route of the pass page for a category kind */
+const passRouteOf = (kind) => (kind === 'invitee' ? 'passes/invitee' : kind === 'vehicle' ? 'passes/vehicle' : kind === 'ceremony' ? 'passes/ceremony' : 'passes/badges');
 
 function currentRoute() {
   const h = location.hash.replace(/^#\//, '') || 'dashboard';
@@ -232,11 +241,13 @@ function currentRoute() {
 
 function render() {
   const route = currentRoute();
+  // keep the 9(y) invite entitlement in step with stalls, co-exhibitors and sponsorship (main exhibitor portal)
+  if (window.EVENUEFY_PORTAL !== 'coex') sbCeremonySync(S);
   // a portal hosting a subset of the app (co-exhibitor portal) whitelists its routes
   if (typeof portalRouteAllowed === 'function' && !portalRouteAllowed(route)) { location.hash = '#/dashboard'; return; }
   // dynamic routes: passes/badges/coex/<catId>  ·  passes/vehicle/coex/<catId>
   let view = null, arg = null;
-  const mCoex = route.match(/^passes\/(badges|invitee|vehicle)\/coex\/(.+)$/);
+  const mCoex = route.match(/^passes\/(badges|invitee|vehicle|ceremony)\/coex\/(.+)$/);
   const mProf = route.match(/^profile(?:\/(.+))?$/);
   const mHall = route.match(/^space-booking\/hall\/(.+)$/);
   const mSbApp = route.match(/^space-booking\/application\/(.+)$/);
@@ -1076,9 +1087,9 @@ function catRow(cat, i, coexLabel) {
     '<td><div class="usage"><div class="bar"><i style="width:' + pct + '%"></i></div><span>' + bal + ' left</span></div></td>' +
     '<td class="td-actions">' +
       '<button class="btn-link" onclick="openViewPasses(\'' + cat.id + '\', null)">View Passes</button>' +
-      '<a class="btn-link" href="#/passes/' + (cat.kind === 'invitee' ? 'invitee' : cat.kind === 'vehicle' ? 'vehicle' : 'badges') + '/coex/' + cat.id + '">' + (coexLabel || 'Co-Exhibitors / Aggregators') + '</a>' +
+      '<a class="btn-link" href="#/' + passRouteOf(cat.kind) + '/coex/' + cat.id + '">' + (coexLabel || 'Co-Exhibitors / Aggregators') + '</a>' +
       '<button class="btn-link" onclick="' + (cat.kind === 'vehicle' ? 'openVehicleForm(\'' + cat.id + '\', null)' : 'openPassForm(\'' + cat.id + '\', null)') + '">Add New</button>' +
-      (cat.kind === 'vehicle' ? '' : '<button class="btn-link" onclick="openSendLink(\'' + cat.id + '\', null)">' + (cat.kind === 'invitee' ? 'Invitee Link' : 'Send Link') + '</button>') +
+      (cat.kind === 'vehicle' || cat.kind === 'ceremony' ? '' : '<button class="btn-link" onclick="openSendLink(\'' + cat.id + '\', null)">' + (cat.kind === 'invitee' ? 'Invitee Link' : 'Send Link') + '</button>') +
     '</td></tr>';
 }
 
@@ -1240,7 +1251,7 @@ function setQuotaGroup(group) { window.__qGroup = group; render(); }
 function viewCatCoexPage(catId) {
   const cat = catById(catId);
   if (!cat) { location.hash = '#/passes/badges'; return ''; }
-  const backRoute = cat.kind === 'invitee' ? '#/passes/invitee' : cat.kind === 'vehicle' ? '#/passes/vehicle' : '#/passes/badges';
+  const backRoute = '#/' + passRouteOf(cat.kind);
   const eligible = quotaEligibleCoex();
   const balance = exhibitorBalance(catId);
   const group = window.__qGroup;
@@ -1291,14 +1302,14 @@ function viewCatCoexPage(catId) {
       '<td class="td-actions">' +
         '<button class="btn-link" onclick="openViewPasses(\'' + catId + '\',\'' + q.coexId + '\')">View Passes</button>' +
         '<button class="btn-link" onclick="' + (cat.kind === 'vehicle' ? 'openVehicleForm(\'' + catId + '\',\'' + q.coexId + '\')' : 'openPassForm(\'' + catId + '\',\'' + q.coexId + '\')') + '">Add New</button>' +
-        (cat.kind === 'vehicle' ? '' : '<button class="btn-link" onclick="openSendLink(\'' + catId + '\',\'' + q.coexId + '\')">Send Link</button>') +
+        (cat.kind === 'vehicle' || cat.kind === 'ceremony' ? '' : '<button class="btn-link" onclick="openSendLink(\'' + catId + '\',\'' + q.coexId + '\')">Send Link</button>') +
         '<button class="btn-link danger" onclick="removeQuota(\'' + q.id + '\')">Remove</button>' +
       '</td></tr>';
   }).join('');
 
-  return '<a class="back-link" href="' + backRoute + '"><span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>Back to ' + (cat.kind === 'invitee' ? 'Exhibitor Invitee' : cat.kind === 'vehicle' ? 'Vehicle Pass Details' : 'Badge Details') + '</a>' +
+  return '<a class="back-link" href="' + backRoute + '"><span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>Back to ' + (cat.kind === 'invitee' ? 'Exhibitor Invitee' : cat.kind === 'vehicle' ? 'Vehicle Pass Details' : cat.kind === 'ceremony' ? 'Inaugural & Dinner Invites' : 'Badge Details') + '</a>' +
     '<h1 class="page-title">Co-Exhibitors &amp; Aggregators · ' + esc(cat.name) + '</h1>' +
-    '<p class="page-sub">Assign ' + (cat.kind === 'vehicle' ? 'vehicle pass' : 'badge') + ' quota from your balance to co-exhibitors or aggregator companies, and manage the passes they fill.</p>' +
+    '<p class="page-sub">Assign ' + (cat.kind === 'vehicle' ? 'vehicle pass' : cat.kind === 'ceremony' ? 'invite' : 'badge') + ' quota from your balance to co-exhibitors or aggregator companies, and manage the passes they fill.</p>' +
     '<div class="card"><h2 class="card-title">Assign Quota</h2>' + assignCard + '</div>' +
     '<div class="card section-gap"><h2 class="card-title">Assigned Quota List</h2>' +
     '<div class="tablewrap"><table class="grid">' +
@@ -1341,6 +1352,7 @@ function submitQuota(e, catId) {
 
 function removeQuota(id) {
   const q = S.quotas.find((x) => x.id === id);
+  if (q && q.comp) { toast('This is the complimentary 1 + 1 invite of the co-exhibitor under T&C 9(y) — it cannot be removed.', 'error'); return; }
   const used = quotaUsed(q.coexId, q.catId);
   if (used > 0) {
     toast('Cannot remove: ' + used + ' pass(es) already filled against this quota. You can only reduce unused quota.', 'error');
@@ -1386,6 +1398,7 @@ function openPassForm(catId, coexId) {
         '<div class="hint">Car pass application opens after saving this invitee.</div></div>'
     : '';
 
+  if (cat.kind === 'ceremony') { openCeremonyForm(catId, coexId, onBehalf); return; }
   openModal((coexId ? 'Add Pass (' + (isAggregator(coexById(coexId)) ? 'Aggregator' : 'Co-Exhibitor') + ')' : 'Add New') + ' · ' + esc(cat.name),
     onBehalf +
     '<form id="passForm" onsubmit="return submitPass(event, \'' + catId + '\', \'' + (coexId || '') + '\')" novalidate>' +
@@ -1496,7 +1509,7 @@ function openViewPasses(catId, coexId) {
   const isVeh = cat.kind === 'vehicle';
   const head = isVeh
     ? '<tr><th>Sr.</th><th>Driver</th><th>Vehicle No.</th><th>Seater</th><th>Filled By</th><th>Status</th><th>Created</th></tr>'
-    : '<tr><th>Sr.</th><th>Name</th><th>Email / Mobile</th>' + (cat.kind === 'invitee' ? '<th>Event Dates</th>' : '') + '<th>Filled By</th><th>Status</th><th>Created</th></tr>';
+    : '<tr><th>Sr.</th><th>Name</th><th>Email / Mobile</th>' + (cat.kind === 'invitee' ? '<th>Event Dates</th>' : cat.kind === 'ceremony' ? '<th>Designation / Invite No.</th>' : '') + '<th>Filled By</th><th>Status</th><th>Created</th></tr>';
   const rows = list.map((p, i) => {
     const by = p.coexId ? esc(coexById(p.coexId).company) : 'Exhibitor';
     const st = passStatusPill(p);
@@ -1511,6 +1524,7 @@ function openViewPasses(catId, coexId) {
       '<td class="td-strong">' + esc(p.data.firstName + ' ' + p.data.lastName) + '</td>' +
       '<td>' + esc(p.data.email) + '<span class="td-sub">' + esc(p.data.mobile) + '</span></td>' +
       (cat.kind === 'invitee' ? '<td>' + p.data.dates.map((d) => d.split(' ')[0] + ' Feb').join(', ') + '</td>' : '') +
+      (cat.kind === 'ceremony' ? '<td>' + esc(p.data.designation || '') + '<span class="td-sub">' + (p.inviteNo ? '<a class="btn-link" onclick="openEInvite(\'' + p.id + '\')">' + esc(p.inviteNo) + '</a>' : '—') + '</span></td>' : '') +
       '<td>' + by + '</td><td>' + st + '</td><td class="num">' + esc(p.createdAt) + '</td></tr>';
   }).join('') || '<tr><td colspan="7" style="color:var(--muted)">No passes filled yet.</td></tr>';
 
@@ -1534,18 +1548,23 @@ function nodalOfficerName() {
   const nm = [pc.first, pc.last].filter(Boolean).join(' ');
   return nm || 'Nodal Officer';
 }
-const inviteePasses = () => S.passes.filter((p) => (catById(p.catId) || {}).kind === 'invitee');
+const approvalPasses = (kind) => S.passes.filter((p) => (catById(p.catId) || {}).kind === kind);
+const inviteePasses = () => approvalPasses('invitee');
 window.__invTab = window.__invTab || 'pending_approval';
+window.__cerTab = window.__cerTab || 'pending_approval';
 function invDecide(passId, approve, silent) {
   const p = S.passes.find((x) => x.id === passId);
   if (!p || p.status !== 'pending_approval') return false;
   const who = nodalOfficerName() + ' (Nodal Officer)';
   const name = p.data.firstName + ' ' + p.data.lastName;
+  const isCer = (catById(p.catId) || {}).kind === 'ceremony';
+  const what = isCer ? (catById(p.catId).name) : 'Invitee';
   if (approve) {
     p.status = 'issued'; p.approvedAt = nowStr(); p.approvedBy = who;
+    if (isCer) p.inviteNo = cerInviteNo(p);
     if (!S.notifications) S.notifications = [];
-    S.notifications.unshift({ id: 'nt_' + Date.now() + '_' + p.id, icon: 'mark_email_read', color: 'var(--green)',
-      text: 'Invitee ' + name + ' approved — confirmation with the e-pass sent to ' + p.data.email + '.', time: nowStr(), read: false });
+    S.notifications.unshift({ id: 'nt_' + Date.now() + '_' + p.id, icon: isCer ? 'celebration' : 'mark_email_read', color: 'var(--green)',
+      text: (isCer ? what + ' — ' + name + ' approved, e-invite ' + p.inviteNo : 'Invitee ' + name + ' approved — confirmation with the e-pass') + ' sent to ' + p.data.email + '.', time: nowStr(), read: false });
   } else {
     const remark = prompt('Reason for rejecting ' + name + ' (sent to the submitter):', '');
     if (remark === null) return false;
@@ -1553,46 +1572,190 @@ function invDecide(passId, approve, silent) {
   }
   if (!silent) {
     save(); render();
-    toast(approve ? name + ' approved — confirmation e-mail sent to ' + p.data.email + '.' : name + ' rejected — quota released.', approve ? 'success' : 'error');
+    toast(approve ? name + ' approved — ' + (isCer ? 'e-invite ' + p.inviteNo : 'confirmation e-mail') + ' sent to ' + p.data.email + '.' : name + ' rejected — ' + (isCer ? 'invite' : 'quota') + ' released.', approve ? 'success' : 'error');
   }
   return true;
 }
 function approveInvitee(id) { invDecide(id, true); }
 function rejectInvitee(id) { invDecide(id, false); }
-function approveAllInvitees() {
-  const ids = inviteePasses().filter((p) => p.status === 'pending_approval').map((p) => p.id);
-  if (!ids.length || !confirm('Approve all ' + ids.length + ' pending invitee(s)? A confirmation e-mail goes to each invitee.')) return;
+function approveAllInvitees(kind) {
+  kind = kind || 'invitee';
+  const what = kind === 'ceremony' ? 'nomination(s)' : 'invitee(s)';
+  const ids = approvalPasses(kind).filter((p) => p.status === 'pending_approval').map((p) => p.id);
+  if (!ids.length || !confirm('Approve all ' + ids.length + ' pending ' + what + '? A confirmation e-mail goes to each ' + (kind === 'ceremony' ? 'nominee with the e-invite.' : 'invitee.'))) return;
   ids.forEach((id) => invDecide(id, true, true));
   save(); render();
-  toast(ids.length + ' invitee(s) approved — confirmation e-mails sent.', 'success');
+  toast(ids.length + ' ' + what + ' approved — confirmation e-mails sent.', 'success');
 }
-function inviteeApprovalCard() {
-  const all = inviteePasses();
+function inviteeApprovalCard(kind) {
+  kind = kind || 'invitee';
+  const isCer = kind === 'ceremony';
+  const tabKey = isCer ? '__cerTab' : '__invTab';
+  const all = approvalPasses(kind);
   const n = (st) => all.filter((p) => p.status === st).length;
-  const tab = window.__invTab;
+  const tab = window[tabKey];
   const list = all.filter((p) => (tab === 'all' ? true : p.status === tab)).slice().reverse();
-  const tabBtn = (v, l, c) => '<button class="chip' + (tab === v ? ' on' : '') + '" onclick="window.__invTab=\'' + v + '\';render()">' + l + ' <b>' + c + '</b></button>';
+  const tabBtn = (v, l, c) => '<button class="chip' + (tab === v ? ' on' : '') + '" onclick="window.' + tabKey + '=\'' + v + '\';render()">' + l + ' <b>' + c + '</b></button>';
   const rows = list.map((p, i) =>
     '<tr><td class="num">' + (i + 1) + '</td>' +
-    '<td class="td-strong">' + esc(p.data.firstName + ' ' + p.data.lastName) + (p.data.designation ? '<span class="td-sub">' + esc(p.data.designation) + '</span>' : '') + '</td>' +
+    '<td class="td-strong">' + esc((p.data.salutation ? p.data.salutation + ' ' : '') + p.data.firstName + ' ' + p.data.lastName) + (p.data.designation ? '<span class="td-sub">' + esc(p.data.designation) + '</span>' : '') + '</td>' +
     '<td>' + esc(p.data.email) + '<span class="td-sub">' + esc(p.data.mobile) + '</span></td>' +
-    '<td>' + (p.data.dates || []).map((d) => d.split(' ')[0] + ' Feb').join(', ') + '</td>' +
-    '<td>' + (p.coexId ? esc(coexById(p.coexId) ? coexById(p.coexId).company : 'Co-exhibitor') + '<span class="td-sub">co-exhibitor quota</span>' : 'Exhibitor') + '</td>' +
+    (isCer
+      ? '<td>' + esc((catById(p.catId) || {}).name || '') + '<span class="td-sub">' + esc((p.data.idType || '') + ' ' + cerMaskId(p.data.idNo)) + '</span></td>'
+      : '<td>' + (p.data.dates || []).map((d) => d.split(' ')[0] + ' Feb').join(', ') + '</td>') +
+    '<td>' + (p.coexId ? esc(coexById(p.coexId) ? coexById(p.coexId).company : 'Co-exhibitor') + '<span class="td-sub">' + (isCer ? 'co-exhibitor invite' : 'co-exhibitor quota') + '</span>' : 'Exhibitor') + '</td>' +
     '<td class="num">' + esc(p.createdAt) + '</td>' +
     '<td>' + passStatusPill(p) + (p.approvedBy && p.status === 'issued' ? '<span class="td-sub">by ' + esc(p.approvedBy) + '</span>' : '') + '</td>' +
     '<td class="td-actions">' + (p.status === 'pending_approval'
       ? '<button class="btn-link" style="color:var(--green)" onclick="approveInvitee(\'' + p.id + '\')">Approve</button>' +
         '<button class="btn-link danger" onclick="rejectInvitee(\'' + p.id + '\')">Reject</button>'
-      : '') + '</td></tr>').join('') ||
-    '<tr><td colspan="8" style="color:var(--muted)">' + (tab === 'pending_approval' ? 'No invitee entries waiting for approval.' : 'No invitee entries in this view.') + '</td></tr>';
+      : isCer && p.status === 'issued' ? '<button class="btn-link" onclick="openEInvite(\'' + p.id + '\')">E-Invite</button>' : '') + '</td></tr>').join('') ||
+    '<tr><td colspan="8" style="color:var(--muted)">' + (tab === 'pending_approval' ? 'No ' + (isCer ? 'nominations' : 'invitee entries') + ' waiting for approval.' : 'No ' + (isCer ? 'nominations' : 'invitee entries') + ' in this view.') + '</td></tr>';
   return '<div class="card section-gap"><div class="card-head-row" style="flex-wrap:wrap;gap:10px">' +
-      '<div><h2 class="card-title" style="margin:0">Invitee Approvals</h2>' +
-      '<span class="result-count">Approved by the nodal officer · ' + esc(nodalOfficerName()) + ' — a confirmation e-mail with the e-pass goes to the invitee on approval</span></div>' +
+      '<div><h2 class="card-title" style="margin:0">' + (isCer ? 'Nomination Approvals' : 'Invitee Approvals') + '</h2>' +
+      '<span class="result-count">Approved by the nodal officer · ' + esc(nodalOfficerName()) + ' — ' + (isCer ? 'the e-invite (non-transferable, photo ID mandatory) goes to the nominee on approval' : 'a confirmation e-mail with the e-pass goes to the invitee on approval') + '</span></div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
         '<div class="filter-chips" style="margin:0">' + tabBtn('pending_approval', 'Pending', n('pending_approval')) + tabBtn('issued', 'Approved', n('issued')) + tabBtn('rejected', 'Rejected', n('rejected')) + tabBtn('all', 'All', all.length) + '</div>' +
-        (n('pending_approval') ? '<button class="btn btn-primary btn-sm" onclick="approveAllInvitees()"><span class="material-symbols-outlined" style="font-size:16px">done_all</span>Approve All</button>' : '') +
+        (n('pending_approval') ? '<button class="btn btn-primary btn-sm" onclick="approveAllInvitees(\'' + kind + '\')"><span class="material-symbols-outlined" style="font-size:16px">done_all</span>Approve All</button>' : '') +
       '</div></div>' +
-    '<div class="tablewrap"><table class="grid"><tr><th>Sr.</th><th>Invitee</th><th>Email / Mobile</th><th>Event Dates</th><th>Submitted By</th><th>Submitted</th><th>Status</th><th>Action</th></tr>' + rows + '</table></div></div>';
+    '<div class="tablewrap"><table class="grid"><tr><th>Sr.</th><th>' + (isCer ? 'Nominee' : 'Invitee') + '</th><th>Email / Mobile</th><th>' + (isCer ? 'Invite / Photo ID' : 'Event Dates') + '</th><th>Submitted By</th><th>Submitted</th><th>Status</th><th>Action</th></tr>' + rows + '</table></div></div>';
+}
+
+/* ============================================================
+   VIEW · Passes › Inaugural Function & Dinner Invites (T&C 9(y))
+   ============================================================ */
+const CER_ID_TYPES = ['Aadhaar', 'Passport', 'PAN', 'Driving Licence', 'Voter ID'];
+const cerMaskId = (v) => { v = String(v || ''); return v.length > 4 ? '••••' + v.slice(-4) : v; };
+/* invite number — event-wide unique enough for the prototype: INV/<IN|DN>/<reg no>/<seq> */
+function cerInviteNo(p) {
+  const pre = p.catId === 'cat_inaug' ? 'IN' : 'DN';
+  const seq = S.passes.filter((x) => x.catId === p.catId && x.inviteNo).length + 1;
+  return 'AI27/' + pre + '/' + String(EVENT.exhibitorRegNo || 'EX').replace(/[^A-Z0-9]/gi, '').slice(-6) + '/' + String(seq).padStart(3, '0');
+}
+function openCeremonyForm(catId, coexId, onBehalf) {
+  const cat = catById(catId);
+  const ev = SB_CER_EVENT[catId === 'cat_inaug' ? 'inaug' : 'dinner'];
+  const company = coexId ? coexById(coexId).company : EVENT.exhibitor;
+  openModal('Nominate · ' + esc(cat.name) + (coexId ? ' (' + esc(company) + ')' : ''),
+    (onBehalf || '') +
+    '<div class="note" style="margin-top:0"><b class="title">' + esc(ev.title) + ' — by invitation only</b>' + esc(ev.when) + ' · ' + esc(ev.where) + '. ' +
+      'The invite is personal and non-transferable; the nominee must carry the photo ID given below. It is confirmed once the nodal officer approves the nomination.</div>' +
+    '<form id="cerForm" onsubmit="return submitCeremony(event, \'' + catId + '\', \'' + (coexId || '') + '\')" novalidate>' +
+    '<div class="form-grid">' +
+      '<div class="field"><label>Salutation <span class="req">*</span></label><select id="cSal">' + ['Mr.', 'Ms.', 'Mrs.', 'Dr.', 'Shri', 'Smt.', 'Gp Capt', 'Air Cmde', 'AVM', 'Col', 'Brig', 'Gen'].map((x) => '<option>' + x + '</option>').join('') + '</select></div>' +
+      '<div class="field"><label>Organisation</label><input type="text" id="cOrg" value="' + esc(company) + '" readonly></div>' +
+      '<div class="field"><label>First Name <span class="req">*</span></label><input type="text" id="pFirst"><div class="error"></div></div>' +
+      '<div class="field"><label>Last Name <span class="req">*</span></label><input type="text" id="pLast"><div class="error"></div></div>' +
+      '<div class="field"><label>Designation <span class="req">*</span></label><input type="text" id="pDesig" placeholder="e.g. CEO & Managing Director"><div class="error"></div></div>' +
+      '<div class="field"><label>Nationality <span class="req">*</span></label><select id="cNat"><option>Indian</option><option>Foreign National</option></select></div>' +
+      '<div class="field"><label>Email <span class="req">*</span></label><input type="email" id="pEmail"><div class="error"></div></div>' +
+      '<div class="field"><label>Mobile <span class="req">*</span></label><input type="tel" id="pMobile" placeholder="10-digit mobile"><div class="error"></div></div>' +
+      '<div class="field"><label>Photo ID Type <span class="req">*</span></label><select id="cIdType">' + CER_ID_TYPES.map((x) => '<option>' + x + '</option>').join('') + '</select></div>' +
+      '<div class="field"><label>Photo ID Number <span class="req">*</span></label><input type="text" id="cIdNo"><div class="error"></div></div>' +
+    '</div></form>',
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="$(\'cerForm\').requestSubmit()"><span class="material-symbols-outlined">celebration</span>Submit Nomination</button>');
+}
+/* shared field check for the nomination form (exhibitor + co-exhibitor portal) */
+function cerReadForm() {
+  const v = (id) => ($(id) ? $(id).value.trim() : '');
+  const d = { salutation: v('cSal'), firstName: v('pFirst'), lastName: v('pLast'), designation: v('pDesig'), nationality: v('cNat'),
+    email: v('pEmail'), mobile: v('pMobile'), idType: v('cIdType'), idNo: v('cIdNo').toUpperCase(), organisation: v('cOrg') };
+  let ok = true;
+  if (!d.firstName) { setErr('pFirst', 'Required'); ok = false; }
+  if (!d.lastName) { setErr('pLast', 'Required'); ok = false; }
+  if (!d.designation) { setErr('pDesig', 'Required'); ok = false; }
+  if (!d.email || !EMAIL_RE.test(d.email)) { setErr('pEmail', 'Enter a valid email'); ok = false; }
+  if (!MOBILE_RE.test(d.mobile)) { setErr('pMobile', 'Enter a valid 10-digit mobile number'); ok = false; }
+  if (!d.idNo || d.idNo.length < 6) { setErr('cIdNo', 'Enter the photo ID number'); ok = false; }
+  else if (d.idType === 'Aadhaar' && !/^\d{12}$/.test(d.idNo.replace(/\s/g, ''))) { setErr('cIdNo', 'Aadhaar is 12 digits'); ok = false; }
+  else if (d.idType === 'PAN' && !/^[A-Z]{5}\d{4}[A-Z]$/.test(d.idNo)) { setErr('cIdNo', 'Enter a valid PAN (e.g. ABCDE1234F)'); ok = false; }
+  return ok ? d : null;
+}
+function submitCeremony(e, catId, coexId) {
+  e.preventDefault();
+  clearErrs();
+  coexId = coexId || null;
+  const d = cerReadForm();
+  if (!d) return false;
+  // the same person can hold one inaugural and one dinner invite — not two of the same
+  if (S.passes.some((p) => p.catId === catId && passLive(p) && ((p.data.email || '').toLowerCase() === d.email.toLowerCase() || p.data.idNo === d.idNo))) {
+    setErr('pEmail', 'This person is already nominated for this invite'); return false;
+  }
+  if (passContextCheck(catId, coexId) === -1) return false;
+  S.passes.push({
+    id: uid('pass'), catId: catId, coexId: coexId, data: d,
+    status: 'pending_approval', amount: 0, createdAt: nowStr(),
+    submittedBy: coexId ? coexById(coexId).company : EVENT.exhibitor,
+  });
+  save(); closeModal(); render();
+  toast(catById(catId).name + ' nomination for ' + d.firstName + ' ' + d.lastName + ' submitted — awaiting nodal officer approval.', 'success');
+  return false;
+}
+
+/* e-invite card (opens in a new tab, printable) — shared with the co-exhibitor portal */
+function cerInviteHtml(p, company) {
+  const inaug = p.catId === 'cat_inaug';
+  const ev = SB_CER_EVENT[inaug ? 'inaug' : 'dinner'];
+  const d = p.data;
+  return '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(ev.title) + ' · ' + esc(d.firstName + ' ' + d.lastName) + '</title>' +
+    '<style>body{font-family:Georgia,serif;background:#eef1f6;margin:0;padding:30px;color:#1d2433}' +
+    '.card{max-width:640px;margin:auto;background:#fff;border:2px solid #b08d3c;border-radius:14px;padding:38px 44px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.08)}' +
+    '.k{letter-spacing:.25em;font-size:12px;color:#b08d3c;font-family:Arial,sans-serif;font-weight:700}' +
+    'h1{margin:10px 0 2px;font-size:30px}h2{margin:0 0 22px;font-weight:normal;font-size:16px;color:#55607a}' +
+    '.who{font-size:22px;margin:18px 0 4px}.org{color:#55607a;font-size:15px}' +
+    '.box{margin:24px 0;padding:14px;border-top:1px solid #e3d6b3;border-bottom:1px solid #e3d6b3;font-family:Arial,sans-serif;font-size:14px;line-height:1.7}' +
+    '.no{font-family:monospace;font-size:15px;letter-spacing:.08em}.fine{font-family:Arial,sans-serif;font-size:11.5px;color:#6b7489;line-height:1.6;text-align:left}' +
+    '.btn{margin:18px auto 0;display:block;font:600 13px Arial;padding:9px 18px;border:1px solid #b08d3c;background:#fff;border-radius:8px;cursor:pointer}@media print{.btn{display:none}body{background:#fff}}</style></head><body>' +
+    '<div class="card"><div class="k">AERO INDIA 2027 · DEFENCE EXHIBITION ORGANISATION</div>' +
+    '<h1>' + esc(ev.title) + '</h1><h2>' + (inaug ? 'Inauguration by invitation only' : 'Networking Dinner hosted by Hon’ble Raksha Mantri') + '</h2>' +
+    '<div class="k">CORDIALLY INVITES</div>' +
+    '<div class="who">' + esc((d.salutation ? d.salutation + ' ' : '') + d.firstName + ' ' + d.lastName) + '</div>' +
+    '<div class="org">' + esc(d.designation || '') + (d.designation ? ' · ' : '') + esc(company) + '</div>' +
+    '<div class="box"><b>' + esc(ev.when) + '</b><br>' + esc(ev.where) + '<br>Invite No. <span class="no">' + esc(p.inviteNo || '—') + '</span><br>' +
+      'Photo ID: ' + esc(d.idType || '') + ' ' + esc(cerMaskId(d.idNo)) + '</div>' +
+    '<div class="fine">• This invite is personal and non-transferable; entry only on production of the photo ID above.<br>' +
+      '• Nominated by ' + esc(p.submittedBy || company) + '; approved by ' + esc(p.approvedBy || 'the nodal officer') + (p.approvedAt ? ' on ' + esc(p.approvedAt) : '') + '.<br>' +
+      '• Issued under clause 9(y) of the Aero India 2027 Terms &amp; Conditions for exhibitors.</div>' +
+    '<button class="btn" onclick="print()">Print / Save as PDF</button></div></body></html>';
+}
+function cerOpenInvite(p, company) {
+  const w = window.open('', '_blank');
+  if (!w) { toast('Allow pop-ups to open the e-invite.', 'error'); return; }
+  w.document.write(cerInviteHtml(p, company)); w.document.close();
+}
+function openEInvite(passId) {
+  const p = S.passes.find((x) => x.id === passId);
+  if (!p || p.status !== 'issued') return;
+  cerOpenInvite(p, p.coexId && coexById(p.coexId) ? coexById(p.coexId).company : EVENT.exhibitor);
+}
+
+function viewCeremony() {
+  const e = sbCeremonySync(S);
+  const cats = S.categories.filter((c) => c.kind === 'ceremony');
+  const r = e.rates;
+  const line = (label, sub, a, b) => '<tr><td><span class="td-strong">' + label + '</span>' + (sub ? '<span class="td-sub">' + sub + '</span>' : '') + '</td><td class="num">' + a + '</td><td class="num">' + b + '</td></tr>';
+  const basis = '<div class="card"><div class="card-head-row"><h2 class="card-title">Entitlement — T&amp;C clause 9(y)</h2>' +
+      '<span class="result-count">updates automatically with stall allotment, co-exhibitors and sponsorship</span></div>' +
+    '<div class="tablewrap"><table class="grid"><tr><th>Basis</th><th>Inaugural</th><th>Dinner</th></tr>' +
+    line('Space booked', e.sqm ? e.sqm + ' sq.m → ' + e.blocks + ' block(s) of 50 sq.m × ' + r.inaugPer50 + ' + ' + r.dinnerPer50 : 'No hall / chalet space allotted yet',
+      e.blocks * r.inaugPer50, e.blocks * r.dinnerPer50) +
+    (e.pods ? line('Startup Zone pod', e.pods + ' pod(s) × ' + r.podInaug + ' + ' + r.podDinner, e.pods * r.podInaug, e.pods * r.podDinner) : '') +
+    line('Co-exhibitors / aggregators (complimentary)', e.coex.length ? e.coex.length + ' active compan' + (e.coex.length === 1 ? 'y' : 'ies') + ' × ' + r.coexInaug + ' + ' + r.coexDinner + ' — auto-assigned to each company’s quota' : 'No active separate co-exhibitor / aggregator yet',
+      e.coexEnt.inaug, e.coexEnt.dinner) +
+    (e.sponsor.names.length ? line('Sponsorship', esc(e.sponsor.names.join(', ')) + ' — additional invites', e.sponsor.inaug, e.sponsor.dinner) : '') +
+    '<tr><td class="td-strong">Total entitlement</td><td class="num td-strong">' + e.inaug + '</td><td class="num td-strong">' + e.dinner + '</td></tr>' +
+    '</table></div></div>';
+  return '<h1 class="page-title">Inaugural Function &amp; Dinner Invites</h1>' +
+    '<p class="page-sub">Nominate the delegates who will attend the Inaugural Function (' + esc(SB_CER_EVENT.inaug.when) + ') and the Networking Dinner. Every nomination — yours or a co-exhibitor’s — is confirmed only after the nodal officer approves it; the nominee then receives a personal e-invite.</p>' +
+    '<div class="note green"><b class="title">Each exhibitor booking up to 50 sq.m receives 2 inaugural invites and 1 dinner invite</b>' +
+      'The entitlement increases pro-rata for every additional 50 sq.m. Each indirect / co-exhibitor receives 1 inaugural and 1 dinner invite on a complimentary basis; Startup Zone pod holders receive 1 + 1.</div>' +
+    basis +
+    '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Listing View</h2></div>' +
+    '<div class="tablewrap"><table class="grid">' +
+    '<tr><th>No.</th><th>Invite</th><th>Entitlement</th><th>Paid</th><th>Total</th><th>Balance</th><th>Action</th></tr>' +
+    cats.map((c, i) => catRow(c, i, 'Co-Exhibitor / Aggregator')).join('') +
+    '</table></div></div>' + inviteeApprovalCard('ceremony') + footerTools();
 }
 
 function viewInvitee() {
@@ -1846,8 +2009,8 @@ function footerTools() {
 function viewExhibitorDashboard() {
   const aircraft = S.aircraft || [];
   const paidInr = S.orders.filter((o) => o.currency !== 'USD').reduce((a, o) => a + Number(o.amount || 0), 0);
-  const quotaTotal = S.categories.reduce((a, c) => a + catTotal(c), 0);
-  const passesUsed = S.passes.length;
+  const quotaTotal = S.categories.filter((c) => c.kind !== 'ceremony').reduce((a, c) => a + catTotal(c), 0);
+  const passesUsed = S.passes.filter((p) => (catById(p.catId) || {}).kind !== 'ceremony').length;
   const coexPending = S.coexhibitors.filter((c) => c.status === 'payment_pending').length;
   const aggPending = aggregators().filter((c) => c.status === 'pending_approval').length;
   const aggRejected = aggregators().filter((c) => c.status === 'rejected').length;
@@ -1893,7 +2056,13 @@ function viewExhibitorDashboard() {
 
   /* --- Pending actions (only what actually needs attention) --- */
   const actions = [];
-  const invPending = (S.passes || []).filter((p) => p.status === 'pending_approval').length;
+  const invPending = inviteePasses().filter((p) => p.status === 'pending_approval').length;
+  const cerPending = approvalPasses('ceremony').filter((p) => p.status === 'pending_approval').length;
+  if (cerPending) actions.push({
+    icon: 'celebration', title: cerPending + ' inaugural / dinner nomination' + (cerPending === 1 ? '' : 's') + ' awaiting nodal officer approval',
+    sub: 'Approve to confirm the nominee and issue the e-invite, or reject to release the invite.',
+    btn: '<a class="btn btn-primary btn-sm" href="#/passes/ceremony" onclick="window.__cerTab=\'pending_approval\'">Review</a>',
+  });
   if (invPending) actions.push({
     icon: 'how_to_reg', title: invPending + ' invitee entr' + (invPending === 1 ? 'y' : 'ies') + ' awaiting nodal officer approval',
     sub: 'Approve to confirm the invitee and send the e-pass confirmation, or reject to release the quota.',
@@ -1992,6 +2161,8 @@ function viewExhibitorDashboard() {
         S.orders.length + ' order(s) · ' + money(paidInr) + ' paid') +
       feat('#/passes/badges', 'fc-green', 'badge', 'Badges',
         passesUsed + ' of ' + quotaTotal + ' passes used') +
+      feat('#/passes/ceremony', 'fc-amber', 'celebration', 'Inaugural & Dinner Invites',
+        S.categories.filter((c) => c.kind === 'ceremony').map((c) => catTotal(c) + ' ' + (c.id === 'cat_inaug' ? 'inaugural' : 'dinner')).join(' · ') + ' entitled') +
       feat('#/co-exhibitors', 'fc-teal', 'group_add', 'Co-Exhibitor',
         coexOnly().length + ' added' + (coexPending ? ' · ' + coexPending + ' payment pending' : '')) +
       feat('#/aggregators', 'fc-purple', 'hub', 'Aggregator Company',

@@ -49,7 +49,8 @@ function viewSpaceSettings() {
         '<div class="form-grid">' +
           '<div class="field"><label>Pod fee — INR per pod (excl. GST)</label>' + num('sz_fee', c.startup.podFee, 1000) + '</div>' +
           '<div class="field"><label>Pod area (sq.m) — layout reference</label>' + num('sz_sqm', c.startup.podSqm, 1, 1, 90) + '</div>' +
-          '<div class="field"><label>Passes per pod — all-day / one-day</label><div style="display:flex;gap:8px">' + num('sz_allday', c.startup.passes.allDay, 1, 0, 70) + num('sz_oneday', c.startup.passes.oneDay, 1, 0, 70) + '</div><div class="hint">Indian startups only, DPIIT / Udyam certificate required; one pod per startup; no corner or mezzanine charges; USD not applicable.</div></div>' +
+          '<div class="field"><label>Passes per pod — all-day / one-day</label><div style="display:flex;gap:8px">' + num('sz_allday', c.startup.passes.allDay, 1, 0, 70) + num('sz_oneday', c.startup.passes.oneDay, 1, 0, 70) + '</div></div>' +
+          '<div class="field"><label>Invites per pod — inaugural / dinner (9(y))</label><div style="display:flex;gap:8px">' + num('sz_inaug', c.startup.passes.inaug, 1, 0, 70) + num('sz_dinner', c.startup.passes.dinner, 1, 0, 70) + '</div><div class="hint">Indian startups only, DPIIT / Udyam certificate required; one pod per startup; no corner or mezzanine charges; USD not applicable.</div></div>' +
         '</div>' +
         '<h2 class="card-title" style="margin-top:16px">Cart &amp; Payment</h2>' +
         '<div class="form-grid">' +
@@ -65,6 +66,8 @@ function viewSpaceSettings() {
           '<tr><td class="td-strong">Main exhibitor · car passes (P-6)</td><td>per 50 sq.m block</td><td>' + num('p_car', c.passes.carPer50, 1, 0, 80) + '</td></tr>' +
           '<tr><td class="td-strong">Co-Exhibitor</td><td>per registered co-exhibitor (all-day / one-day / car)</td><td style="white-space:nowrap">' + num('p_co_a', c.passes.coex.allDay, 1, 0, 60) + ' ' + num('p_co_o', c.passes.coex.oneDay, 1, 0, 60) + ' ' + num('p_co_c', c.passes.coex.car, 1, 0, 60) + '</td></tr>' +
           '<tr><td class="td-strong">Aggregator company</td><td>per approved aggregator (all-day / one-day / car)</td><td style="white-space:nowrap">' + num('p_ag_a', c.passes.aggregator.allDay, 1, 0, 60) + ' ' + num('p_ag_o', c.passes.aggregator.oneDay, 1, 0, 60) + ' ' + num('p_ag_c', c.passes.aggregator.car, 1, 0, 60) + '</td></tr>' +
+          '<tr><td class="td-strong">Inaugural &amp; dinner invites (9(y))</td><td>per 50 sq.m block — inaugural / dinner</td><td style="white-space:nowrap">' + num('p_inaug', c.passes.inaugPer50, 1, 0, 60) + ' ' + num('p_dinner', c.passes.dinnerPer50, 1, 0, 60) + '</td></tr>' +
+          '<tr><td class="td-strong">Co-exhibitor invites (9(y))</td><td>complimentary per co-exhibitor / aggregator — inaugural / dinner</td><td style="white-space:nowrap">' + num('p_co_inaug', c.passes.coexInaug, 1, 0, 60) + ' ' + num('p_co_dinner', c.passes.coexDinner, 1, 0, 60) + '</td></tr>' +
           '<tr><td class="td-strong">Associate Media Partner</td><td>fee (INR, excl. GST) · space (sq.m) · passes</td><td style="white-space:nowrap">' + num('p_mp_fee', c.passes.mediaPartner.fee, 10000, 0, 110) + ' ' + num('p_mp_sqm', c.passes.mediaPartner.sqm, 1, 0, 60) + ' ' + num('p_mp_pass', c.passes.mediaPartner.passes, 1, 0, 60) + '</td></tr>' +
         '</table></div>' +
         '<p style="font-size:0.76rem;color:var(--muted);margin:10px 0 0">Preview with current values: 36 sq.m → ' + ent(36).allDay + ' / ' + ent(36).oneDay + ' / ' + ent(36).car + ' · 108 sq.m → ' + ent(108).allDay + ' / ' + ent(108).oneDay + ' / ' + ent(108).car + ' · 254 sq.m → ' + ent(254).allDay + ' / ' + ent(254).oneDay + ' / ' + ent(254).car + ' (all-day / one-day / car). Quota is released automatically when a stall is allotted and locked thereafter.</p></div>' +
@@ -94,9 +97,11 @@ function sbCfgSave() {
   c.cornerPctPerSide = pos('corner', 'Corner %', true) / 100; c.gst = pos('gst', 'GST', true) / 100; c.minSqm = pos('minSqm', 'Minimum area'); c.usdRate = pos('usdRate', 'USD rate');
   c.mezz.inr = pos('mz_inr', 'Mezzanine INR'); c.mezz.usd = pos('mz_usd', 'Mezzanine USD'); c.mezz.minSqm = pos('mz_min', 'Mezzanine min area', true); c.mezz.maxPct = pos('mz_max', 'Mezzanine max %') / 100;
   c.mezz.schemes = ['raw', 'shell', 'outdoor'].filter((k) => $('mz_' + k).checked);
-  c.startup.podFee = pos('sz_fee', 'Pod fee'); c.startup.podSqm = pos('sz_sqm', 'Pod area'); c.startup.passes = { allDay: pos('sz_allday', 'Pod all-day passes', true), oneDay: pos('sz_oneday', 'Pod one-day passes', true), car: 0 };
+  c.startup.podFee = pos('sz_fee', 'Pod fee'); c.startup.podSqm = pos('sz_sqm', 'Pod area'); c.startup.passes = { allDay: pos('sz_allday', 'Pod all-day passes', true), oneDay: pos('sz_oneday', 'Pod one-day passes', true), car: 0, inaug: pos('sz_inaug', 'Pod inaugural invites', true), dinner: pos('sz_dinner', 'Pod dinner invites', true) };
   c.holdDays = pos('hold', 'Validity days'); c.regFee.inr = pos('reg_inr', 'Registration INR', true); c.regFee.usd = pos('reg_usd', 'Registration USD', true);
   c.passes.allDayPer50 = pos('p_allday', 'All-day passes', true); c.passes.oneDayPer4 = pos('p_oneday', 'One-day passes', true); c.passes.carPer50 = pos('p_car', 'Car passes', true);
+  c.passes.inaugPer50 = pos('p_inaug', 'Inaugural invites', true); c.passes.dinnerPer50 = pos('p_dinner', 'Dinner invites', true);
+  c.passes.coexInaug = pos('p_co_inaug', 'Co-exhibitor inaugural invites', true); c.passes.coexDinner = pos('p_co_dinner', 'Co-exhibitor dinner invites', true);
   c.passes.coex = { allDay: pos('p_co_a', 'Co-ex all-day', true), oneDay: pos('p_co_o', 'Co-ex one-day', true), car: pos('p_co_c', 'Co-ex car', true) };
   c.passes.aggregator = { allDay: pos('p_ag_a', 'Aggregator all-day', true), oneDay: pos('p_ag_o', 'Aggregator one-day', true), car: pos('p_ag_c', 'Aggregator car', true) };
   c.passes.mediaPartner = { fee: pos('p_mp_fee', 'Media partner fee', true), sqm: pos('p_mp_sqm', 'Media partner sq.m', true), passes: pos('p_mp_pass', 'Media partner passes', true) };

@@ -574,7 +574,7 @@ function sbAllot(r, payment, orderNo, by) {
   S.cart = S.cart.filter((c) => !(c.type === 'space' && c.refId === r.id));
   sbpAudit(r, by || 'System', '100% payment confirmed', (r.payment.mode === 'offline' ? 'Offline · ' + r.payment.method + ' · Ref ' + r.payment.ref : 'Online · ' + (r.payment.method || 'Card')) + ' · ' + sbMoney(r.amount, r.pricing.currency) + (sbpSettlementText(r.payment, r.pricing.currency) ? ' · ' + sbpSettlementText(r.payment, r.pricing.currency) : '') + (r.orderNo ? ' · ' + r.orderNo : ''));
   sbpAudit(r, 'System', 'Stall allotted automatically', 'Stall ' + s.name + ' mapped to ' + EVENT.exhibitor + ' · layout updated · tax invoice ' + String(r.orderNo || '').replace('ORD-', 'INV-') + ' · application locked (no upgrade / downgrade)');
-  sbpAudit(r, 'System', 'Badge & vehicle quota released', ent.allDay + ' all-day exhibitor passes, ' + ent.oneDay + ' one-day passes, ' + ent.car + ' car pass(es) for ' + ent.sqm + ' sq.m allotted');
+  sbpAudit(r, 'System', 'Badge & vehicle quota released', ent.allDay + ' all-day exhibitor passes, ' + ent.oneDay + ' one-day passes, ' + ent.car + ' car pass(es) for ' + ent.sqm + ' sq.m allotted' + ' · ' + (ent.inaug || 0) + ' inaugural + ' + (ent.dinner || 0) + ' dinner invite(s) (9(y))');
   sbNotify('verified', 'var(--green)', 'Stall ' + s.name + ' allotted to ' + EVENT.exhibitor + ' — 100% payment received against application ' + r.no + '. Tax invoice and badge / vehicle quota are now available.', true);
   sbEmail('allotment', 'Stall ' + s.name + ' allotted — application ' + r.no + ' · tax invoice ' + String(r.orderNo || '').replace('ORD-', 'INV-'), 'Allotment confirmation with tax invoice and pass entitlement attached.', true);
   return true;

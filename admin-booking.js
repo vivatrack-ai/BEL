@@ -860,7 +860,7 @@ function sbaAllotLive(r, ex, payment, by) {
   ex.cart = (ex.cart || []).filter((c) => !(c.type === 'space' && c.refId === r.id));
   sbpAudit(r, by || SBD_ADMIN, '100% payment confirmed', (r.payment.mode === 'offline' ? 'Offline · ' + r.payment.method + ' · Ref ' + r.payment.ref : 'Online · ' + r.payment.method) + ' · ' + sbpFmt(r.amount, r.pricing.currency) + (sbpSettlementText(r.payment, r.pricing.currency) ? ' · ' + sbpSettlementText(r.payment, r.pricing.currency) : '') + ' · ' + orderNo);
   sbpAudit(r, 'System', 'Stall allotted automatically', 'Stall ' + s.name + ' mapped to ' + exCompany(ex) + ' · layout updated · tax invoice ' + orderNo.replace('ORD-', 'INV-') + ' · locked');
-  sbpAudit(r, 'System', 'Badge & vehicle quota released', ent.allDay + ' all-day passes, ' + ent.oneDay + ' one-day passes, ' + ent.car + ' car pass(es) for ' + ent.sqm + ' sq.m');
+  sbpAudit(r, 'System', 'Badge & vehicle quota released', ent.allDay + ' all-day passes, ' + ent.oneDay + ' one-day passes, ' + ent.car + ' car pass(es) for ' + ent.sqm + ' sq.m' + ' · ' + (ent.inaug || 0) + ' inaugural + ' + (ent.dinner || 0) + ' dinner invite(s) (9(y))');
   sbdNotifyEx(ex, 'verified', 'var(--green)', 'DEO verified your ' + r.payment.method + ' payment' + (r.payment.ref ? ' (Ref ' + r.payment.ref + ')' : '') + ' — stall ' + s.name + ' allotted to ' + exCompany(ex) + ' (application ' + r.no + '). Tax invoice ' + orderNo.replace('ORD-', 'INV-') + ' and your badge / vehicle quota are available.');
   sbdEmail('allotment', exCompany(ex), 'Stall ' + s.name + ' allotted — application ' + r.no + ' · tax invoice ' + orderNo.replace('ORD-', 'INV-'), 'Allotment confirmation with tax invoice attached.', ex);
   return orderNo;
@@ -874,7 +874,7 @@ function sbaAllotDemoPatch(b, payment, by) {
     allotment: { at: nowStr(), atIso: at.toISOString(), by: by || 'System (auto-allotment)', company: b.company, entitlement: ent, locked: true },
     audit: sbaAuditDemo(b, '100% payment confirmed', payment.method + (payment.ref ? ' · Ref ' + payment.ref : '') + ' · ' + sbpFmt(b.total, sbdCur(b)) + ' · ' + orderNo)
       .concat([{ at: nowStr(), by: 'System', event: 'Stall allotted automatically', detail: 'Stall ' + sbdStallOf(b).name + ' mapped to ' + b.company + ' · layout updated · tax invoice ' + orderNo.replace('ORD-', 'INV-') + ' · locked' },
-        { at: nowStr(), by: 'System', event: 'Badge & vehicle quota released', detail: ent.allDay + ' all-day passes, ' + ent.oneDay + ' one-day passes, ' + ent.car + ' car pass(es)' }]) };
+        { at: nowStr(), by: 'System', event: 'Badge & vehicle quota released', detail: ent.allDay + ' all-day passes, ' + ent.oneDay + ' one-day passes, ' + ent.car + ' car pass(es)' + ' · ' + (ent.inaug || 0) + ' inaugural + ' + (ent.dinner || 0) + ' dinner invite(s) (9(y))' }]) };
 }
 
 /* Extend validity — allowed only before expiry */

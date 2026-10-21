@@ -310,6 +310,7 @@ function render() {
   else if (route === 'orders') html = viewOrders();
   else if (route === 'space-applications' || route === 'space-reservations' || route === 'space-approvals') html = viewSpaceApplications();
   else if (route === 'space-settings') html = viewSpaceSettings();
+  else if (route === 'ceremony-invites') html = viewCeremonyInvites();
   else if (route === 'booking-dashboard') html = viewBookingDashboard();
   else if (route === 'booking-transactions') html = viewBookingTransactions();
   else if (route.indexOf('aircraft-application/') === 0) html = viewAircraftApplication(route.split('/')[1]);

@@ -25,7 +25,8 @@ const CX_EVENT_DAYS = EVENT.eventDays;
 const cxMain = () => (CX ? CX.parent.company : 'the main exhibitor');
 
 /* ---------------- main exhibitor's state (stall allocation & pass quota) ---------------- */
-function cxEx() { return CX ? sbReadState(CX.parent.lsKey) : null; }
+/* the main exhibitor's state, with its 9(y) invite entitlement brought up to date (complimentary 1 + 1 per co-exhibitor) */
+function cxEx() { const st = CX ? sbReadState(CX.parent.lsKey) : null; if (st) sbCeremonySync(st); return st; }
 function cxSaveEx(st) { try { localStorage.setItem(CX.parent.lsKey, JSON.stringify(st)); } catch (e) { /* ignore */ } }
 function cxRecord(ex) { return ((ex && ex.coexhibitors) || []).find((c) => c.id === CX.coexId) || null; }
 function cxUid(st, k) { st.seq[k] = (st.seq[k] || 0) + 1; return k + '_' + st.seq[k]; }
@@ -41,7 +42,7 @@ function cxQuota(ex, catId) {
 }
 function cxUsed(ex, catId) { return (ex.passes || []).filter((p) => p.catId === catId && p.coexId === CX.coexId && p.status !== 'rejected').length; }
 function cxCats(ex, kind) { return (ex.categories || []).filter((cat) => cat.kind === kind && cxQuota(ex, cat.id) > 0); }
-const CX_KINDS = ['badge', 'invitee', 'vehicle'];
+const CX_KINDS = ['badge', 'invitee', 'vehicle', 'ceremony'];
 
 /* ============================================================
    Login / logout
@@ -173,7 +174,7 @@ function cxEnterApp() {
 /* ============================================================
    Routes hosted by this portal (app.js router)
    ============================================================ */
-const CX_EXACT = ['dashboard', 'stall', 'orders', 'passes/badges', 'passes/invitee', 'passes/vehicle',
+const CX_EXACT = ['dashboard', 'stall', 'orders', 'passes/badges', 'passes/invitee', 'passes/vehicle', 'passes/ceremony',
   'digital-showcase', 'products', 'conference-hall', 'meeting-room'];
 const CX_PREFIX = ['exhibition-forms', 'aircraft', 'b2b-matchmaking', 'booth'];
 function portalRouteAllowed(route) {
@@ -250,7 +251,7 @@ function cxViewDashboard() {
   /* passes allocated by the main exhibitor */
   const passRows = CX_KINDS.flatMap((k) => cxCats(ex, k).map((cat) => {
     const q = cxQuota(ex, cat.id), used = cxUsed(ex, cat.id);
-    const route = k === 'badge' ? 'passes/badges' : k === 'invitee' ? 'passes/invitee' : 'passes/vehicle';
+    const route = passRouteOf(k);
     return '<tr><td class="td-strong">' + esc(cat.name) + '</td><td class="num">' + q + '</td><td class="num">' + used + '</td><td class="num">' + (q - used) + '</td>' +
       '<td class="td-actions"><a class="btn-link" href="#/' + route + '">Manage</a></td></tr>';
   })).join('');
@@ -339,7 +340,7 @@ function cxViewStall() {
 /* ============================================================
    VIEW · Passes (badge | invitee | vehicle) — fill against quota
    ============================================================ */
-const CX_KIND_TITLE = { badge: 'Badge Details', invitee: 'Invitee Details', vehicle: 'Vehicle Pass Details' };
+const CX_KIND_TITLE = { badge: 'Badge Details', invitee: 'Invitee Details', vehicle: 'Vehicle Pass Details', ceremony: 'Inaugural & Dinner Invites' };
 function cxInvPill(p) {
   if (p.status === 'pending_approval') return '<span class="pill amber">Pending Approval</span>';
   if (p.status === 'rejected') return '<span class="pill red">Rejected</span>' + (p.remark ? '<span class="td-sub" style="color:var(--red)">' + esc(p.remark) + '</span>' : '');
@@ -349,6 +350,7 @@ const CX_KIND_SUB = {
   badge: 'Badge quota assigned to you by the main exhibitor. Register your team members against the quota.',
   invitee: 'Invitee pass quota assigned to you. Registration is date-wise for each event day. Each invitee is confirmed only after the main exhibitor’s nodal officer approves it; rejected entries release the quota.',
   vehicle: 'Vehicle pass quota assigned to you. Register driver & vehicle details against the quota.',
+  ceremony: 'Under T&C 9(y) each co-exhibitor receives 1 Inaugural Function invite and 1 Dinner invite on a complimentary basis (plus any extra assigned by the main exhibitor). Nominate your delegate — the nomination is confirmed once the main exhibitor’s nodal officer approves it, and the e-invite is then available here.',
 };
 
 function cxViewPasses(kind) {
@@ -359,9 +361,9 @@ function cxViewPasses(kind) {
     return '<h1 class="page-title">' + CX_KIND_TITLE[kind] + '</h1>' +
       '<p class="page-sub">' + CX_KIND_SUB[kind] + '</p>' +
       '<div class="card"><div class="empty"><span class="material-symbols-outlined">' +
-      (kind === 'vehicle' ? 'directions_car' : kind === 'invitee' ? 'mail' : 'badge') + '</span>' +
+      (kind === 'vehicle' ? 'directions_car' : kind === 'invitee' ? 'mail' : kind === 'ceremony' ? 'celebration' : 'badge') + '</span>' +
       '<h3>No quota assigned</h3><p>' + esc(cxMain()) + ' has not assigned you any ' +
-      (kind === 'vehicle' ? 'vehicle pass' : kind === 'invitee' ? 'invitee' : 'badge') +
+      (kind === 'vehicle' ? 'vehicle pass' : kind === 'invitee' ? 'invitee' : kind === 'ceremony' ? 'inaugural / dinner invite' : 'badge') +
       ' quota yet. It will appear here automatically once assigned.</p></div></div>';
   }
 
@@ -392,13 +394,14 @@ function cxViewPasses(kind) {
       '<td>' + esc(p.createdAt) + '</td></tr>').join('');
   } else {
     passHead = '<tr><th>No.</th><th>Name</th><th>Email / Mobile</th><th>Designation</th>' +
-      (kind === 'invitee' ? '<th>Event Dates</th><th>Status</th>' : '') + '<th>Category</th><th>Created</th></tr>';
+      (kind === 'invitee' ? '<th>Event Dates</th><th>Status</th>' : kind === 'ceremony' ? '<th>Status</th><th>E-Invite</th>' : '') + '<th>Category</th><th>Created</th></tr>';
     passRows = myPasses.map((p, i) =>
       '<tr><td>' + (i + 1) + '</td>' +
       '<td class="td-strong">' + esc(p.data.firstName + ' ' + p.data.lastName) + '</td>' +
       '<td class="contact-cell">' + esc(p.data.email) + '<br><span class="ph">' + esc(p.data.mobile || '') + '</span></td>' +
       '<td>' + esc(p.data.designation || '—') + '</td>' +
       (kind === 'invitee' ? '<td>' + esc((p.data.dates || []).join(', ')) + '</td><td>' + cxInvPill(p) + '</td>' : '') +
+      (kind === 'ceremony' ? '<td>' + cxInvPill(p) + '</td><td>' + (p.status === 'issued' && p.inviteNo ? '<button class="btn-link" onclick="cxOpenEInvite(\'' + p.id + '\')">' + esc(p.inviteNo) + '</button>' : '—') + '</td>' : '') +
       '<td>' + esc(catName(p.catId)) + '</td>' +
       '<td>' + esc(p.createdAt) + '</td></tr>').join('');
   }
@@ -445,6 +448,13 @@ function cxOpenPassForm(catId) {
       '</div></form>',
       '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
       '<button class="btn btn-primary" onclick="document.getElementById(\'vForm\').requestSubmit()"><span class="material-symbols-outlined">save</span>Save Pass</button>', true);
+    return;
+  }
+
+  if (cat.kind === 'ceremony') {
+    openCeremonyForm(catId, null, balNote);
+    $('cOrg').value = CX.company;
+    $('cerForm').setAttribute('onsubmit', 'return cxSaveCeremony(event, \'' + catId + '\')');
     return;
   }
 
@@ -511,6 +521,33 @@ function cxSaveBadgePass(e, catId) {
   return false;
 }
 
+/* inaugural / dinner nomination — written to the main exhibitor's state, pending its nodal officer's approval */
+function cxSaveCeremony(e, catId) {
+  e.preventDefault();
+  clearErrs();
+  const ex = cxEx();
+  const cat = (ex.categories || []).find((x) => x.id === catId);
+  const d = cerReadForm();
+  if (!d) return false;
+  if ((ex.passes || []).some((p) => p.catId === catId && p.status !== 'rejected' && ((p.data.email || '').toLowerCase() === d.email.toLowerCase() || p.data.idNo === d.idNo))) {
+    setErr('pEmail', 'This person is already nominated for this invite'); return false;
+  }
+  if (cxQuota(ex, catId) - cxUsed(ex, catId) <= 0) { toast('No invite left in this category.', 'error'); return false; }
+  d.organisation = CX.company;
+  ex.passes.push({ id: cxUid(ex, 'pass'), catId: catId, coexId: CX.coexId, data: d, status: 'pending_approval', amount: 0, createdAt: nowStr(), submittedBy: CX.company });
+  if (!ex.notifications) ex.notifications = [];
+  ex.notifications.unshift({ id: 'nt_' + Date.now(), icon: 'celebration', color: 'var(--amber)',
+    text: CX.company + ' nominated ' + d.firstName + ' ' + d.lastName + ' for the ' + cat.name + ' — awaiting your nodal officer approval.', time: nowStr(), read: false });
+  cxSaveEx(ex);
+  closeModal(); render();
+  toast(cat.name + ' nomination for ' + d.firstName + ' ' + d.lastName + ' submitted — awaiting approval by ' + cxMain() + '’s nodal officer.', 'success');
+  return false;
+}
+function cxOpenEInvite(passId) {
+  const p = ((cxEx() || {}).passes || []).find((x) => x.id === passId && x.coexId === CX.coexId);
+  if (p && p.status === 'issued') cerOpenInvite(p, CX.company);
+}
+
 function cxSaveVehiclePass(e, catId) {
   e.preventDefault();
   clearErrs();
@@ -550,6 +587,7 @@ ROUTES.stall = cxViewStall;
 ROUTES['passes/badges'] = () => cxViewPasses('badge');
 ROUTES['passes/invitee'] = () => cxViewPasses('invitee');
 ROUTES['passes/vehicle'] = () => cxViewPasses('vehicle');
+ROUTES['passes/ceremony'] = () => cxViewPasses('ceremony');
 
 // Live-refresh when the main exhibitor (another tab) allocates space / quota or changes the registration
 window.addEventListener('storage', (e) => {

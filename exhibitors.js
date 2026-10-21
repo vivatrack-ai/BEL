@@ -139,3 +139,66 @@ function sbNextOrderNo(st) {
 }
 /* a storage event that concerns any company workspace */
 const sbIsWsKey = (key) => !!key && key.indexOf('evenuefy_coex') === 0;
+
+/* ============================================================
+   T&C 9(y) — Inaugural Function & Dinner invites
+   · every exhibitor: 2 inaugural + 1 dinner invite per 50 sq.m block (pro-rata per further 50 sq.m)
+   · Startup Zone pod holder: 1 inaugural + 1 dinner per pod
+   · each indirect / co-exhibitor (Separate co-exhibitor or Aggregator, active): 1 + 1 complimentary
+   · Platinum / Gold / Silver sponsors: 5+5 / 3+3 / 2+2 additional (sponsorship tariff)
+   Nominations need the exhibitor's nodal officer approval, as for invitees.
+   ============================================================ */
+const SB_CER_CATS = [
+  { id: 'cat_inaug', kind: 'ceremony', name: 'Inaugural Function Invite', free: 0, paid: 0 },
+  { id: 'cat_dinner', kind: 'ceremony', name: 'Dinner Invite', free: 0, paid: 0 },
+];
+const SB_CER_SPONSOR = { sp_plat: { inaug: 5, dinner: 5, name: 'Platinum Sponsorship' }, sp_gold: { inaug: 3, dinner: 3, name: 'Gold Sponsorship' }, sp_silver: { inaug: 2, dinner: 2, name: 'Silver Sponsorship' } };
+const SB_CER_EVENT = {
+  inaug: { title: 'Inaugural Function', when: '08 February 2027 · 0900 hrs onwards', where: 'Air Force Station Yelahanka, Bengaluru' },
+  dinner: { title: 'Networking Dinner', when: 'Date & time as intimated by the DEO', where: 'Venue as intimated by the DEO' },
+};
+/* rates — the Space Booking Configuration page can override them (admin) */
+function sbCerRates() {
+  const cfg = typeof sbpConfig === 'function' ? sbpConfig() : (sbReadState('evenuefy_space_config_v1') || {});
+  const p = cfg.passes || {}, sp = (cfg.startup && cfg.startup.passes) || {};
+  const n = (v, d) => (v == null || isNaN(Number(v)) ? d : Number(v));
+  return { inaugPer50: n(p.inaugPer50, 2), dinnerPer50: n(p.dinnerPer50, 1), podInaug: n(sp.inaug, 1), podDinner: n(sp.dinner, 1),
+    coexInaug: n(p.coexInaug, 1), coexDinner: n(p.coexDinner, 1) };
+}
+const sbCerIsPod = (s) => s.scheme === 'pod' || s.hall === 'SZ' || String(s.hall) === 'Startup Zone';
+const sbCerCoexList = (state) => ((state && state.coexhibitors) || []).filter((c) => c.status === 'active' && (c.type === 'separate' || c.type === 'aggregator'));
+function sbCeremonyEntitlement(state) {
+  const r = sbCerRates();
+  const stalls = (state && state.stalls) || [];
+  const sqm = stalls.filter((s) => !sbCerIsPod(s)).reduce((a, s) => a + Number(s.area != null ? s.area : s.sqm || 0) + Number(s.mezzSqm || 0), 0);
+  const pods = stalls.filter(sbCerIsPod).length;
+  const blocks = sqm > 0 ? 1 + Math.floor(Math.max(0, sqm - 50) / 50) : 0;
+  const space = { inaug: blocks * r.inaugPer50 + pods * r.podInaug, dinner: blocks * r.dinnerPer50 + pods * r.podDinner };
+  const coex = sbCerCoexList(state);
+  const coexEnt = { inaug: coex.length * r.coexInaug, dinner: coex.length * r.coexDinner };
+  const picked = (state && state.exforms && state.exforms.sponsorship && state.exforms.sponsorship.picked) || [];
+  const sponsors = picked.filter((id) => SB_CER_SPONSOR[id]).map((id) => SB_CER_SPONSOR[id]);
+  const sponsor = { inaug: sponsors.reduce((a, s) => a + s.inaug, 0), dinner: sponsors.reduce((a, s) => a + s.dinner, 0), names: sponsors.map((s) => s.name) };
+  return { sqm: sqm, pods: pods, blocks: blocks, rates: r, space: space, coex: coex, coexEnt: coexEnt, sponsor: sponsor,
+    inaug: space.inaug + coexEnt.inaug + sponsor.inaug, dinner: space.dinner + coexEnt.dinner + sponsor.dinner };
+}
+/* bring a main exhibitor's state in line with 9(y): categories, free counts and the co-exhibitors'
+   complimentary 1 + 1 quota (comp quota rows; dropped again when unused and the company is no longer active) */
+function sbCeremonySync(state) {
+  if (!state || !Array.isArray(state.categories)) return null;
+  SB_CER_CATS.forEach((c) => { if (!state.categories.some((x) => x.id === c.id)) state.categories.push(Object.assign({}, c)); });
+  if (!Array.isArray(state.quotas)) state.quotas = [];
+  const e = sbCeremonyEntitlement(state);
+  state.categories.find((x) => x.id === 'cat_inaug').free = e.inaug;
+  state.categories.find((x) => x.id === 'cat_dinner').free = e.dinner;
+  const live = new Set(e.coex.map((c) => c.id));
+  const used = (coexId, catId) => ((state.passes || []).filter((p) => p.catId === catId && p.coexId === coexId && p.status !== 'rejected')).length;
+  state.quotas = state.quotas.filter((q) => !(q.comp && !live.has(q.coexId) && used(q.coexId, q.catId) === 0));
+  e.coex.forEach((c) => [['cat_inaug', e.rates.coexInaug], ['cat_dinner', e.rates.coexDinner]].forEach(([catId, n]) => {
+    if (!n) return;
+    const q = state.quotas.find((x) => x.coexId === c.id && x.catId === catId);
+    if (!q) state.quotas.push({ id: 'quota_cer_' + catId.slice(4) + '_' + c.id, coexId: c.id, catId: catId, quota: n, comp: true });
+    else if (q.quota < n) { q.quota = n; q.comp = true; }
+  }));
+  return e;
+}

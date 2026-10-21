@@ -34,11 +34,13 @@ const SBP_DEFAULTS = {
   regFee: { inr: 40000, usd: 700 },
   /* T&C clause 5(f): Startup Zone — concessional pod for Indian startups with valid DPIIT / Udyam certificate;
      clause 9(q): each pod holder gets 2 all-day passes + 2 single-entry one-day passes */
-  startup: { podFee: 90000, podSqm: 6, passes: { allDay: 2, oneDay: 2, car: 0 } },
+  startup: { podFee: 90000, podSqm: 6, passes: { allDay: 2, oneDay: 2, car: 0, inaug: 1, dinner: 1 } },   // 9(y): 1 inaugural + 1 dinner invite per pod
   usdRate: 88,                                          // DEO settlement rate, ₹ per USD
   allowInrSettlement: true,                             // USD-billed exhibitors may pay in INR at that rate
   passes: {
     allDayPer50: 3, oneDayPer4: 1, carPer50: 1,          // clause 9(q)/(r): per 50 sq.m blocks, 1 one-day pass per 4 sq.m
+    inaugPer50: 2, dinnerPer50: 1,                       // clause 9(y): inaugural / dinner invites per 50 sq.m block
+    coexInaug: 1, coexDinner: 1,                         // clause 9(y): complimentary per indirect / co-exhibitor
     mediaPartner: { fee: 1000000, sqm: 12, passes: 10 }, // clause 9(o): Associate Media Partner
     coex: { allDay: 2, oneDay: 2, car: 0 },               // co-exhibitor (per company, on top of the main exhibitor's)
     aggregator: { allDay: 2, oneDay: 2, car: 0 },         // aggregator company
@@ -139,7 +141,8 @@ function sbpEntitlement(sqm, cfg) {
   cfg = cfg || sbpConfig();
   const p = cfg.passes;
   const blocks = sqm > 0 ? 1 + Math.floor(Math.max(0, sqm - 50) / 50) : 0;
-  return { sqm: sqm, blocks: blocks, allDay: p.allDayPer50 * blocks, oneDay: Math.floor(sqm / 4) * p.oneDayPer4, car: p.carPer50 * blocks };
+  return { sqm: sqm, blocks: blocks, allDay: p.allDayPer50 * blocks, oneDay: Math.floor(sqm / 4) * p.oneDayPer4, car: p.carPer50 * blocks,
+    inaug: (p.inaugPer50 || 0) * blocks, dinner: (p.dinnerPer50 || 0) * blocks };
 }
 /* entitlement for a set of allotted units: hall / chalet area by the sq.m matrix, Startup Zone pods per pod */
 function sbpEntitlementFor(units, cfg) {
@@ -149,7 +152,8 @@ function sbpEntitlementFor(units, cfg) {
   const pods = units.filter(isPod).length;
   const e = sbpEntitlement(sqm, cfg);
   const p = cfg.startup.passes;
-  return { sqm: sqm, pods: pods, blocks: e.blocks, allDay: e.allDay + pods * p.allDay, oneDay: e.oneDay + pods * p.oneDay, car: e.car + pods * p.car };
+  return { sqm: sqm, pods: pods, blocks: e.blocks, allDay: e.allDay + pods * p.allDay, oneDay: e.oneDay + pods * p.oneDay, car: e.car + pods * p.car,
+    inaug: e.inaug + pods * (p.inaug || 0), dinner: e.dinner + pods * (p.dinner || 0) };
 }
 /* apply the entitlement of every allotted stall to the exhibitor's quota categories
    (state = exhibitor S / ex: { stalls, categories }) — returns the entitlement */
@@ -157,6 +161,7 @@ function sbpApplyEntitlement(state) {
   const e = sbpEntitlementFor(state.stalls || []);
   const set = (id, n) => { const c = (state.categories || []).find((x) => x.id === id); if (c) c.free = Math.max(c.free, n); };
   set('cat_exh', e.allDay); set('cat_invitee', e.oneDay); set('cat_veh', e.car);
+  if (typeof sbCeremonySync === 'function') sbCeremonySync(state); // 9(y) inaugural & dinner invites
   return e;
 }
 
