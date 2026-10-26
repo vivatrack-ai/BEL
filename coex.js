@@ -40,7 +40,14 @@ function cxQuota(ex, catId) {
   const q = (ex.quotas || []).find((x) => x.coexId === CX.coexId && x.catId === catId);
   return q ? q.quota : 0;
 }
-function cxUsed(ex, catId) { return (ex.passes || []).filter((p) => p.catId === catId && p.coexId === CX.coexId && p.status !== 'rejected').length; }
+/* Invitee passes are single-day passes: one quota unit per selected event date; other passes count 1. */
+function cxPassUnits(ex, p) {
+  const c = (ex.categories || []).find((x) => x.id === p.catId);
+  return c && c.kind === 'invitee' && p.data && Array.isArray(p.data.dates) && p.data.dates.length ? p.data.dates.length : 1;
+}
+function cxUsed(ex, catId) {
+  return (ex.passes || []).filter((p) => p.catId === catId && p.coexId === CX.coexId && p.status !== 'rejected').reduce((a, p) => a + cxPassUnits(ex, p), 0);
+}
 function cxCats(ex, kind) { return (ex.categories || []).filter((cat) => cat.kind === kind && cxQuota(ex, cat.id) > 0); }
 const CX_KINDS = ['badge', 'invitee', 'vehicle', 'ceremony'];
 
@@ -202,7 +209,7 @@ function cxViewDashboard() {
   const allocs = (ex.allocations || []).filter((a) => a.coexId === c.id);
   const totalSqm = allocs.reduce((a, x) => a + (x.sqm || 0), 0);
   const totalQuota = (ex.quotas || []).filter((q) => q.coexId === c.id).reduce((a, q) => a + q.quota, 0);
-  const totalPasses = (ex.passes || []).filter((p) => p.coexId === c.id).length;
+  const totalPasses = (ex.passes || []).filter((p) => p.coexId === c.id && p.status !== 'rejected').reduce((a, p) => a + cxPassUnits(ex, p), 0);
 
   let note = '';
   if (cxIsAgg(c) && totalSqm === 0 && totalQuota === 0) {
@@ -348,7 +355,7 @@ function cxInvPill(p) {
 }
 const CX_KIND_SUB = {
   badge: 'Badge quota assigned to you by the main exhibitor. Register your team members against the quota.',
-  invitee: 'Invitee pass quota assigned to you. Registration is date-wise for each event day. Each invitee is confirmed only after the main exhibitor’s nodal officer approves it; rejected entries release the quota.',
+  invitee: 'Invitee pass quota assigned to you. Registration is date-wise for each event day and every invitee pass is a single-day pass — each selected date consumes 1 quota. Each invitee is confirmed only after the main exhibitor’s nodal officer approves it; rejected entries release the quota.',
   vehicle: 'Vehicle pass quota assigned to you. Register driver & vehicle details against the quota.',
   ceremony: 'Under T&C 9(y) each co-exhibitor receives 1 Inaugural Function invite and 1 Dinner invite on a complimentary basis (plus any extra assigned by the main exhibitor). Nominate your delegate — the nomination is confirmed once the main exhibitor’s nodal officer approves it, and the e-invite is then available here.',
 };
@@ -400,7 +407,7 @@ function cxViewPasses(kind) {
       '<td class="td-strong">' + esc(p.data.firstName + ' ' + p.data.lastName) + '</td>' +
       '<td class="contact-cell">' + esc(p.data.email) + '<br><span class="ph">' + esc(p.data.mobile || '') + '</span></td>' +
       '<td>' + esc(p.data.designation || '—') + '</td>' +
-      (kind === 'invitee' ? '<td>' + esc((p.data.dates || []).join(', ')) + '</td><td>' + cxInvPill(p) + '</td>' : '') +
+      (kind === 'invitee' ? '<td>' + esc((p.data.dates || []).join(', ')) + '<span class="td-sub">' + cxPassUnits(ex, p) + ' quota (single-day passes)</span></td><td>' + cxInvPill(p) + '</td>' : '') +
       (kind === 'ceremony' ? '<td>' + cxInvPill(p) + '</td><td>' + (p.status === 'issued' && p.inviteNo ? '<button class="btn-link" onclick="cxOpenEInvite(\'' + p.id + '\')">' + esc(p.inviteNo) + '</button>' : '—') + '</td>' : '') +
       '<td>' + esc(catName(p.catId)) + '</td>' +
       '<td>' + esc(p.createdAt) + '</td></tr>').join('');
@@ -423,6 +430,9 @@ function cxToggleDay(i) {
   const cb = $('day' + i);
   cb.checked = !cb.checked;
   $('dayChk' + i).classList.toggle('selected', cb.checked);
+  const n = CX_EVENT_DAYS.filter((d, k) => $('day' + k) && $('day' + k).checked).length;
+  const u = $('dayUnits'), bal = window.__cxPassBal || 0;
+  if (u) u.innerHTML = 'Selected <b>' + n + '</b> date(s) = <b>' + n + '</b> quota · Balance: <b>' + bal + '</b>' + (n > bal ? ' <span style="color:var(--red)">— exceeds balance</span>' : '');
 }
 
 function cxOpenPassForm(catId) {
@@ -431,8 +441,9 @@ function cxOpenPassForm(catId) {
   if (!cat) return;
   const bal = cxQuota(ex, catId) - cxUsed(ex, catId);
   if (bal <= 0) { toast('No quota balance left in this category.', 'error'); return; }
+  window.__cxPassBal = bal;
   const balNote = '<div class="note" style="margin-top:0"><b class="title">' + esc(cat.name) + '</b>' +
-    'Balance quota: <b>' + bal + '</b>. This pass will consume your assigned quota.</div>';
+    'Balance quota: <b>' + bal + '</b>. ' + (cat.kind === 'invitee' ? 'Invitee passes are single-day passes — <b>each selected date consumes 1 quota</b>.' : 'This pass will consume your assigned quota.') + '</div>';
 
   if (cat.kind === 'vehicle') {
     openModal('Add Vehicle Pass — ' + esc(cat.name),
@@ -462,7 +473,8 @@ function cxOpenPassForm(catId) {
     ? '<div class="field full"><label>Event Date Selection <span class="req">*</span></label>' +
       '<div class="checks">' + CX_EVENT_DAYS.map((d, i) =>
         '<label class="check-item" id="dayChk' + i + '" onclick="cxToggleDay(' + i + ')"><input type="checkbox" id="day' + i + '" value="' + d + '">' + d + '</label>').join('') +
-      '</div><div class="error" id="dayErr" style="display:none;color:var(--red);font-size:0.75rem;font-weight:600;margin-top:4px">Select at least one event date</div></div>'
+      '</div><div class="hint" id="dayUnits">Selected <b>0</b> date(s) = <b>0</b> quota · Balance: <b>' + bal + '</b></div>' +
+      '<div class="error" id="dayErr" style="display:none;color:var(--red);font-size:0.75rem;font-weight:600;margin-top:4px">Select at least one event date</div></div>'
     : '';
 
   openModal('Add ' + (cat.kind === 'invitee' ? 'Invitee' : 'Badge') + ' — ' + esc(cat.name),
@@ -502,7 +514,12 @@ function cxSaveBadgePass(e, catId) {
     if (!days.length) { $('dayErr').style.display = 'block'; ok = false; }
   }
   if (!ok) return false;
-  if (cxQuota(ex, catId) - cxUsed(ex, catId) <= 0) { toast('No quota balance left in this category.', 'error'); return false; }
+  const balNow = cxQuota(ex, catId) - cxUsed(ex, catId);
+  if (balNow <= 0) { toast('No quota balance left in this category.', 'error'); return false; }
+  if (cat.kind === 'invitee' && days.length > balNow) {
+    const err = $('dayErr'); err.textContent = 'You selected ' + days.length + ' date(s) but only ' + balNow + ' quota left — each date consumes 1 quota.'; err.style.display = 'block';
+    return false;
+  }
   const isInvitee = cat.kind === 'invitee';
   ex.passes.push({
     id: cxUid(ex, 'pass'), catId: catId, coexId: CX.coexId,

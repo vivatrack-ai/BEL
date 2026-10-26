@@ -142,10 +142,18 @@ function stallById(id) { return S.stalls.find((s) => s.id === id); }
 function catTotal(cat) { return cat.free + cat.paid; }
 /* a rejected invitee no longer consumes quota (pending ones hold it until the nodal officer decides) */
 const passLive = (p) => p.status !== 'rejected';
-function usedByExhibitor(catId) { return S.passes.filter((p) => p.catId === catId && !p.coexId && passLive(p)).length; }
+/* Quota units one pass consumes. An invitee pass is a SINGLE-DAY pass, so an
+   invitee registered for 2 event dates consumes 2 units of quota; every other
+   pass type consumes 1. */
+function passUnits(p) {
+  const c = catById(p.catId);
+  return c && c.kind === 'invitee' && p.data && Array.isArray(p.data.dates) && p.data.dates.length ? p.data.dates.length : 1;
+}
+const sumUnits = (list) => list.reduce((a, p) => a + passUnits(p), 0);
+function usedByExhibitor(catId) { return sumUnits(S.passes.filter((p) => p.catId === catId && !p.coexId && passLive(p))); }
 function allocatedToCoex(catId) { return S.quotas.filter((q) => q.catId === catId).reduce((a, q) => a + q.quota, 0); }
 function exhibitorBalance(catId) { const c = catById(catId); return catTotal(c) - usedByExhibitor(catId) - allocatedToCoex(catId); }
-function quotaUsed(coexId, catId) { return S.passes.filter((p) => p.catId === catId && p.coexId === coexId && passLive(p)).length; }
+function quotaUsed(coexId, catId) { return sumUnits(S.passes.filter((p) => p.catId === catId && p.coexId === coexId && passLive(p))); }
 function quotaFor(coexId, catId) { const q = S.quotas.find((x) => x.coexId === coexId && x.catId === catId); return q ? q.quota : 0; }
 function stallAllocated(stallId) { return S.allocations.filter((a) => a.stallId === stallId).reduce((s, a) => s + a.sqm, 0); }
 function stallAvailable(stallId, excludeAllocId) {
@@ -1173,7 +1181,7 @@ function saveAllSpaceReqs() {
    ============================================================ */
 function catRow(cat, i, coexLabel) {
   const total = catTotal(cat);
-  const used = usedByExhibitor(cat.id) + S.passes.filter((p) => p.catId === cat.id && p.coexId && passLive(p)).length;
+  const used = usedByExhibitor(cat.id) + sumUnits(S.passes.filter((p) => p.catId === cat.id && p.coexId && passLive(p)));
   const bal = exhibitorBalance(cat.id);
   const pct = total ? Math.round((used / total) * 100) : 0;
   return '<tr>' +
@@ -1227,7 +1235,7 @@ function bqGoto(i) { window.__bqIdx = i; render(); }
 
 function openViewQuota() {
   const badgeCats = S.categories.filter((c) => c.kind === 'badge');
-  const catUsed = (c) => usedByExhibitor(c.id) + S.passes.filter((p) => p.catId === c.id && p.coexId && passLive(p)).length;
+  const catUsed = (c) => usedByExhibitor(c.id) + sumUnits(S.passes.filter((p) => p.catId === c.id && p.coexId && passLive(p)));
   openModal('View Quota',
     '<div class="tablewrap"><table class="grid">' +
     '<tr><th>Category</th><th>Free</th><th>Paid</th><th>Total</th><th>Used</th><th>Balance</th></tr>' +
@@ -1245,7 +1253,7 @@ function eBadgeDownload(passId) {
 
 function viewBadges() {
   const badgeCats = S.categories.filter((c) => c.kind === 'badge');
-  const catUsed = (c) => usedByExhibitor(c.id) + S.passes.filter((p) => p.catId === c.id && p.coexId && passLive(p)).length;
+  const catUsed = (c) => usedByExhibitor(c.id) + sumUnits(S.passes.filter((p) => p.catId === c.id && p.coexId && passLive(p)));
   const totals = badgeCats.reduce((a, c) => { a.total += catTotal(c); a.used += catUsed(c); return a; }, { total: 0, used: 0 });
 
   /* left — quota tiles (ticket watermarks) */
@@ -1482,7 +1490,9 @@ function passContextCheck(catId, coexId) {
 
 function openPassForm(catId, coexId) {
   const cat = catById(catId);
-  if (passContextCheck(catId, coexId) === -1) return;
+  const bal = passContextCheck(catId, coexId);
+  if (bal === -1) return;
+  window.__passBal = bal;
   const onBehalf = coexId
     ? '<div class="note" style="margin-top:0"><b class="title">Filling on behalf of ' + esc(coexById(coexId).company) + '</b>This pass will consume the ' + (isAggregator(coexById(coexId)) ? 'aggregator company' : 'co-exhibitor') + '’s assigned quota.</div>'
     : '';
@@ -1490,7 +1500,8 @@ function openPassForm(catId, coexId) {
     ? '<div class="field full"><label>Event Date Selection <span class="req">*</span></label>' +
       '<div class="checks">' + EVENT.eventDays.map((d, i) =>
         '<label class="check-item" id="dayChk' + i + '" onclick="toggleDay(' + i + ')"><input type="checkbox" id="day' + i + '" value="' + d + '">' + d + '</label>').join('') +
-      '</div><div class="error" id="dayErr" style="display:none;color:var(--red);font-size:0.75rem;font-weight:600;margin-top:4px">Select at least one event date</div></div>' +
+      '</div><div class="hint" id="dayUnits">Single-day passes — <b>each selected date consumes 1 quota</b>. Balance: <b>' + bal + '</b>.</div>' +
+      '<div class="error" id="dayErr" style="display:none;color:var(--red);font-size:0.75rem;font-weight:600;margin-top:4px">Select at least one event date</div></div>' +
       '<div class="field full"><label class="check-item" style="display:inline-flex" id="carChkWrap" onclick="toggleCarPass()">' +
         '<input type="checkbox" id="addCarPass"> Add Car Pass for this invitee</label>' +
         '<div class="hint">Car pass application opens after saving this invitee.</div></div>'
@@ -1513,7 +1524,13 @@ function openPassForm(catId, coexId) {
 }
 
 function toggleDay(i) {
-  setTimeout(() => { $('dayChk' + i).classList.toggle('selected', $('day' + i).checked); }, 0);
+  setTimeout(() => {
+    $('dayChk' + i).classList.toggle('selected', $('day' + i).checked);
+    const n = EVENT.eventDays.filter((d, k) => $('day' + k) && $('day' + k).checked).length;
+    const u = $('dayUnits'), bal = window.__passBal || 0;
+    if (u) u.innerHTML = 'Single-day passes — <b>each selected date consumes 1 quota</b>. Selected <b>' + n + '</b> date(s) = <b>' + n + '</b> quota · Balance: <b>' + bal + '</b>' +
+      (n > bal ? ' <span style="color:var(--red)">— exceeds balance</span>' : '');
+  }, 0);
 }
 function toggleCarPass() {
   setTimeout(() => { $('carChkWrap').classList.toggle('selected', $('addCarPass').checked); }, 0);
@@ -1540,7 +1557,12 @@ function submitPass(e, catId, coexId) {
     if (days.length === 0) { $('dayErr').style.display = 'block'; ok = false; }
   }
   if (!ok) return false;
-  if (passContextCheck(catId, coexId) === -1) return false;
+  const bal = passContextCheck(catId, coexId);
+  if (bal === -1) return false;
+  if (cat.kind === 'invitee' && days.length > bal) {
+    const err = $('dayErr'); err.textContent = 'You selected ' + days.length + ' date(s) but only ' + bal + ' quota left — each date consumes 1 quota.'; err.style.display = 'block';
+    return false;
+  }
 
   const isInvitee = cat.kind === 'invitee';
   S.passes.push({
@@ -1621,7 +1643,7 @@ function openViewPasses(catId, coexId) {
     return '<tr><td class="num">' + (i + 1) + '</td>' +
       '<td class="td-strong">' + esc(p.data.firstName + ' ' + p.data.lastName) + '</td>' +
       '<td>' + esc(p.data.email) + '<span class="td-sub">' + esc(p.data.mobile) + '</span></td>' +
-      (cat.kind === 'invitee' ? '<td>' + p.data.dates.map((d) => d.split(' ')[0] + ' Feb').join(', ') + '</td>' : '') +
+      (cat.kind === 'invitee' ? '<td>' + p.data.dates.map((d) => d.split(' ')[0] + ' Feb').join(', ') + '<span class="td-sub">' + passUnits(p) + ' quota (single-day passes)</span></td>' : '') +
       (cat.kind === 'ceremony' ? '<td>' + esc(p.data.designation || '') + '<span class="td-sub">' + (p.inviteNo ? '<a class="btn-link" onclick="openEInvite(\'' + p.id + '\')">' + esc(p.inviteNo) + '</a>' : '—') + '</span></td>' : '') +
       '<td>' + by + '</td><td>' + st + '</td><td class="num">' + esc(p.createdAt) + '</td></tr>';
   }).join('') || '<tr><td colspan="7" style="color:var(--muted)">No passes filled yet.</td></tr>';
@@ -1859,10 +1881,10 @@ function viewCeremony() {
 function viewInvitee() {
   const cats = S.categories.filter((c) => c.kind === 'invitee');
   return '<h1 class="page-title">Exhibitor Invitee Details</h1>' +
-    '<p class="page-sub">Invitee passes for your guests. Registration is date-wise for each event day. Every invitee entry — yours or a co-exhibitor’s — is confirmed only after the nodal officer approves it.</p>' +
+    '<p class="page-sub">Invitee passes for your guests. Registration is date-wise for each event day and every invitee pass is a <b>single-day pass — each selected date consumes 1 quota</b>. Every invitee entry — yours or a co-exhibitor’s — is confirmed only after the nodal officer approves it.</p>' +
     '<div class="note green"><b class="title">Auto-allocated on space booking</b>' +
     'On confirmation of your space booking, Exhibitor Invitee category passes were automatically allocated to you. ' +
-    'Badge registrations are <b>date-wise</b> — each invitee selects entry date(s): 11th, 12th &amp; 13th Feb 2027.</div>' +
+    'Badge registrations are <b>date-wise</b> — each invitee selects entry date(s): 11th, 12th &amp; 13th Feb 2027. Invitee passes are single-day passes: selecting 2 dates consumes 2 quota.</div>' +
     '<div class="card"><div class="card-head-row"><h2 class="card-title">Listing View</h2></div>' +
     '<div class="tablewrap"><table class="grid">' +
     '<tr><th>No.</th><th>Category Name</th><th>Area Wise (Total)</th><th>Paid</th><th>Total Badges</th><th>Balance</th><th>Action</th></tr>' +
