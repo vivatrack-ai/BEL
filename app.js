@@ -1291,14 +1291,35 @@ function viewBadges() {
     stat('paid', 'payments', 'Paid Passes', P.n, P.n ? bbFmt(P.amount, cur) + ' paid · incl. GST' : 'Bought per user while adding') +
   '</div>';
 
-  /* ---- category tabs ---- */
-  const tab = (id, label, count, tag) => '<button class="bd-tab' + (sel === id ? ' on' : '') + '" onclick="bqSetCat(\'' + id + '\')">' +
-    '<span class="bd-tab-l">' + esc(label) + (tag || '') + '</span><span class="bd-tab-n">' + count + '</span></button>';
-  const tabs = '<div class="bd-tabs" role="tablist">' +
-    tab('', 'All Categories', (GB.u + GI.u + GC.u + P.n) + ' registered') +
-    badgeCats.map((c) => isPaidTicket(c)
-      ? tab(c.id, c.name, paidPassStats([c.id]).n + ' paid', '<span class="bd-tag paid">Paid</span>')
-      : tab(c.id, c.name, catUsed(c) + ' / ' + c.free, c.kind !== 'badge' && pendingOf(c.kind) ? '<span class="bd-tag paid">' + pendingOf(c.kind) + ' pending</span>' : '')).join('') +
+  /* ---- category tabs — grouped: All · Complimentary · Paid ---- */
+  const TAB_META = {
+    cat_exh: ['badge', 'Exhibitor'], cat_invitee: ['mail', 'Invitee'], cat_inaug: ['celebration', 'Inaugural'], cat_dinner: ['restaurant', 'Dinner'],
+    cat_addl: ['person_add', 'Additional'], cat_invitee_paid: ['confirmation_number', 'Paid Invitee'],
+  };
+  const tabBtn = (id, icon, label, count, pct, opts) => {
+    opts = opts || {};
+    return '<button class="bt-tab' + (sel === id ? ' on' : '') + (opts.paid ? ' paid' : '') + '" role="tab" aria-selected="' + (sel === id) + '" onclick="bqSetCat(\'' + id + '\')" title="' + esc(opts.title || label) + '">' +
+      '<span class="bt-ic"><span class="material-symbols-outlined">' + icon + '</span></span>' +
+      '<span class="bt-txt"><b>' + esc(label) + '</b><small>' + count + '</small></span>' +
+      (pct != null ? '<span class="bt-bar"><i style="width:' + pct + '%"></i></span>' : '') +
+      (opts.pending ? '<span class="bt-dot" title="' + opts.pending + ' waiting for approval">' + opts.pending + '</span>' : '') +
+    '</button>';
+  };
+  const freeTab = (c) => {
+    const m = TAB_META[c.id] || ['badge', c.name];
+    const u = catUsed(c);
+    const pend = c.kind !== 'badge' ? approvalPasses(c.kind).filter((p) => p.catId === c.id && p.status === 'pending_approval').length : 0;
+    return tabBtn(c.id, m[0], m[1], u + ' / ' + c.free, c.free ? Math.min(100, Math.round((u / c.free) * 100)) : 0, { title: c.name, pending: pend });
+  };
+  const paidTab = (c) => {
+    const m = TAB_META[c.id] || ['payments', c.name];
+    return tabBtn(c.id, m[0], m[1], paidPassStats([c.id]).n + ' paid', null, { title: c.name, paid: true });
+  };
+  const allPending = pendingOf('invitee') + pendingOf('ceremony');
+  const tabs = '<div class="bt-bar-wrap" role="tablist">' +
+    '<div class="bt-group">' + tabBtn('', 'apps', 'All', (GB.u + GI.u + GC.u + P.n) + ' registered', null, { title: 'All categories', pending: allPending }) + '</div>' +
+    '<div class="bt-group"><span class="bt-glabel">Complimentary</span><div class="bt-row">' + freeCats.map(freeTab).join('') + '</div></div>' +
+    (paidCats.length ? '<div class="bt-group"><span class="bt-glabel paid">Paid · per person</span><div class="bt-row">' + paidCats.map(paidTab).join('') + '</div></div>' : '') +
   '</div>';
 
   /* ---- per-kind wording & actions ---- */

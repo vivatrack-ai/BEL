@@ -1220,3 +1220,35 @@ table.grid.bd-qtable th, table.grid.bd-qtable td { padding: 10px 10px; }
 .bd-stchips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
 .bd-stnote { margin-left: auto; font-size: 0.74rem; color: var(--muted); }
 tr.bd-pend td { background: #FFFBF2; }
+
+/* ============ Badge Details · grouped category tabs ============ */
+.bt-bar-wrap { display: flex; gap: 18px; align-items: flex-end; flex-wrap: wrap; padding: 14px 16px 12px; border-bottom: 1px solid var(--line); background: #FAFBFD; }
+.bt-group { display: flex; flex-direction: column; gap: 6px; }
+.bt-group + .bt-group { padding-left: 18px; border-left: 1px dashed #D6DEEA; }
+.bt-glabel { font-size: 0.64rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--green); }
+.bt-glabel.paid { color: #A86A06; }
+.bt-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.bt-tab { position: relative; display: flex; align-items: center; gap: 10px; min-width: 128px; padding: 9px 12px 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; cursor: pointer; font-family: inherit; text-align: left; color: var(--ink); transition: border-color 0.15s, box-shadow 0.15s; }
+.bt-tab:hover { border-color: #B9C8E6; }
+.bt-tab.on { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(47, 98, 216, 0.12); }
+.bt-ic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; background: #E6F4EC; color: var(--green); flex: none; }
+.bt-ic .material-symbols-outlined { font-size: 18px; }
+.bt-tab.paid .bt-ic { background: #FDF3E1; color: #A86A06; }
+.bt-tab.on .bt-ic { background: var(--blue); color: #fff; }
+.bt-txt { display: flex; flex-direction: column; line-height: 1.2; }
+.bt-txt b { font-size: 0.84rem; font-weight: 800; white-space: nowrap; }
+.bt-txt small { font-size: 0.74rem; color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bt-tab.on .bt-txt b { color: var(--blue); }
+.bt-bar { position: absolute; left: 12px; right: 12px; bottom: 6px; height: 3px; border-radius: 99px; background: #E3E8F1; overflow: hidden; }
+.bt-bar i { display: block; height: 100%; background: var(--green); border-radius: 99px; }
+.bt-tab.on .bt-bar i { background: var(--blue); }
+.bt-dot { position: absolute; top: -7px; right: -7px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 99px; background: #C98514; color: #fff; font-size: 0.68rem; font-weight: 800; display: grid; place-items: center; border: 2px solid #fff; }
+@media (max-width: 760px) { .bt-group + .bt-group { padding-left: 0; border-left: 0; } .bt-tab { min-width: 0; } }
+.bt-bar-wrap { gap: 14px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.bt-group + .bt-group { padding-left: 14px; }
+.bt-tab { min-width: 0; gap: 8px; padding: 8px 12px 11px 8px; }
+.bt-ic { width: 28px; height: 28px; border-radius: 8px; }
+.bt-ic .material-symbols-outlined { font-size: 17px; }
+.bt-row { flex-wrap: nowrap; }
+.bt-bar-wrap { padding-top: 16px; }
+@media (max-width: 1100px) { .bt-bar-wrap { flex-wrap: wrap; } .bt-row { flex-wrap: wrap; } }
