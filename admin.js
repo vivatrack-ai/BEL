@@ -826,7 +826,7 @@ function exportAircraftApps() {
    Paid records come from ex.orders (written by payCart); items
    still in the cart appear as Pending.
    ============================================================ */
-const ORDER_TYPE_LABEL = { coex_reg: 'Co-Exhibitor Registration', vehicle: 'Vehicle Pass', aircraft_reg: 'Aircraft Registration', exh_form: 'Exhibition Form', booking: 'Hall / Table Booking', space: 'Space Booking', badge_addl: 'Paid Exhibitor Pass' };
+const ORDER_TYPE_LABEL = { coex_reg: 'Co-Exhibitor Registration', vehicle: 'Vehicle Pass', aircraft_reg: 'Aircraft Registration', exh_form: 'Exhibition Form', booking: 'Hall / Table Booking', space: 'Space Booking', badge_addl: 'Paid Pass' };
 const ORDER_STATUS_CHIPS = [['success', 'Success'], ['pending', 'Pending'], ['failed', 'Failed']];
 const OF = { type: null, status: null, dateMode: '', from: '', to: '' };
 function ofSetType(v) { OF.type = v || null; render(); }

@@ -38,10 +38,10 @@ const SEED = {
   // Pass categories. kind: badge | invitee | vehicle | ceremony (inaugural / dinner invites)
   categories: [
     { id: 'cat_exh',      kind: 'badge',   name: 'Exhibitor',                     free: 6,   paid: 0 },
-    { id: 'cat_staff',    kind: 'badge',   name: 'Exhibitor Support Staff',       free: 3,   paid: 0 },
     { id: 'cat_addl',     kind: 'badge',   name: 'Additional Exhibitor Badges',   free: 0,   paid: 5 },
-    { id: 'cat_contr',    kind: 'badge',   name: 'Exhibitor - Contractor Badges', free: 100, paid: 0 },
     { id: 'cat_invitee',  kind: 'invitee', name: 'Exhibitor Invitee',             free: 30,  paid: 0 },
+    // paid single-day guest passes bought per person (T&C 9(t) business pass rate)
+    { id: 'cat_invitee_paid', kind: 'invitee', name: 'Paid Invitee Pass',         free: 0,   paid: 0 },
     // T&C 9(r): complimentary P-6 car pass per 50 sq.m; VIP car & bus passes are paid per vehicle, per day
     { id: 'cat_veh',      kind: 'vehicle', name: 'Car Pass · P-6 Parking',        free: 2,   paid: 0 },
     { id: 'cat_vip',      kind: 'vehicle', name: 'VIP Car Pass · Exhibition Area',free: 0,   paid: 0 },
@@ -244,7 +244,12 @@ const ROUTES = {
   'passes/vehicle': viewVehicle,
   'passes/ceremony': () => badgesTabRedirect('cat_inaug'),
 };
-function badgesTabRedirect(catId) { window.__bqCat = catId; location.replace('#/passes/badges'); return ''; }
+function badgesTabRedirect(catId) {
+  window.__bqCat = catId;
+  const kind = (catById(catId) || {}).kind;
+  window.__bqSt = S.passes.some((p) => (catById(p.catId) || {}).kind === kind && p.status === 'pending_approval') ? 'pending_approval' : '';
+  location.replace('#/passes/badges'); return '';
+}
 /* route of the pass page for a category kind */
 const passRouteOf = (kind) => (kind === 'invitee' ? 'passes/invitee' : kind === 'vehicle' ? 'passes/vehicle' : kind === 'ceremony' ? 'passes/ceremony' : 'passes/badges');
 
@@ -1317,8 +1322,12 @@ function viewBadges() {
   };
 
   const paidCat = paidCats[0];
-  const q1 = paidPassQuote();
-  const feeText = bbFmt(q1.rate, q1.cur) + ' + 18% GST';
+  const feeOf = (c) => { const q = paidPassQuote(c.id, 1); return bbFmt(q.rate, q.cur) + ' + 18% GST' + (paidDef(c.id).perDay ? ' per day' : ' per pass'); };
+  const payOf = (c) => bbFmt(paidPassQuote(c.id, 1).total, cur) + (paidDef(c.id).perDay ? '/day' : '');
+  const PAID_NOTE = {
+    cat_addl: 'No quota limit — pay for each pass while adding the user. Each pass is valid for all 5 days (T&amp;C 9(q)).',
+    cat_invitee_paid: 'Guest passes beyond your complimentary invitee quota — single-day passes, the fee is paid per selected date while adding the guest (T&amp;C 9(t) business pass rate). Issued as soon as the payment goes through.',
+  };
   let panel;
   let extra = ''; // kind-specific cards below the quota card (approvals, 9(y) entitlement)
   if (selCat) {
@@ -1327,11 +1336,11 @@ function viewBadges() {
     if (isPaidTicket(c)) {
       const s = paidPassStats([c.id]);
       panel = '<div class="bd-panel">' +
-        '<div class="bd-qrow three">' + box('Paid passes', s.n) + box('Amount paid (incl. GST)', bbFmt(s.amount, cur)) + box('Fee per pass', feeText) + '</div>' +
-        '<div class="bd-paidnote"><span class="material-symbols-outlined">all_inclusive</span>No quota limit — pay for each pass while adding the user. Each pass is valid for all 5 days (T&amp;C 9(q)).</div>' +
+        '<div class="bd-qrow three">' + box('Paid passes', s.n) + box('Amount paid (incl. GST)', bbFmt(s.amount, cur)) + box('Fee', feeOf(c)) + '</div>' +
+        '<div class="bd-paidnote"><span class="material-symbols-outlined">all_inclusive</span>' + (PAID_NOTE[c.id] || PAID_NOTE.cat_addl) + '</div>' +
         '<div class="bd-panel-f"><span class="result-count">' + s.n + ' paid pass' + (s.n === 1 ? '' : 'es') + ' registered</span>' +
-          '<div class="bd-actbar">' + btn('person_add', 'Add New · Pay ' + bbFmt(q1.total, q1.cur), 'openPassForm(\'' + c.id + '\')', 'btn-primary') +
-            btn('mail', 'Invite via Email', 'openSendLink(\'' + c.id + '\')') + '</div></div></div>';
+          '<div class="bd-actbar">' + btn('person_add', 'Add New · Pay ' + payOf(c), 'openPassForm(\'' + c.id + '\')', 'btn-primary') +
+            (c.kind === 'badge' ? btn('mail', 'Invite via Email', 'openSendLink(\'' + c.id + '\')') : '') + '</div></div></div>';
     } else {
       const used = catUsed(c);
       const bal = c.free - used;
@@ -1341,10 +1350,9 @@ function viewBadges() {
           box('Balance', bal, 'bal' + (bal <= 0 && c.free ? ' zero' : '')) + '</div>' +
         '<div class="bd-prog big" title="' + used + ' of ' + c.free + ' used"><i style="width:' + pct + '%"></i></div>' +
         '<div class="bd-panel-f"><span class="result-count">' + pct + '% used · ' + KIND_NOTE[c.kind] +
-            (c.kind === 'badge' && bal <= 0 && c.free && paidCat ? ' · quota used up — add more as <a href="javascript:void 0" onclick="bqSetCat(\'' + paidCat.id + '\')">' + esc(paidCat.name) + '</a> (paid)' : '') + '</span>' +
+            (c.kind !== 'ceremony' && bal <= 0 && c.free && paidCats.find((p) => p.kind === c.kind) ? ' · quota used up — add more as <a href="javascript:void 0" onclick="bqSetCat(\'' + paidCats.find((p) => p.kind === c.kind).id + '\')">' + esc(paidCats.find((p) => p.kind === c.kind).name) + '</a> (paid)' : '') + '</span>' +
           '<div class="bd-actbar">' + freeActions(c, bal, false) + '</div></div></div>';
-      if (c.kind === 'invitee') extra = inviteeApprovalCard('invitee');
-      if (c.kind === 'ceremony') extra = cerEntitlementCard() + inviteeApprovalCard('ceremony');
+      if (c.kind === 'ceremony') extra = cerEntitlementCard();
     }
   } else {
     const dash = '<span class="bd-dash">—</span>';
@@ -1353,12 +1361,12 @@ function viewBadges() {
       if (isPaidTicket(c)) {
         const s = paidPassStats([c.id]);
         return '<tr class="bd-row" onclick="bqSetCat(\'' + c.id + '\')" title="Open ' + esc(c.name) + '">' +
-          '<td><b>' + esc(c.name) + '</b><span class="bd-tag paid">Paid ticket</span><span class="td-sub">' + feeText + ' per pass</span></td>' +
+          '<td><b>' + esc(c.name) + '</b><span class="bd-tag paid">Paid ticket</span><span class="td-sub">' + feeOf(c) + '</span></td>' +
           '<td class="num">' + dash + '</td><td class="num">' + s.n + '</td><td>' + (s.n ? '<span class="td-sub" style="margin:0">' + bbFmt(s.amount, cur) + ' paid</span>' : '') + '</td>' +
           '<td class="num"><span class="bd-nolimit">No limit</span></td>' +
           '<td onclick="event.stopPropagation()"><div class="bd-icos">' +
-            ico('person_add', 'Add new — pay ' + bbFmt(q1.total, q1.cur) + ' for this user', 'openPassForm(\'' + c.id + '\')', 'pri') +
-            ico('mail', 'Invite via email', 'openSendLink(\'' + c.id + '\')') +
+            ico('person_add', 'Add new — pay ' + payOf(c) + ' for this person', 'openPassForm(\'' + c.id + '\')', 'pri') +
+            (c.kind === 'badge' ? ico('mail', 'Invite via email', 'openSendLink(\'' + c.id + '\')') : '') +
           '</div></td></tr>';
       }
       const used = catUsed(c);
@@ -1380,45 +1388,59 @@ function viewBadges() {
       (paidCats.length ? '<tr class="bd-group"><td colspan="6">Paid passes · bought per user</td></tr>' + paidCats.map(row).join('') : '') +
     '</table></div>' +
     '<p class="bd-note"><span class="material-symbols-outlined">info</span>Complimentary badges, invitee passes and inaugural / dinner invites are released with your booked space. ' +
-      (paidCat ? 'Beyond that, add users under ' + esc(paidCat.name) + ' — the fee (' + feeText + ') is paid for each user while adding them.' : '') + '</p></div>';
-    if (pendingOf('invitee')) extra += inviteeApprovalCard('invitee');
-    if (pendingOf('ceremony')) extra += inviteeApprovalCard('ceremony');
+      (paidCats.length ? 'Beyond that, add people as paid passes (' + paidCats.map((p) => esc(p.name) + ': ' + feeOf(p)).join(' · ') + ') — the fee is paid for each person while adding them.' : '') + '</p></div>';
   }
 
-  /* ---- registered passes (full width) ---- */
+  /* ---- one common listing: every badge / invitee / invite / paid pass, with the nodal-officer approvals inline ---- */
   const q = window.__bqQ.toLowerCase();
   let holders = S.passes.filter((p) => badgeCats.some((x) => x.id === p.catId));
   if (sel) holders = holders.filter((p) => p.catId === sel);
   if (q) holders = holders.filter((p) =>
     ((p.data.firstName || '') + ' ' + (p.data.lastName || '') + ' ' + (p.data.email || '') + ' ' + (p.data.mobile || '')).toLowerCase().includes(q));
   if (window.__bqDate) holders = holders.filter((p) => moInDatePreset(p.createdAt, window.__bqDate));
+  const stCount = (st) => holders.filter((p) => (st === 'issued' ? p.status === 'issued' || !p.status : p.status === st)).length;
+  const nPending = stCount('pending_approval');
+  const allN = holders.length;
+  window.__bqPendingIds = holders.filter((p) => p.status === 'pending_approval').map((p) => p.id);
+  const stF = window.__bqSt || '';
+  if (stF) holders = holders.filter((p) => (stF === 'issued' ? p.status === 'issued' || !p.status : p.status === stF));
+  const chip = (v, l, n) => '<button class="chip' + (stF === v ? ' on' : '') + '" onclick="window.__bqSt=\'' + v + '\';render()">' + l + ' <b>' + n + '</b></button>';
+  const statusChips = '<div class="filter-chips bd-stchips">' + chip('', 'All', allN) +
+    chip('pending_approval', 'Pending Approval', nPending) + chip('issued', 'Approved / Issued', stCount('issued')) + chip('rejected', 'Rejected', stCount('rejected')) +
+    (nPending ? '<button class="btn btn-primary btn-sm" onclick="bqApproveAll()"><span class="material-symbols-outlined" style="font-size:16px">done_all</span>Approve All (' + nPending + ')</button>' : '') +
+    '<span class="bd-stnote">Invitee entries and inaugural / dinner nominations are approved by the nodal officer · ' + esc(nodalOfficerName()) + '</span></div>';
 
   const rows = holders.map((p) => {
     const company = p.coexId && coexById(p.coexId) ? coexById(p.coexId).company : EVENT.exhibitor;
     const cat = catById(p.catId) || {};
     const paidPass = p.amount || isPaidTicket(cat);
-    const sub = cat.kind === 'invitee' && p.data.dates && p.data.dates.length ? (p.data.dates.map((d) => d.split(' ')[0] + ' Feb').join(', ') + ' · ' + passUnits(p) + ' quota')
-      : cat.kind === 'ceremony' && p.inviteNo ? esc(p.inviteNo) : '';
-    const doc = cat.kind === 'ceremony'
-      ? (p.status === 'issued' ? '<button class="icon-act" title="Open e-invite" onclick="openEInvite(\'' + p.id + '\')"><span class="material-symbols-outlined" style="font-size:19px;color:var(--muted)">mail</span></button>' : '<span class="bd-dash">—</span>')
-      : (p.status === 'issued' || !p.status ? '<button class="icon-act" title="Download E-Badge" onclick="eBadgeDownload(\'' + p.id + '\')"><span class="material-symbols-outlined" style="font-size:19px;color:var(--muted)">badge</span></button>' : '<span class="bd-dash">—</span>');
-    return '<tr>' +
+    const sub = cat.kind === 'invitee' && p.data.dates && p.data.dates.length ? (p.data.dates.map((d) => d.split(' ')[0] + ' Feb').join(', ') + (isPaidTicket(cat) ? ' · ' + p.data.dates.length + ' day' + (p.data.dates.length === 1 ? '' : 's') : ' · ' + passUnits(p) + ' quota'))
+      : cat.kind === 'ceremony' ? esc([p.data.designation, p.inviteNo].filter(Boolean).join(' · ')) : '';
+    const action = p.status === 'pending_approval'
+      ? '<button class="btn-link" style="color:var(--green)" onclick="approveInvitee(\'' + p.id + '\')">Approve</button>' +
+        '<button class="btn-link danger" onclick="rejectInvitee(\'' + p.id + '\')">Reject</button>'
+      : p.status === 'rejected' ? '<span class="bd-dash">—</span>'
+      : cat.kind === 'ceremony'
+        ? '<button class="icon-act" title="Open e-invite" onclick="openEInvite(\'' + p.id + '\')"><span class="material-symbols-outlined" style="font-size:19px;color:var(--muted)">mail</span></button>'
+        : '<button class="icon-act" title="Download E-Badge" onclick="eBadgeDownload(\'' + p.id + '\')"><span class="material-symbols-outlined" style="font-size:19px;color:var(--muted)">badge</span></button>';
+    return '<tr' + (p.status === 'pending_approval' ? ' class="bd-pend"' : '') + '>' +
       '<td><div class="profile-cell"><span class="avatar">' + esc((p.data.firstName || '?').charAt(0).toUpperCase()) + '</span>' +
         '<span><span class="td-strong">' + esc((p.data.salutation ? p.data.salutation + ' ' : '') + (p.data.firstName || '') + ' ' + (p.data.lastName || '')) + '</span>' +
-        '<span class="td-sub" style="font-style:italic">' + esc(company) + '</span></span></div></td>' +
+        '<span class="td-sub" style="font-style:italic">' + esc(company) + '</span>' +
+        (p.coexId ? '<span class="td-sub">co-exhibitor quota</span>' : '') + '</span></div></td>' +
       '<td class="contact-cell">' + esc(p.data.email || '—') + '<br><span class="ph">' + esc(p.data.mobile ? '+91 ' + p.data.mobile : '') + '</span></td>' +
       '<td>' + esc(cat.name || '') + (sub ? '<span class="td-sub">' + sub + '</span>' : '') + '</td>' +
       '<td><span class="bd-tag ' + (paidPass ? 'paid' : 'free') + '" style="margin:0">' + (paidPass ? 'Paid' : 'Complimentary') + '</span>' +
         (p.amount ? '<span class="td-sub">' + bbFmt(p.amount, p.currency || cur) + (p.orderNo ? ' · ' + esc(p.orderNo) : '') + '</span>' : '') + '</td>' +
-      '<td style="white-space:nowrap">' + esc(p.createdAt || '') + '</td>' +
-      '<td>' + passStatusPill(p) + '</td>' +
-      '<td>' + doc + '</td>' +
+      '<td style="white-space:nowrap">' + esc(String(p.createdAt || '').split(',')[0]) + '<span class="td-sub">' + esc((String(p.createdAt || '').split(',')[1] || '').trim()) + '</span></td>' +
+      '<td>' + passStatusPill(p) + (p.status === 'issued' && p.approvedBy ? '<span class="td-sub">by ' + esc(p.approvedBy) + '</span>' : '') + '</td>' +
+      '<td class="td-actions">' + action + '</td>' +
     '</tr>';
   }).join('');
   const emptyCat = sel || (freeCats[0] || badgeCats[0]).id;
   const empty = '<tr><td colspan="7"><div class="empty" style="padding:30px 10px">' +
-    '<span class="material-symbols-outlined">badge</span><h3>No passes registered' + (selCat ? ' for ' + esc(selCat.name) : '') + '</h3>' +
-    '<p>' + (selCat && isPaidTicket(selCat) ? 'Add a user and pay ' + feeText + ' for their pass.' : 'Register your team against the available quota.') + '</p>' +
+    '<span class="material-symbols-outlined">badge</span><h3>' + (stF === 'pending_approval' ? 'Nothing waiting for approval' : 'No passes registered' + (selCat ? ' for ' + esc(selCat.name) : '')) + '</h3>' +
+    '<p>' + (selCat && isPaidTicket(selCat) ? 'Add a person and pay ' + feeOf(selCat) + ' for their pass.' : 'Register your team against the available quota.') + '</p>' +
     '<button class="btn btn-primary btn-sm" onclick="openPassForm(\'' + emptyCat + '\')"><span class="material-symbols-outlined" style="font-size:16px">person_add</span>' + (selCat ? addLabel(selCat) : 'Add New') + '</button></div></td></tr>';
 
   const listing = '<div class="card section-gap"><div class="card-head-row" style="flex-wrap:wrap;gap:10px;margin-bottom:10px">' +
@@ -1431,8 +1453,9 @@ function viewBadges() {
           [['', 'All Dates'], ['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'Last 7 Days'], ['month', 'Last 30 Days']].map(([v, l]) =>
             '<option value="' + v + '"' + (window.__bqDate === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>' +
       '</div></div>' +
+    statusChips +
     '<div class="tablewrap"><table class="grid">' +
-      '<tr><th>Profile Info</th><th>Contact Info</th><th>Category</th><th>Pass Type</th><th>Registered On</th><th>Status</th><th>E-Badge / Invite</th></tr>' +
+      '<tr><th>Profile Info</th><th>Contact Info</th><th>Category</th><th>Pass Type</th><th>Registered On</th><th>Status</th><th>Action</th></tr>' +
       (rows || empty) + '</table></div></div>';
 
   return '<div class="card-head-row" style="margin-bottom:0"><div>' +
@@ -1447,18 +1470,26 @@ function viewBadges() {
 
 /* ---- paid passes: no quota and no cart — the fee is paid for each user while adding them ---- */
 /* paid ticket = a badge category with no complimentary quota (e.g. Additional Exhibitor Badges) */
-const badgePaidTicket = (c) => c.kind === 'badge' && !c.free && (c.id === 'cat_addl' || c.paid > 0);
+/* paid tickets — no quota, the fee is paid per person while adding them:
+   · Additional Exhibitor Badges — T&C 9(q): INR 5,000 / USD 150, valid all 5 days
+   · Paid Invitee Pass           — T&C 9(t) business pass rate: INR 5,000 / USD 150 per day (single-day pass) */
+const PAID_PASS = {
+  cat_addl: { INR: 5000, USD: 150, perDay: false, clause: '9(q)', validity: 'valid all 5 days' },
+  cat_invitee_paid: { INR: 5000, USD: 150, perDay: true, clause: '9(t)', validity: 'single-day pass · fee per date' },
+};
+const badgePaidTicket = (c) => !!c && (!!PAID_PASS[c.id] || (c.kind === 'badge' && !c.free && c.paid > 0));
+const paidDef = (catId) => PAID_PASS[catId] || PAID_PASS.cat_addl;
 /* T&C clause 9(q): additional exhibitor passes (05 days validity) beyond the free
    entitlement — INR 5,000 (Indian exhibitors) / USD 150 (Foreign exhibitors), exclusive of GST */
-const BADGE_ADDL_RATE = { INR: 5000, USD: 150 };
 const BADGE_GST = 0.18;
 const bbCur = () => (typeof sbCurrency === 'function' ? sbCurrency() : 'INR');
 const bbFmt = (n, cur) => (typeof sbpFmt === 'function' ? sbpFmt(n, cur) : money(n));
-function paidPassQuote() {
+function paidPassQuote(catId, units) {
   const cur = bbCur();
-  const rate = BADGE_ADDL_RATE[cur];
-  const gst = Math.round(rate * BADGE_GST * 100) / 100;
-  return { cur: cur, rate: rate, gst: gst, total: Math.round((rate + gst) * 100) / 100 };
+  const rate = paidDef(catId)[cur];
+  const base = rate * (units || 1);
+  const gst = Math.round(base * BADGE_GST * 100) / 100;
+  return { cur: cur, rate: rate, units: units || 1, base: base, gst: gst, total: Math.round((base + gst) * 100) / 100 };
 }
 function paidPassStats(catIds) {
   const list = S.passes.filter((p) => catIds.includes(p.catId) && passLive(p));
@@ -1619,7 +1650,7 @@ function openPassForm(catId, coexId) {
     ? '<div class="field full"><label>Event Date Selection <span class="req">*</span></label>' +
       '<div class="checks">' + EVENT.eventDays.map((d, i) =>
         '<label class="check-item" id="dayChk' + i + '" onclick="toggleDay(' + i + ')"><input type="checkbox" id="day' + i + '" value="' + d + '">' + d + '</label>').join('') +
-      '</div><div class="hint" id="dayUnits">Single-day passes — <b>each selected date consumes 1 quota</b>. Balance: <b>' + bal + '</b>.</div>' +
+      '</div><div class="hint" id="dayUnits">' + (badgePaidTicket(cat) && !coexId ? 'Paid single-day passes — <b>the fee applies to each selected date</b>.' : 'Single-day passes — <b>each selected date consumes 1 quota</b>. Balance: <b>' + bal + '</b>.') + '</div>' +
       '<div class="error" id="dayErr" style="display:none;color:var(--red);font-size:0.75rem;font-weight:600;margin-top:4px">Select at least one event date</div></div>' +
       '<div class="field full"><label class="check-item" style="display:inline-flex" id="carChkWrap" onclick="toggleCarPass()">' +
         '<input type="checkbox" id="addCarPass"> Add Car Pass for this invitee</label>' +
@@ -1628,13 +1659,16 @@ function openPassForm(catId, coexId) {
 
   if (cat.kind === 'ceremony') { openCeremonyForm(catId, coexId, onBehalf); return; }
   const paidPass = badgePaidTicket(cat) && !coexId;
-  const pq = paidPass ? paidPassQuote() : null;
+  const pd = paidDef(catId);
+  const perDay = paidPass && pd.perDay;
+  const pq = paidPass ? paidPassQuote(catId, 1) : null;
+  window.__passPaidCat = paidPass ? catId : null;
   const payBlock = paidPass
     ? '<div class="field full"><label>Payment for this pass</label><div class="bd-buy-sum" style="margin-top:0">' +
-        '<div><span>' + esc(cat.name) + ' · valid all 5 days</span><b>' + bbFmt(pq.rate, pq.cur) + '</b></div>' +
-        '<div><span>GST (18%)</span><b>' + bbFmt(pq.gst, pq.cur) + '</b></div>' +
-        '<div class="tot"><span>Pay now</span><b>' + bbFmt(pq.total, pq.cur) + '</b></div></div>' +
-        '<div class="hint">As per T&amp;C clause 9(q) — the pass is issued as soon as the payment goes through.</div></div>' +
+        '<div><span id="ppLine">' + esc(cat.name) + ' · ' + (perDay ? bbFmt(pq.rate, pq.cur) + ' × 0 day(s)' : pd.validity) + '</span><b id="ppBase">' + (perDay ? '—' : bbFmt(pq.rate, pq.cur)) + '</b></div>' +
+        '<div><span>GST (18%)</span><b id="ppGst">' + (perDay ? '—' : bbFmt(pq.gst, pq.cur)) + '</b></div>' +
+        '<div class="tot"><span>Pay now</span><b id="ppTot">' + (perDay ? 'Select date(s)' : bbFmt(pq.total, pq.cur)) + '</b></div></div>' +
+        '<div class="hint">As per T&amp;C clause ' + pd.clause + ' — the pass is issued as soon as the payment goes through.</div></div>' +
       '<div class="field"><label>Payment method</label><select id="pPayMethod"><option>Card</option><option>UPI</option><option>Net Banking</option></select></div>'
     : '';
   openModal((coexId ? 'Add Pass (' + (isAggregator(coexById(coexId)) ? 'Aggregator' : 'Co-Exhibitor') + ')' : 'Add New') + ' · ' + esc(cat.name),
@@ -1650,7 +1684,7 @@ function openPassForm(catId, coexId) {
     '</div></form>',
     '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
     (paidPass
-      ? '<button class="btn btn-primary" onclick="$(\'passForm\').requestSubmit()"><span class="material-symbols-outlined">payments</span>Pay ' + bbFmt(pq.total, pq.cur) + ' &amp; Register</button>'
+      ? '<button class="btn btn-primary" id="ppBtn" onclick="$(\'passForm\').requestSubmit()"><span class="material-symbols-outlined">payments</span>' + (perDay ? 'Pay &amp; Register' : 'Pay ' + bbFmt(pq.total, pq.cur) + ' &amp; Register') + '</button>'
       : '<button class="btn btn-primary" onclick="$(\'passForm\').requestSubmit()"><span class="material-symbols-outlined">badge</span>Save Pass</button>'));
 }
 
@@ -1659,9 +1693,21 @@ function toggleDay(i) {
     $('dayChk' + i).classList.toggle('selected', $('day' + i).checked);
     const n = EVENT.eventDays.filter((d, k) => $('day' + k) && $('day' + k).checked).length;
     const u = $('dayUnits'), bal = window.__passBal || 0;
+    if (window.__passPaidCat && paidDef(window.__passPaidCat).perDay) { ppUpdate(n); return; }
     if (u) u.innerHTML = 'Single-day passes — <b>each selected date consumes 1 quota</b>. Selected <b>' + n + '</b> date(s) = <b>' + n + '</b> quota · Balance: <b>' + bal + '</b>' +
       (n > bal ? ' <span style="color:var(--red)">— exceeds balance</span>' : '');
   }, 0);
+}
+/* live fee for a paid single-day pass as dates are ticked */
+function ppUpdate(n) {
+  const catId = window.__passPaidCat;
+  const q = paidPassQuote(catId, Math.max(1, n));
+  const set = (id, v) => { if ($(id)) $(id).innerHTML = v; };
+  set('ppLine', esc(catById(catId).name) + ' · ' + bbFmt(q.rate, q.cur) + ' × ' + n + ' day' + (n === 1 ? '' : 's'));
+  set('ppBase', n ? bbFmt(q.base, q.cur) : '—');
+  set('ppGst', n ? bbFmt(q.gst, q.cur) : '—');
+  set('ppTot', n ? bbFmt(q.total, q.cur) : 'Select date(s)');
+  set('ppBtn', '<span class="material-symbols-outlined">payments</span>' + (n ? 'Pay ' + bbFmt(q.total, q.cur) + ' &amp; Register' : 'Pay &amp; Register'));
 }
 function toggleCarPass() {
   setTimeout(() => { $('carChkWrap').classList.toggle('selected', $('addCarPass').checked); }, 0);
@@ -1701,18 +1747,20 @@ function submitPass(e, catId, coexId) {
     id: passId, catId: catId, coexId: coexId,
     data: { firstName: first, lastName: last, email: email, mobile: mobile, designation: $('pDesig').value.trim(), dates: days },
     // invitee entries are confirmed only after the exhibitor's nodal officer approves them
-    status: isInvitee ? 'pending_approval' : 'issued', amount: 0, createdAt: nowStr(),
+    status: isInvitee && !(badgePaidTicket(cat) && !coexId) ? 'pending_approval' : 'issued', amount: 0, createdAt: nowStr(),
     submittedBy: coexId ? coexById(coexId).company : EVENT.exhibitor,
   };
   let paidMsg = '';
   if (badgePaidTicket(cat) && !coexId) {
     // paid per user: the fee is collected right here — no cart
-    const pq = paidPassQuote();
+    const pd = paidDef(catId);
+    const pq = paidPassQuote(catId, pd.perDay ? days.length : 1);
     if (!S.orders) S.orders = [];
     if (!S.seq.order) S.seq.order = 0;
     const order = {
       id: uid('order'), orderNo: sbNextOrderNo(S), type: 'badge_addl',
-      label: cat.name + ' — ' + first + ' ' + last, sub: '5-day pass · ' + bbFmt(pq.rate, pq.cur) + ' + 18% GST', refId: passId,
+      label: cat.name + ' — ' + first + ' ' + last,
+      sub: (pd.perDay ? days.join(', ') + ' · ' + bbFmt(pq.rate, pq.cur) + '/day' : '5-day pass · ' + bbFmt(pq.rate, pq.cur)) + ' + 18% GST', refId: passId,
       amount: pq.total, currency: pq.cur, status: 'success', method: $('pPayMethod') ? $('pPayMethod').value : 'Card', mode: 'online',
       paidAt: nowStr(), paidAtIso: new Date().toISOString(), payer: EVENT.exhibitor,
     };
@@ -1724,7 +1772,8 @@ function submitPass(e, catId, coexId) {
   save();
   const wantCar = isInvitee && $('addCarPass') && $('addCarPass').checked;
   closeModal(); render();
-  toast(isInvitee ? 'Invitee ' + first + ' ' + last + ' submitted — awaiting nodal officer approval.' : (paidMsg ? paidMsg + 'pass issued for ' : 'Pass saved for ') + first + ' ' + last, 'success');
+  toast(paidMsg ? paidMsg + 'pass issued for ' + first + ' ' + last
+    : isInvitee ? 'Invitee ' + first + ' ' + last + ' submitted — awaiting nodal officer approval.' : 'Pass saved for ' + first + ' ' + last, 'success');
   if (wantCar) {
     const vehCat = S.categories.find((c) => c.kind === 'vehicle');
     openVehicleForm(vehCat.id, coexId);
@@ -1848,6 +1897,14 @@ function invDecide(passId, approve, silent) {
   return true;
 }
 function approveInvitee(id) { invDecide(id, true); }
+/* Badge Details listing: approve every pending entry in the current view (invitees + nominations) */
+function bqApproveAll() {
+  const ids = (window.__bqPendingIds || []).filter((id) => { const p = S.passes.find((x) => x.id === id); return p && p.status === 'pending_approval'; });
+  if (!ids.length || !confirm('Approve all ' + ids.length + ' pending entr' + (ids.length === 1 ? 'y' : 'ies') + '? A confirmation e-mail (e-pass / e-invite) goes to each person.')) return;
+  ids.forEach((id) => invDecide(id, true, true));
+  save(); render();
+  toast(ids.length + ' entr' + (ids.length === 1 ? 'y' : 'ies') + ' approved — confirmation e-mails sent.', 'success');
+}
 function rejectInvitee(id) { invDecide(id, false); }
 function approveAllInvitees(kind) {
   kind = kind || 'invitee';
@@ -2040,6 +2097,16 @@ function vehQuote(catId, days) {
 /* keep saved portals in step with clause 9(r): names, the VIP car pass, paid tickets carry no quota */
 function vehMigrate(state) {
   const cats = state.categories || [];
+  // Support Staff and Contractor Badges are no longer pass categories — drop them with their passes / quotas
+  const GONE = ['cat_staff', 'cat_contr'];
+  for (let i = cats.length - 1; i >= 0; i--) if (GONE.includes(cats[i].id)) cats.splice(i, 1);
+  if (state.passes) state.passes = state.passes.filter((p) => !GONE.includes(p.catId));
+  if (state.quotas) state.quotas = state.quotas.filter((q) => !GONE.includes(q.catId));
+  // Paid Invitee Pass next to the complimentary invitee category
+  if (!cats.some((c) => c.id === 'cat_invitee_paid')) {
+    const at = cats.findIndex((c) => c.id === 'cat_invitee');
+    cats.splice(at >= 0 ? at + 1 : cats.length, 0, { id: 'cat_invitee_paid', kind: 'invitee', name: 'Paid Invitee Pass', free: 0, paid: 0 });
+  }
   const car = cats.find((c) => c.id === 'cat_veh');
   if (car) car.name = 'Car Pass · P-6 Parking';
   if (!cats.some((c) => c.id === 'cat_vip')) {
@@ -2638,7 +2705,7 @@ function viewExhibitorDashboard() {
 /* ============================================================
    VIEW · My Orders — the exhibitor's own payment history
    ============================================================ */
-const MY_ORDER_TYPE = { coex_reg: 'Co-Exhibitor Registration', vehicle: 'Vehicle Pass', aircraft_reg: 'Aircraft Registration', exh_form: 'Exhibition Form', booking: 'Hall / Table Booking', space: 'Space Booking', badge_addl: 'Paid Exhibitor Pass' };
+const MY_ORDER_TYPE = { coex_reg: 'Co-Exhibitor Registration', vehicle: 'Vehicle Pass', aircraft_reg: 'Aircraft Registration', exh_form: 'Exhibition Form', booking: 'Hall / Table Booking', space: 'Space Booking', badge_addl: 'Paid Pass' };
 
 window.__moQ = window.__moQ || '';
 window.__moType = window.__moType || '';
