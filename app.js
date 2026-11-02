@@ -1254,97 +1254,186 @@ function eBadgeDownload(passId) {
 function viewBadges() {
   const badgeCats = S.categories.filter((c) => c.kind === 'badge');
   const catUsed = (c) => usedByExhibitor(c.id) + sumUnits(S.passes.filter((p) => p.catId === c.id && p.coexId && passLive(p)));
-  const totals = badgeCats.reduce((a, c) => { a.total += catTotal(c); a.used += catUsed(c); return a; }, { total: 0, used: 0 });
+  const sum = (f) => badgeCats.reduce((a, c) => a + f(c), 0);
+  const T = { free: sum((c) => c.free), paid: sum((c) => c.paid), used: sum(catUsed) };
+  T.total = T.free + T.paid;
+  T.bal = T.total - T.used;
+  const bookedSqm = (S.stalls || []).reduce((a, s) => a + Number(s.area || s.sqm || 0), 0);
+  const sel = badgeCats.some((c) => c.id === window.__bqCat) ? window.__bqCat : '';
+  const selCat = sel ? catById(sel) : null;
+  const isPaidTicket = (c) => c.paid && !c.free;
 
-  /* left — quota tiles (ticket watermarks) */
-  const tiles =
-    '<div class="bq-tiles">' +
-      '<div class="bq-tile green"><span class="material-symbols-outlined wm">confirmation_number</span>' +
-        '<div class="t-label">Total Quota</div><div class="t-big">' + totals.total + ' <small>Allocated Passes</small></div></div>' +
-      '<div class="bq-pair">' +
-        '<div class="bq-tile blue"><span class="material-symbols-outlined wm">confirmation_number</span>' +
-          '<div class="t-label">Used</div><div class="t-big">' + totals.used + '</div></div>' +
-        '<div class="bq-tile green"><span class="material-symbols-outlined wm">confirmation_number</span>' +
-          '<div class="t-label">Available</div><div class="t-big">' + (totals.total - totals.used) + '</div></div>' +
-      '</div></div>';
+  /* ---- summary strip ---- */
+  const stat = (cls, icon, label, val, sub) => '<div class="bd-stat ' + cls + '"><span class="material-symbols-outlined">' + icon + '</span>' +
+    '<div><small>' + label + '</small><b>' + val + '</b>' + (sub ? '<em>' + sub + '</em>' : '') + '</div></div>';
+  const summary = '<div class="bd-stats">' +
+    stat('free', 'workspace_premium', 'Complimentary', T.free, bookedSqm ? 'Based on ' + bookedSqm.toLocaleString('en-IN') + ' sq.m booked' : 'Released on stall allotment') +
+    stat('paid', 'shopping_bag', 'Purchased', T.paid, 'Additional badges bought') +
+    stat('used', 'how_to_reg', 'Registered', T.used, T.total ? Math.round((T.used / T.total) * 100) + '% of total quota' : '') +
+    stat('bal', 'confirmation_number', 'Balance', T.bal, 'of ' + T.total + ' total badges') +
+  '</div>';
 
-  /* right — ASSIGN QUOTA carousel (one category at a time) */
-  if (window.__bqIdx >= badgeCats.length) window.__bqIdx = 0;
-  const c = badgeCats[window.__bqIdx];
-  const used = catUsed(c);
-  const pct = catTotal(c) ? Math.round((used / catTotal(c)) * 100) : 0;
-  const carousel =
-    '<div class="bq-carousel"><span class="material-symbols-outlined wm">badge</span>' +
-      '<div class="bq-nav"><button onclick="bqNav(-1)"><span class="material-symbols-outlined">chevron_left</span></button>' +
-        '<button onclick="bqNav(1)"><span class="material-symbols-outlined">chevron_right</span></button></div>' +
-      '<span style="font-size:0.7rem;font-weight:800;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase">Assign Quota</span>' +
-      '<div class="bq-cat-name">' + esc(c.name) + '</div>' +
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;font-weight:800">' +
-        '<span style="font-size:0.7rem;letter-spacing:0.1em;color:var(--muted);text-transform:uppercase">Usage Progress</span>' +
-        '<span style="font-size:1.3rem">' + used + ' <span style="color:var(--muted);font-size:0.95rem">/ ' + catTotal(c) + '</span></span></div>' +
-      '<div class="prog-bar" style="margin:6px 0 8px;height:8px"><i style="width:' + pct + '%"></i></div>' +
-      '<div style="font-size:0.82rem;font-weight:700;margin-bottom:18px">' +
-        (c.free ? 'Free: <b>' + c.free + '</b>' : '') + (c.free && c.paid ? ' &nbsp;·&nbsp; ' : '') + (c.paid ? 'Paid: <b>' + c.paid + '</b>' : '') + '</div>' +
-      '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
-        '<button class="btn btn-primary" onclick="openPassForm(\'' + c.id + '\')"><span class="material-symbols-outlined" style="font-size:17px">person_add</span>Registration Team</button>' +
-        '<button class="btn btn-outline" onclick="bqSetCat(\'' + c.id + '\')">View Listing</button>' +
-        '<button class="btn btn-outline" onclick="openBulkUpload(\'' + c.id + '\')">Bulk Upload</button>' +
-        '<button class="btn btn-outline" onclick="openSendLink(\'' + c.id + '\')"><span class="material-symbols-outlined" style="font-size:16px">mail</span>Invite Via Email</button>' +
-        '<a class="btn btn-outline" href="#/passes/badges/coex/' + c.id + '"><span class="material-symbols-outlined" style="font-size:16px">group_add</span>Co-Exhibitor / Aggregator Quota</a>' +
+  /* ---- category tabs ---- */
+  const tab = (id, label, used, tot, tag) => '<button class="bd-tab' + (sel === id ? ' on' : '') + '" onclick="bqSetCat(\'' + id + '\')">' +
+    '<span class="bd-tab-l">' + esc(label) + (tag || '') + '</span><span class="bd-tab-n">' + used + ' / ' + tot + '</span></button>';
+  const tabs = '<div class="bd-tabs" role="tablist">' +
+    tab('', 'All Categories', T.used, T.total) +
+    badgeCats.map((c) => tab(c.id, c.name, catUsed(c), catTotal(c), isPaidTicket(c) ? '<span class="bd-tag paid">Paid</span>' : '')).join('') +
+  '</div>';
+
+  /* ---- quota panel for the active tab ---- */
+  const btn = (icon, label, fn, cls) => '<button class="btn ' + (cls || 'btn-outline') + ' btn-sm" onclick="' + fn + '"><span class="material-symbols-outlined" style="font-size:16px">' + icon + '</span>' + label + '</button>';
+  let panel;
+  if (selCat) {
+    const c = selCat;
+    const used = catUsed(c);
+    const tot = catTotal(c);
+    const bal = tot - used;
+    const pct = tot ? Math.min(100, Math.round((used / tot) * 100)) : 0;
+    const box = (k, v, cls) => '<div class="bd-q' + (cls ? ' ' + cls : '') + '"><small>' + k + '</small><b>' + v + '</b></div>';
+    panel = '<div class="bd-panel">' +
+      '<div class="bd-qrow">' +
+        box('Complimentary', c.free) + box('Purchased', c.paid) + box('Total', tot) + box('Used', used) +
+        box('Balance', bal, 'bal' + (bal <= 0 && tot ? ' zero' : '')) +
       '</div>' +
-      '<div class="bq-dots">' + badgeCats.map((x, i) =>
-        '<i class="' + (i === window.__bqIdx ? 'on' : '') + '" onclick="bqGoto(' + i + ')"></i>').join('') + '</div>' +
-    '</div>';
+      '<div class="bd-prog big" title="' + used + ' of ' + tot + ' used"><i style="width:' + pct + '%"></i></div>' +
+      '<div class="bd-panel-f"><span class="result-count">' + pct + '% used · ' +
+        (isPaidTicket(c) ? 'Paid ticket — every badge in this category is purchased' : 'Complimentary quota comes with your booked space') + '</span>' +
+        '<div class="bd-actbar">' +
+          (bal > 0 ? btn('person_add', 'Add New', 'openPassForm(\'' + c.id + '\')', 'btn-primary') : '') +
+          btn('upload_file', 'Bulk Upload', 'openBulkUpload(\'' + c.id + '\')') +
+          btn('mail', 'Invite via Email', 'openSendLink(\'' + c.id + '\')') +
+          btn('group_add', 'Co-Exhibitor Quota', 'location.hash=\'#/passes/badges/coex/' + c.id + '\'') +
+          btn('add_shopping_cart', 'Buy More', 'openBuyBadges(\'' + c.id + '\')', bal > 0 ? '' : 'btn-primary') +
+        '</div></div></div>';
+  } else {
+    const row = (c) => {
+      const used = catUsed(c);
+      const tot = catTotal(c);
+      const bal = tot - used;
+      const pct = tot ? Math.min(100, Math.round((used / tot) * 100)) : 0;
+      return '<tr class="bd-row" onclick="bqSetCat(\'' + c.id + '\')" title="Open ' + esc(c.name) + '">' +
+        '<td><b>' + esc(c.name) + '</b><span class="bd-tag ' + (isPaidTicket(c) ? 'paid' : 'free') + '">' + (isPaidTicket(c) ? 'Paid ticket' : 'Complimentary') + '</span></td>' +
+        '<td class="num">' + c.free + '</td><td class="num">' + c.paid + '</td><td class="num"><b>' + tot + '</b></td><td class="num">' + used + '</td>' +
+        '<td style="width:22%"><div class="bd-prog" title="' + pct + '% used"><i style="width:' + pct + '%"></i></div></td>' +
+        '<td class="num"><span class="bd-bal' + (bal <= 0 && tot ? ' zero' : '') + '">' + bal + '</span></td>' +
+        '<td class="td-actions" onclick="event.stopPropagation()">' +
+          (bal > 0 ? '<button class="btn-link" onclick="openPassForm(\'' + c.id + '\')">Add New</button>' : '') +
+          '<button class="btn-link" onclick="openBuyBadges(\'' + c.id + '\')">Buy More</button></td></tr>';
+    };
+    panel = '<div class="bd-panel"><div class="tablewrap"><table class="grid bd-qtable">' +
+      '<tr><th>Category</th><th class="num">Complimentary</th><th class="num">Purchased</th><th class="num">Total</th><th class="num">Used</th><th>Usage</th><th class="num">Balance</th><th>Action</th></tr>' +
+      badgeCats.map(row).join('') +
+      '<tr class="bd-total"><td><b>Total</b></td><td class="num">' + T.free + '</td><td class="num">' + T.paid + '</td><td class="num"><b>' + T.total + '</b></td>' +
+        '<td class="num">' + T.used + '</td><td></td><td class="num"><span class="bd-bal">' + T.bal + '</span></td><td></td></tr>' +
+    '</table></div>' +
+    '<p class="bd-note"><span class="material-symbols-outlined">info</span>Complimentary badges are released per 50 sq.m of booked space. Need more? Buy additional badges — they are added to the quota straight after payment.</p></div>';
+  }
 
-  /* listing — Profile / Contact / Reg No / Ticket / Created / Payments / Registration / E-Badge */
+  /* ---- registered passes (full width) ---- */
   const q = window.__bqQ.toLowerCase();
   let holders = S.passes.filter((p) => badgeCats.some((x) => x.id === p.catId));
-  if (window.__bqCat) holders = holders.filter((p) => p.catId === window.__bqCat);
+  if (sel) holders = holders.filter((p) => p.catId === sel);
   if (q) holders = holders.filter((p) =>
     ((p.data.firstName || '') + ' ' + (p.data.lastName || '') + ' ' + (p.data.email || '') + ' ' + (p.data.mobile || '')).toLowerCase().includes(q));
   if (window.__bqDate) holders = holders.filter((p) => moInDatePreset(p.createdAt, window.__bqDate));
 
-  const holderRows = holders.map((p) => {
+  const rows = holders.map((p) => {
     const company = p.coexId && coexById(p.coexId) ? coexById(p.coexId).company : EVENT.exhibitor;
+    const cat = catById(p.catId) || {};
+    const paidPass = p.amount || isPaidTicket(cat);
     return '<tr>' +
       '<td><div class="profile-cell"><span class="avatar">' + esc((p.data.firstName || '?').charAt(0).toUpperCase()) + '</span>' +
         '<span><span class="td-strong">' + esc((p.data.firstName || '') + ' ' + (p.data.lastName || '')) + '</span>' +
         '<span class="td-sub" style="font-style:italic">' + esc(company) + '</span></span></div></td>' +
-      '<td class="contact-cell">' + esc(p.data.email || '—') + '<br><span class="ph">' + esc(p.data.mobile ? '+91' + p.data.mobile : '') + '</span></td>' +
-      '<td><span title="REG' + esc(String(p.id).replace(/\D/g, '') || '0000') + '" style="letter-spacing:0.2em;color:var(--muted)">••••</span></td>' +
-      '<td>' + esc((catById(p.catId) || {}).name || '') + '</td>' +
-      '<td>' + esc(p.createdAt || '') + '</td>' +
-      '<td><span class="icon-act" title="' + (p.amount ? 'Paid — ' + money(p.amount) : 'Complimentary (Free quota)') + '" style="color:var(--green);cursor:default"><span class="material-symbols-outlined" style="font-size:19px">payments</span></span></td>' +
-      '<td><span class="icon-act" title="Registered via exhibitor portal" style="color:#6C47C9;cursor:default"><span class="material-symbols-outlined" style="font-size:19px">how_to_reg</span></span></td>' +
+      '<td class="contact-cell">' + esc(p.data.email || '—') + '<br><span class="ph">' + esc(p.data.mobile ? '+91 ' + p.data.mobile : '') + '</span></td>' +
+      '<td>' + esc(cat.name || '') + '</td>' +
+      '<td><span class="bd-tag ' + (paidPass ? 'paid' : 'free') + '" style="margin:0">' + (paidPass ? 'Purchased' : 'Complimentary') + '</span></td>' +
+      '<td style="white-space:nowrap">' + esc(p.createdAt || '') + '</td>' +
+      '<td>' + (p.status === 'rejected' ? '<span class="pill red">Rejected</span>' : '<span class="pill blue">Registered</span>') + '</td>' +
       '<td><button class="icon-act" title="Download E-Badge" onclick="eBadgeDownload(\'' + p.id + '\')"><span class="material-symbols-outlined" style="font-size:19px;color:var(--muted)">badge</span></button></td>' +
     '</tr>';
   }).join('');
-  const listEmpty = '<tr><td colspan="8"><div class="empty" style="padding:26px 10px">' +
-    '<span class="material-symbols-outlined">badge</span><h3>Exhibitor Not Found</h3>' +
-    '<p>Exhibitor will show up here once they are added.</p>' +
-    '<button class="btn btn-primary btn-sm" onclick="openPassForm(\'' + (window.__bqCat || badgeCats[0].id) + '\')"><span class="material-symbols-outlined" style="font-size:16px">add</span>New User</button></div></td></tr>';
+  const empty = '<tr><td colspan="7"><div class="empty" style="padding:30px 10px">' +
+    '<span class="material-symbols-outlined">badge</span><h3>No passes registered' + (selCat ? ' for ' + esc(selCat.name) : '') + '</h3>' +
+    '<p>Register your team against the available quota.</p>' +
+    '<button class="btn btn-primary btn-sm" onclick="openPassForm(\'' + (sel || badgeCats[0].id) + '\')"><span class="material-symbols-outlined" style="font-size:16px">person_add</span>Add New</button></div></td></tr>';
+
+  const listing = '<div class="card section-gap"><div class="card-head-row" style="flex-wrap:wrap;gap:10px;margin-bottom:10px">' +
+      '<div><h2 class="card-title" style="margin:0">Registered Passes</h2>' +
+        '<span class="result-count">' + (selCat ? esc(selCat.name) : 'All categories') + ' · ' + holders.length + ' pass' + (holders.length === 1 ? '' : 'es') + '</span></div>' +
+      '<div class="bd-filters" style="margin:0">' +
+        '<label class="bd-search"><span class="material-symbols-outlined">search</span>' +
+          '<input type="text" id="bqQ" value="' + esc(window.__bqQ) + '" placeholder="Search name, email or mobile" oninput="bqSetQ(this.value)"></label>' +
+        '<select onchange="window.__bqDate=this.value;render()">' +
+          [['', 'All Dates'], ['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'Last 7 Days'], ['month', 'Last 30 Days']].map(([v, l]) =>
+            '<option value="' + v + '"' + (window.__bqDate === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>' +
+      '</div></div>' +
+    '<div class="tablewrap"><table class="grid">' +
+      '<tr><th>Profile Info</th><th>Contact Info</th><th>Category</th><th>Quota Type</th><th>Registered On</th><th>Status</th><th>E-Badge</th></tr>' +
+      (rows || empty) + '</table></div></div>';
 
   return '<div class="card-head-row" style="margin-bottom:0"><div>' +
-      '<h1 class="page-title">Badge Quota Management</h1>' +
-      '<p class="page-sub">Oversee attendee registrations and manage your exhibitor team access with real-time tracking and allocation controls.</p></div>' +
-      '<button class="btn-link" style="font-size:0.92rem" onclick="openViewQuota()">View Quota <span class="material-symbols-outlined" style="font-size:17px">chevron_right</span></button></div>' +
-    '<div class="bq-grid">' + tiles + carousel + '</div>' +
-    '<div class="card"><div class="card-head-row" style="flex-wrap:wrap;gap:10px;margin-bottom:6px">' +
-      '<div style="flex:1;min-width:260px;display:flex;align-items:center;gap:8px;border:1px solid #CFD7E4;border-radius:9px;padding:0 12px">' +
-        '<span class="material-symbols-outlined" style="font-size:19px;color:var(--muted)">search</span>' +
-        '<input type="text" id="bqQ" value="' + esc(window.__bqQ) + '" placeholder="Enter search term (e.g., John Doe, user@example.com, 9876543210, REG12345)" oninput="bqSetQ(this.value)" ' +
-          'style="flex:1;border:none;outline:none;padding:10px 0;font-family:inherit;font-size:0.86rem;background:none">' +
-      '</div>' +
-      '<select onchange="bqSetCat(this.value)" style="border:1px solid #CFD7E4;border-radius:9px;padding:9px 12px;font-family:inherit;font-size:0.86rem;cursor:pointer">' +
-        '<option value="">Select ticket</option>' +
-        badgeCats.map((x) => '<option value="' + x.id + '"' + (window.__bqCat === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select>' +
-      '<select onchange="window.__bqDate=this.value;render()" style="border:1px solid #CFD7E4;border-radius:9px;padding:9px 12px;font-family:inherit;font-size:0.86rem;cursor:pointer">' +
-        [['', 'All Dates'], ['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'Last 7 Days'], ['month', 'Last 30 Days']].map(([v, l]) =>
-          '<option value="' + v + '"' + (window.__bqDate === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>' +
-    '</div>' +
-    '<div class="tablewrap"><table class="grid">' +
-    '<tr><th>Profile Info</th><th>Contact Info</th><th>Reg. No.</th><th>Ticket</th><th>Created At</th><th>Payments</th><th>Registration</th><th>E-Badge</th></tr>' +
-    (holderRows || listEmpty) + '</table></div></div>' + footerTools();
+      '<h1 class="page-title">Badge Details</h1>' +
+      '<p class="page-sub">Complimentary badges come with your booked space — buy more any time.</p></div>' +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
+        '<button class="btn btn-outline" onclick="openViewQuota()"><span class="material-symbols-outlined" style="font-size:17px">visibility</span>View Quota</button>' +
+        '<button class="btn btn-primary" onclick="openBuyBadges()"><span class="material-symbols-outlined" style="font-size:17px">add_shopping_cart</span>Buy More Badges</button>' +
+      '</div></div>' +
+    summary +
+    '<div class="card bd-quota">' + tabs + panel + '</div>' +
+    listing + footerTools();
+}
+
+/* ---- buy additional badges (cart → payment adds to the category's purchased quota) ---- */
+/* T&C clause 9(q): additional exhibitor passes (05 days validity) beyond the free
+   entitlement — INR 5,000 (Indian exhibitors) / USD 150 (Foreign exhibitors), exclusive of GST */
+const BADGE_ADDL_RATE = { INR: 5000, USD: 150 };
+const BADGE_GST = 0.18;
+const bbCur = () => (typeof sbCurrency === 'function' ? sbCurrency() : 'INR');
+const bbFmt = (n, cur) => (typeof sbpFmt === 'function' ? sbpFmt(n, cur) : money(n));
+function openBuyBadges(catId) {
+  const cats = S.categories.filter((c) => c.kind === 'badge');
+  const pick = catId || 'cat_addl';
+  const cur = bbCur();
+  openModal('Buy Additional Badges',
+    '<p style="margin:0 0 12px;font-size:0.84rem;color:var(--muted)">Your complimentary quota is based on the space booked. Additional exhibitor passes are valid for all 5 days and are added to the selected category straight after payment.</p>' +
+    '<div class="field"><label>Category</label><select id="bbCat" onchange="bbCalc()">' +
+      cats.map((c) => '<option value="' + c.id + '"' + (c.id === pick ? ' selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</select></div>' +
+    '<div class="field"><label>Number of badges</label><input type="number" id="bbQty" min="1" max="200" value="1" oninput="bbCalc()"></div>' +
+    '<div class="bd-buy-sum" id="bbSum"></div>' +
+    '<p class="bd-note"><span class="material-symbols-outlined">gavel</span>As per T&amp;C clause 9(q): ' + bbFmt(BADGE_ADDL_RATE.INR, 'INR') + ' per pass for Indian exhibitors, ' +
+      bbFmt(BADGE_ADDL_RATE.USD, 'USD') + ' for foreign exhibitors, exclusive of GST. You are billed in ' + cur + '.</p>',
+    '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="bbAddToCart()"><span class="material-symbols-outlined" style="font-size:17px">add_shopping_cart</span>Add to Cart</button>');
+  bbCalc();
+}
+function bbQuote(qty) {
+  const cur = bbCur();
+  const rate = BADGE_ADDL_RATE[cur];
+  const base = qty * rate;
+  const gst = Math.round(base * BADGE_GST * 100) / 100;
+  return { cur: cur, rate: rate, base: base, gst: gst, total: Math.round((base + gst) * 100) / 100 };
+}
+function bbCalc() {
+  const qty = Math.max(1, Math.min(200, parseInt(($('bbQty') || {}).value, 10) || 1));
+  const q = bbQuote(qty);
+  const el = $('bbSum');
+  if (el) el.innerHTML =
+    '<div><span>' + qty + ' × ' + bbFmt(q.rate, q.cur) + '</span><b>' + bbFmt(q.base, q.cur) + '</b></div>' +
+    '<div><span>GST (18%)</span><b>' + bbFmt(q.gst, q.cur) + '</b></div>' +
+    '<div class="tot"><span>Total payable</span><b>' + bbFmt(q.total, q.cur) + '</b></div>';
+}
+function bbAddToCart() {
+  const catId = $('bbCat').value;
+  const qty = Math.max(1, Math.min(200, parseInt($('bbQty').value, 10) || 1));
+  const cat = catById(catId);
+  const q = bbQuote(qty);
+  S.cart.push({ id: uid('cart'), type: 'badge_addl', refId: catId + '|' + qty, currency: q.cur,
+    label: qty + ' additional badge' + (qty === 1 ? '' : 's') + ' — ' + cat.name,
+    sub: qty + ' × ' + bbFmt(q.rate, q.cur) + ' + 18% GST · 5-day validity', amount: q.total });
+  save(); closeModal(); render();
+  toast(qty + ' badge(s) added to cart — ' + bbFmt(q.total, q.cur), 'success');
 }
 
 /* ============================================================
@@ -2103,6 +2192,10 @@ function payCart() {
     } else if (i.type === 'aircraft_reg') {
       const a = (S.aircraft || []).find((x) => x.id === i.refId);
       if (a) { a.status = 'registered'; a.paidAt = nowStr(); }
+    } else if (i.type === 'badge_addl') {
+      const [catId, qty] = String(i.refId).split('|');
+      const c = catById(catId);
+      if (c) c.paid += Number(qty) || 0; // purchased badges join the category quota
     } else if (i.type === 'space' && typeof sbOnlinePaid === 'function') {
       sbOnlinePaid(i.refId, order); // 100% paid online → reservation confirmed
     }
