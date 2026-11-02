@@ -1215,3 +1215,5 @@ table.grid.bd-qtable th, table.grid.bd-qtable td { padding: 10px 10px; }
 .bd-ico.buy { color: #A86A06; border-color: #F1D7A6; background: #FFF9EE; }
 .bd-ico.off { opacity: 0.35; cursor: not-allowed; }
 .bd-fixed { padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px; background: #F8FAFD; font-weight: 700; font-size: 0.88rem; }
+.bd-group td { background: #F4F7FC; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 7px 10px !important; }
+.bd-tabs { flex-wrap: wrap; overflow: visible; row-gap: 0; }

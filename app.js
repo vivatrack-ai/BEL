@@ -239,10 +239,12 @@ const ROUTES = {
   'allocate-stall': viewAllocateStall,
   'space-requirement': viewSpaceRequirement,
   'passes/badges': viewBadges,
-  'passes/invitee': viewInvitee,
+  // Exhibitor Invitee and Inaugural & Dinner Invites live in Badge Details (one Badges menu)
+  'passes/invitee': () => badgesTabRedirect('cat_invitee'),
   'passes/vehicle': viewVehicle,
-  'passes/ceremony': viewCeremony,
+  'passes/ceremony': () => badgesTabRedirect('cat_inaug'),
 };
+function badgesTabRedirect(catId) { window.__bqCat = catId; location.replace('#/passes/badges'); return ''; }
 /* route of the pass page for a category kind */
 const passRouteOf = (kind) => (kind === 'invitee' ? 'passes/invitee' : kind === 'vehicle' ? 'passes/vehicle' : kind === 'ceremony' ? 'passes/ceremony' : 'passes/badges');
 
@@ -281,7 +283,7 @@ function render() {
   // sidebar active state
   document.querySelectorAll('.nav-item[data-route]').forEach((el) => {
     const r = el.getAttribute('data-route');
-    el.classList.toggle('active', route === r || (mCoex && r === 'passes/' + mCoex[1]) ||
+    el.classList.toggle('active', route === r || (mCoex && r === 'passes/' + (window.EVENUEFY_PORTAL !== 'coex' && (mCoex[1] === 'invitee' || mCoex[1] === 'ceremony') ? 'badges' : mCoex[1])) ||
       (r === 'aggregators' && route.indexOf('aggregators') === 0) ||
       (r === 'co-exhibitors' && route.indexOf('co-exhibitors') === 0) ||
       (r === 'aircraft' && route.indexOf('aircraft') === 0) ||
@@ -1256,28 +1258,31 @@ function eBadgeDownload(passId) {
 }
 
 function viewBadges() {
-  const badgeCats = S.categories.filter((c) => c.kind === 'badge');
+  /* one Badges menu: exhibitor badges, exhibitor invitee passes, inaugural & dinner invites, paid passes */
+  const KIND_ORDER = { badge: 0, invitee: 1, ceremony: 2 };
+  const allCats = S.categories.filter((c) => KIND_ORDER[c.kind] != null);
   const isPaidTicket = badgePaidTicket;
-  const freeCats = badgeCats.filter((c) => !isPaidTicket(c));
-  const paidCats = badgeCats.filter(isPaidTicket);
+  const freeCats = allCats.filter((c) => !isPaidTicket(c)).sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+  const paidCats = allCats.filter(isPaidTicket);
+  const badgeCats = freeCats.concat(paidCats);
   const catUsed = (c) => usedByExhibitor(c.id) + sumUnits(S.passes.filter((p) => p.catId === c.id && p.coexId && passLive(p)));
-  const sum = (list, f) => list.reduce((a, c) => a + f(c), 0);
-  /* complimentary quota (from booked space) vs paid passes (bought per user while adding them) */
-  const F = { quota: sum(freeCats, (c) => c.free), used: sum(freeCats, catUsed) };
-  F.bal = F.quota - F.used;
+  const group = (kind) => freeCats.filter((c) => c.kind === kind);
+  const tot = (list) => { const q = list.reduce((a, c) => a + c.free, 0); const u = list.reduce((a, c) => a + catUsed(c), 0); return { q: q, u: u, b: q - u }; };
+  const GB = tot(group('badge')), GI = tot(group('invitee')), GC = tot(group('ceremony'));
   const P = paidPassStats(paidCats.map((c) => c.id));
   const bookedSqm = (S.stalls || []).reduce((a, s) => a + Number(s.area || s.sqm || 0), 0);
   const sel = badgeCats.some((c) => c.id === window.__bqCat) ? window.__bqCat : '';
   const selCat = sel ? catById(sel) : null;
   const cur = bbCur();
+  const pendingOf = (kind) => approvalPasses(kind).filter((p) => p.status === 'pending_approval').length;
 
   /* ---- summary strip ---- */
   const stat = (cls, icon, label, val, sub) => '<div class="bd-stat ' + cls + '"><span class="material-symbols-outlined">' + icon + '</span>' +
     '<div><small>' + label + '</small><b>' + val + '</b>' + (sub ? '<em>' + sub + '</em>' : '') + '</div></div>';
   const summary = '<div class="bd-stats">' +
-    stat('free', 'workspace_premium', 'Complimentary', F.quota, bookedSqm ? 'Based on ' + bookedSqm.toLocaleString('en-IN') + ' sq.m booked' : 'Released on stall allotment') +
-    stat('used', 'how_to_reg', 'Registered', F.used, 'against complimentary quota') +
-    stat('bal', 'confirmation_number', 'Balance', F.bal, 'complimentary badges left') +
+    stat('free', 'badge', 'Exhibitor Badges', GB.u + ' / ' + GB.q, GB.b + ' left · ' + (bookedSqm ? bookedSqm.toLocaleString('en-IN') + ' sq.m booked' : 'released on stall allotment')) +
+    stat('used', 'mail', 'Invitee Passes', GI.u + ' / ' + GI.q, GI.b + ' left · single-day' + (pendingOf('invitee') ? ' · ' + pendingOf('invitee') + ' pending approval' : '')) +
+    stat('bal', 'celebration', 'Inaugural & Dinner', GC.u + ' / ' + GC.q, GC.b + ' left · T&C 9(y)' + (pendingOf('ceremony') ? ' · ' + pendingOf('ceremony') + ' pending' : '')) +
     stat('paid', 'payments', 'Paid Passes', P.n, P.n ? bbFmt(P.amount, cur) + ' paid · incl. GST' : 'Bought per user while adding') +
   '</div>';
 
@@ -1285,21 +1290,37 @@ function viewBadges() {
   const tab = (id, label, count, tag) => '<button class="bd-tab' + (sel === id ? ' on' : '') + '" onclick="bqSetCat(\'' + id + '\')">' +
     '<span class="bd-tab-l">' + esc(label) + (tag || '') + '</span><span class="bd-tab-n">' + count + '</span></button>';
   const tabs = '<div class="bd-tabs" role="tablist">' +
-    tab('', 'All Categories', (F.used + P.n) + ' registered') +
+    tab('', 'All Categories', (GB.u + GI.u + GC.u + P.n) + ' registered') +
     badgeCats.map((c) => isPaidTicket(c)
       ? tab(c.id, c.name, paidPassStats([c.id]).n + ' paid', '<span class="bd-tag paid">Paid</span>')
-      : tab(c.id, c.name, catUsed(c) + ' / ' + c.free)).join('') +
+      : tab(c.id, c.name, catUsed(c) + ' / ' + c.free, c.kind !== 'badge' && pendingOf(c.kind) ? '<span class="bd-tag paid">' + pendingOf(c.kind) + ' pending</span>' : '')).join('') +
   '</div>';
 
-  /* ---- panel for the active tab ----
-     Complimentary categories: fixed quota from the booked space.
-     Paid ticket: no quota — the fee is paid for each user while adding them. */
+  /* ---- per-kind wording & actions ---- */
   const btn = (icon, label, fn, cls) => '<button class="btn ' + (cls || 'btn-outline') + ' btn-sm" onclick="' + fn + '"><span class="material-symbols-outlined" style="font-size:16px">' + icon + '</span>' + label + '</button>';
   const ico = (icon, title, fn, cls) => '<button class="bd-ico' + (cls ? ' ' + cls : '') + '" title="' + title + '" aria-label="' + title + '" onclick="' + fn + '"><span class="material-symbols-outlined">' + icon + '</span></button>';
+  const coexRoute = (c) => 'location.hash=\'#/passes/' + (c.kind === 'badge' ? 'badges' : c.kind) + '/coex/' + c.id + '\'';
+  const addLabel = (c) => (c.kind === 'ceremony' ? 'Nominate' : 'Add New');
+  const KIND_NOTE = {
+    badge: 'Complimentary quota comes with your booked space',
+    invitee: 'Single-day passes — each selected date consumes 1 quota · confirmed after nodal officer approval',
+    ceremony: 'By invitation only (T&C 9(y)) · confirmed after nodal officer approval, then the nominee gets a personal e-invite',
+  };
+  const freeActions = (c, bal, asIcons) => {
+    const add = bal > 0 ? (asIcons ? ico(c.kind === 'ceremony' ? 'celebration' : 'person_add', addLabel(c), 'openPassForm(\'' + c.id + '\')', 'pri') : btn(c.kind === 'ceremony' ? 'celebration' : 'person_add', addLabel(c), 'openPassForm(\'' + c.id + '\')', 'btn-primary'))
+      : (asIcons ? ico('person_add', 'Quota used up', 'void 0', 'off') : '');
+    const list = [add];
+    if (c.kind === 'badge') list.push(asIcons ? ico('upload_file', 'Bulk upload', 'openBulkUpload(\'' + c.id + '\')') : btn('upload_file', 'Bulk Upload', 'openBulkUpload(\'' + c.id + '\')'));
+    if (c.kind !== 'ceremony') list.push(asIcons ? ico('mail', c.kind === 'invitee' ? 'Invitee link' : 'Invite via email', 'openSendLink(\'' + c.id + '\')') : btn('mail', c.kind === 'invitee' ? 'Invitee Link' : 'Invite via Email', 'openSendLink(\'' + c.id + '\')'));
+    list.push(asIcons ? ico('group_add', 'Co-exhibitor / aggregator quota', coexRoute(c)) : btn('group_add', 'Co-Exhibitor Quota', coexRoute(c)));
+    return list.join('');
+  };
+
   const paidCat = paidCats[0];
   const q1 = paidPassQuote();
   const feeText = bbFmt(q1.rate, q1.cur) + ' + 18% GST';
   let panel;
+  let extra = ''; // kind-specific cards below the quota card (approvals, 9(y) entitlement)
   if (selCat) {
     const c = selCat;
     const box = (k, v, cls) => '<div class="bd-q' + (cls ? ' ' + cls : '') + '"><small>' + k + '</small><b>' + v + '</b></div>';
@@ -1309,28 +1330,25 @@ function viewBadges() {
         '<div class="bd-qrow three">' + box('Paid passes', s.n) + box('Amount paid (incl. GST)', bbFmt(s.amount, cur)) + box('Fee per pass', feeText) + '</div>' +
         '<div class="bd-paidnote"><span class="material-symbols-outlined">all_inclusive</span>No quota limit — pay for each pass while adding the user. Each pass is valid for all 5 days (T&amp;C 9(q)).</div>' +
         '<div class="bd-panel-f"><span class="result-count">' + s.n + ' paid pass' + (s.n === 1 ? '' : 'es') + ' registered</span>' +
-          '<div class="bd-actbar">' +
-            btn('person_add', 'Add New · Pay ' + bbFmt(q1.total, q1.cur), 'openPassForm(\'' + c.id + '\')', 'btn-primary') +
-            btn('mail', 'Invite via Email', 'openSendLink(\'' + c.id + '\')') +
-          '</div></div></div>';
+          '<div class="bd-actbar">' + btn('person_add', 'Add New · Pay ' + bbFmt(q1.total, q1.cur), 'openPassForm(\'' + c.id + '\')', 'btn-primary') +
+            btn('mail', 'Invite via Email', 'openSendLink(\'' + c.id + '\')') + '</div></div></div>';
     } else {
       const used = catUsed(c);
       const bal = c.free - used;
       const pct = c.free ? Math.min(100, Math.round((used / c.free) * 100)) : 0;
       panel = '<div class="bd-panel">' +
-        '<div class="bd-qrow three">' + box('Complimentary quota', c.free) + box('Used', used) + box('Balance', bal, 'bal' + (bal <= 0 && c.free ? ' zero' : '')) + '</div>' +
+        '<div class="bd-qrow three">' + box(c.kind === 'ceremony' ? 'Entitlement' : 'Complimentary quota', c.free) + box(c.kind === 'ceremony' ? 'Nominated' : 'Used', used) +
+          box('Balance', bal, 'bal' + (bal <= 0 && c.free ? ' zero' : '')) + '</div>' +
         '<div class="bd-prog big" title="' + used + ' of ' + c.free + ' used"><i style="width:' + pct + '%"></i></div>' +
-        '<div class="bd-panel-f"><span class="result-count">' + pct + '% used · Complimentary quota comes with your booked space' +
-            (bal <= 0 && c.free && paidCat ? ' · quota used up — add more as <a href="javascript:void 0" onclick="bqSetCat(\'' + paidCat.id + '\')">' + esc(paidCat.name) + '</a> (paid)' : '') + '</span>' +
-          '<div class="bd-actbar">' +
-            (bal > 0 ? btn('person_add', 'Add New', 'openPassForm(\'' + c.id + '\')', 'btn-primary') : '') +
-            btn('upload_file', 'Bulk Upload', 'openBulkUpload(\'' + c.id + '\')') +
-            btn('mail', 'Invite via Email', 'openSendLink(\'' + c.id + '\')') +
-            btn('group_add', 'Co-Exhibitor Quota', 'location.hash=\'#/passes/badges/coex/' + c.id + '\'') +
-          '</div></div></div>';
+        '<div class="bd-panel-f"><span class="result-count">' + pct + '% used · ' + KIND_NOTE[c.kind] +
+            (c.kind === 'badge' && bal <= 0 && c.free && paidCat ? ' · quota used up — add more as <a href="javascript:void 0" onclick="bqSetCat(\'' + paidCat.id + '\')">' + esc(paidCat.name) + '</a> (paid)' : '') + '</span>' +
+          '<div class="bd-actbar">' + freeActions(c, bal, false) + '</div></div></div>';
+      if (c.kind === 'invitee') extra = inviteeApprovalCard('invitee');
+      if (c.kind === 'ceremony') extra = cerEntitlementCard() + inviteeApprovalCard('ceremony');
     }
   } else {
     const dash = '<span class="bd-dash">—</span>';
+    const GROUP_LABEL = { badge: 'Exhibitor Badges', invitee: 'Exhibitor Invitee · single-day passes', ceremony: 'Inaugural Function & Dinner Invites · T&C 9(y)' };
     const row = (c) => {
       if (isPaidTicket(c)) {
         const s = paidPassStats([c.id]);
@@ -1346,27 +1364,25 @@ function viewBadges() {
       const used = catUsed(c);
       const bal = c.free - used;
       const pct = c.free ? Math.min(100, Math.round((used / c.free) * 100)) : 0;
+      const pend = c.kind !== 'badge' ? approvalPasses(c.kind).filter((p) => p.catId === c.id && p.status === 'pending_approval').length : 0;
       return '<tr class="bd-row" onclick="bqSetCat(\'' + c.id + '\')" title="Open ' + esc(c.name) + '">' +
-        '<td><b>' + esc(c.name) + '</b><span class="bd-tag free">Complimentary</span></td>' +
+        '<td><b>' + esc(c.name) + '</b><span class="bd-tag free">Complimentary</span>' + (pend ? '<span class="bd-tag paid">' + pend + ' pending approval</span>' : '') + '</td>' +
         '<td class="num">' + c.free + '</td><td class="num">' + used + '</td>' +
         '<td style="width:18%"><div class="bd-prog" title="' + pct + '% used"><i style="width:' + pct + '%"></i></div></td>' +
         '<td class="num"><span class="bd-bal' + (bal <= 0 && c.free ? ' zero' : '') + '">' + bal + '</span></td>' +
-        '<td onclick="event.stopPropagation()"><div class="bd-icos">' +
-          (bal > 0 ? ico('person_add', 'Add new', 'openPassForm(\'' + c.id + '\')', 'pri') : ico('person_add', 'Quota used up', 'void 0', 'off')) +
-          ico('upload_file', 'Bulk upload', 'openBulkUpload(\'' + c.id + '\')') +
-          ico('mail', 'Invite via email', 'openSendLink(\'' + c.id + '\')') +
-          ico('group_add', 'Co-exhibitor quota', 'location.hash=\'#/passes/badges/coex/' + c.id + '\'') +
-        '</div></td></tr>';
+        '<td onclick="event.stopPropagation()"><div class="bd-icos">' + freeActions(c, bal, true) + '</div></td></tr>';
     };
+    const groupRows = ['badge', 'invitee', 'ceremony'].map((k) => group(k).length
+      ? '<tr class="bd-group"><td colspan="6">' + GROUP_LABEL[k] + '</td></tr>' + group(k).map(row).join('') : '').join('');
     panel = '<div class="bd-panel"><div class="tablewrap"><table class="grid bd-qtable">' +
-      '<tr><th>Category</th><th class="num">Quota</th><th class="num">Registered</th><th>Usage</th><th class="num">Balance</th><th>Actions</th></tr>' +
-      freeCats.map(row).join('') +
-      '<tr class="bd-total"><td><b>Complimentary total</b></td><td class="num"><b>' + F.quota + '</b></td><td class="num">' + F.used + '</td><td></td>' +
-        '<td class="num"><span class="bd-bal">' + F.bal + '</span></td><td></td></tr>' +
-      paidCats.map(row).join('') +
+      '<tr><th>Category</th><th class="num">Quota</th><th class="num">Used</th><th>Usage</th><th class="num">Balance</th><th>Actions</th></tr>' +
+      groupRows +
+      (paidCats.length ? '<tr class="bd-group"><td colspan="6">Paid passes · bought per user</td></tr>' + paidCats.map(row).join('') : '') +
     '</table></div>' +
-    '<p class="bd-note"><span class="material-symbols-outlined">info</span>Complimentary badges are released per 50 sq.m of booked space. ' +
+    '<p class="bd-note"><span class="material-symbols-outlined">info</span>Complimentary badges, invitee passes and inaugural / dinner invites are released with your booked space. ' +
       (paidCat ? 'Beyond that, add users under ' + esc(paidCat.name) + ' — the fee (' + feeText + ') is paid for each user while adding them.' : '') + '</p></div>';
+    if (pendingOf('invitee')) extra += inviteeApprovalCard('invitee');
+    if (pendingOf('ceremony')) extra += inviteeApprovalCard('ceremony');
   }
 
   /* ---- registered passes (full width) ---- */
@@ -1381,24 +1397,29 @@ function viewBadges() {
     const company = p.coexId && coexById(p.coexId) ? coexById(p.coexId).company : EVENT.exhibitor;
     const cat = catById(p.catId) || {};
     const paidPass = p.amount || isPaidTicket(cat);
+    const sub = cat.kind === 'invitee' && p.data.dates && p.data.dates.length ? (p.data.dates.map((d) => d.split(' ')[0] + ' Feb').join(', ') + ' · ' + passUnits(p) + ' quota')
+      : cat.kind === 'ceremony' && p.inviteNo ? esc(p.inviteNo) : '';
+    const doc = cat.kind === 'ceremony'
+      ? (p.status === 'issued' ? '<button class="icon-act" title="Open e-invite" onclick="openEInvite(\'' + p.id + '\')"><span class="material-symbols-outlined" style="font-size:19px;color:var(--muted)">mail</span></button>' : '<span class="bd-dash">—</span>')
+      : (p.status === 'issued' || !p.status ? '<button class="icon-act" title="Download E-Badge" onclick="eBadgeDownload(\'' + p.id + '\')"><span class="material-symbols-outlined" style="font-size:19px;color:var(--muted)">badge</span></button>' : '<span class="bd-dash">—</span>');
     return '<tr>' +
       '<td><div class="profile-cell"><span class="avatar">' + esc((p.data.firstName || '?').charAt(0).toUpperCase()) + '</span>' +
-        '<span><span class="td-strong">' + esc((p.data.firstName || '') + ' ' + (p.data.lastName || '')) + '</span>' +
+        '<span><span class="td-strong">' + esc((p.data.salutation ? p.data.salutation + ' ' : '') + (p.data.firstName || '') + ' ' + (p.data.lastName || '')) + '</span>' +
         '<span class="td-sub" style="font-style:italic">' + esc(company) + '</span></span></div></td>' +
       '<td class="contact-cell">' + esc(p.data.email || '—') + '<br><span class="ph">' + esc(p.data.mobile ? '+91 ' + p.data.mobile : '') + '</span></td>' +
-      '<td>' + esc(cat.name || '') + '</td>' +
+      '<td>' + esc(cat.name || '') + (sub ? '<span class="td-sub">' + sub + '</span>' : '') + '</td>' +
       '<td><span class="bd-tag ' + (paidPass ? 'paid' : 'free') + '" style="margin:0">' + (paidPass ? 'Paid' : 'Complimentary') + '</span>' +
         (p.amount ? '<span class="td-sub">' + bbFmt(p.amount, p.currency || cur) + (p.orderNo ? ' · ' + esc(p.orderNo) : '') + '</span>' : '') + '</td>' +
       '<td style="white-space:nowrap">' + esc(p.createdAt || '') + '</td>' +
-      '<td>' + (p.status === 'rejected' ? '<span class="pill red">Rejected</span>' : '<span class="pill blue">Registered</span>') + '</td>' +
-      '<td><button class="icon-act" title="Download E-Badge" onclick="eBadgeDownload(\'' + p.id + '\')"><span class="material-symbols-outlined" style="font-size:19px;color:var(--muted)">badge</span></button></td>' +
+      '<td>' + passStatusPill(p) + '</td>' +
+      '<td>' + doc + '</td>' +
     '</tr>';
   }).join('');
   const emptyCat = sel || (freeCats[0] || badgeCats[0]).id;
   const empty = '<tr><td colspan="7"><div class="empty" style="padding:30px 10px">' +
     '<span class="material-symbols-outlined">badge</span><h3>No passes registered' + (selCat ? ' for ' + esc(selCat.name) : '') + '</h3>' +
     '<p>' + (selCat && isPaidTicket(selCat) ? 'Add a user and pay ' + feeText + ' for their pass.' : 'Register your team against the available quota.') + '</p>' +
-    '<button class="btn btn-primary btn-sm" onclick="openPassForm(\'' + emptyCat + '\')"><span class="material-symbols-outlined" style="font-size:16px">person_add</span>Add New</button></div></td></tr>';
+    '<button class="btn btn-primary btn-sm" onclick="openPassForm(\'' + emptyCat + '\')"><span class="material-symbols-outlined" style="font-size:16px">person_add</span>' + (selCat ? addLabel(selCat) : 'Add New') + '</button></div></td></tr>';
 
   const listing = '<div class="card section-gap"><div class="card-head-row" style="flex-wrap:wrap;gap:10px;margin-bottom:10px">' +
       '<div><h2 class="card-title" style="margin:0">Registered Passes</h2>' +
@@ -1411,17 +1432,17 @@ function viewBadges() {
             '<option value="' + v + '"' + (window.__bqDate === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>' +
       '</div></div>' +
     '<div class="tablewrap"><table class="grid">' +
-      '<tr><th>Profile Info</th><th>Contact Info</th><th>Category</th><th>Pass Type</th><th>Registered On</th><th>Status</th><th>E-Badge</th></tr>' +
+      '<tr><th>Profile Info</th><th>Contact Info</th><th>Category</th><th>Pass Type</th><th>Registered On</th><th>Status</th><th>E-Badge / Invite</th></tr>' +
       (rows || empty) + '</table></div></div>';
 
   return '<div class="card-head-row" style="margin-bottom:0"><div>' +
       '<h1 class="page-title">Badge Details</h1>' +
-      '<p class="page-sub">Complimentary badges come with your booked space. Need more people? Add them as paid passes — paid per user.</p></div>' +
+      '<p class="page-sub">Exhibitor badges, invitee passes and inaugural &amp; dinner invites in one place. Complimentary quota comes with your booked space; extra people are added as paid passes — paid per user.</p></div>' +
       '<button class="btn btn-outline" onclick="openViewQuota()"><span class="material-symbols-outlined" style="font-size:17px">visibility</span>View Quota</button>' +
     '</div>' +
     summary +
     '<div class="card bd-quota">' + tabs + panel + '</div>' +
-    listing + footerTools();
+    extra + listing + footerTools();
 }
 
 /* ---- paid passes: no quota and no cart — the fee is paid for each user while adding them ---- */
@@ -1510,7 +1531,7 @@ function viewCatCoexPage(catId) {
       '</td></tr>';
   }).join('');
 
-  return '<a class="back-link" href="' + backRoute + '"><span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>Back to ' + (cat.kind === 'invitee' ? 'Exhibitor Invitee' : cat.kind === 'vehicle' ? 'Vehicle Pass Details' : cat.kind === 'ceremony' ? 'Inaugural & Dinner Invites' : 'Badge Details') + '</a>' +
+  return '<a class="back-link" href="' + backRoute + '"><span class="material-symbols-outlined" style="font-size:16px">arrow_back</span>Back to ' + (cat.kind === 'vehicle' ? 'Vehicle Pass Details' : window.EVENUEFY_PORTAL === 'coex' && cat.kind === 'invitee' ? 'Exhibitor Invitee' : window.EVENUEFY_PORTAL === 'coex' && cat.kind === 'ceremony' ? 'Inaugural & Dinner Invites' : 'Badge Details') + '</a>' +
     '<h1 class="page-title">Co-Exhibitors &amp; Aggregators · ' + esc(cat.name) + '</h1>' +
     '<p class="page-sub">Assign ' + (cat.kind === 'vehicle' ? 'vehicle pass' : cat.kind === 'ceremony' ? 'invite' : 'badge') + ' quota from your balance to co-exhibitors or aggregator companies, and manage the passes they fill.</p>' +
     '<div class="card"><h2 class="card-title">Assign Quota</h2>' + assignCard + '</div>' +
@@ -1980,12 +2001,12 @@ function openEInvite(passId) {
   cerOpenInvite(p, p.coexId && coexById(p.coexId) ? coexById(p.coexId).company : EVENT.exhibitor);
 }
 
-function viewCeremony() {
+/* T&C 9(y) entitlement breakdown — shown on the Inaugural / Dinner tabs of Badge Details */
+function cerEntitlementCard() {
   const e = sbCeremonySync(S);
-  const cats = S.categories.filter((c) => c.kind === 'ceremony');
   const r = e.rates;
   const line = (label, sub, a, b) => '<tr><td><span class="td-strong">' + label + '</span>' + (sub ? '<span class="td-sub">' + sub + '</span>' : '') + '</td><td class="num">' + a + '</td><td class="num">' + b + '</td></tr>';
-  const basis = '<div class="card"><div class="card-head-row"><h2 class="card-title">Entitlement — T&amp;C clause 9(y)</h2>' +
+  return '<div class="card"><div class="card-head-row"><h2 class="card-title">Entitlement — T&amp;C clause 9(y)</h2>' +
       '<span class="result-count">updates automatically with stall allotment, co-exhibitors and sponsorship</span></div>' +
     '<div class="tablewrap"><table class="grid"><tr><th>Basis</th><th>Inaugural</th><th>Dinner</th></tr>' +
     line('Space booked', e.sqm ? e.sqm + ' sq.m → ' + e.blocks + ' block(s) of 50 sq.m × ' + r.inaugPer50 + ' + ' + r.dinnerPer50 : 'No hall / chalet space allotted yet',
@@ -1996,30 +2017,6 @@ function viewCeremony() {
     (e.sponsor.names.length ? line('Sponsorship', esc(e.sponsor.names.join(', ')) + ' — additional invites', e.sponsor.inaug, e.sponsor.dinner) : '') +
     '<tr><td class="td-strong">Total entitlement</td><td class="num td-strong">' + e.inaug + '</td><td class="num td-strong">' + e.dinner + '</td></tr>' +
     '</table></div></div>';
-  return '<h1 class="page-title">Inaugural Function &amp; Dinner Invites</h1>' +
-    '<p class="page-sub">Nominate the delegates who will attend the Inaugural Function (' + esc(SB_CER_EVENT.inaug.when) + ') and the Networking Dinner. Every nomination — yours or a co-exhibitor’s — is confirmed only after the nodal officer approves it; the nominee then receives a personal e-invite.</p>' +
-    '<div class="note green"><b class="title">Each exhibitor booking up to 50 sq.m receives 2 inaugural invites and 1 dinner invite</b>' +
-      'The entitlement increases pro-rata for every additional 50 sq.m. Each indirect / co-exhibitor receives 1 inaugural and 1 dinner invite on a complimentary basis; Startup Zone pod holders receive 1 + 1.</div>' +
-    basis +
-    '<div class="card section-gap"><div class="card-head-row"><h2 class="card-title">Listing View</h2></div>' +
-    '<div class="tablewrap"><table class="grid">' +
-    '<tr><th>No.</th><th>Invite</th><th>Entitlement</th><th>Paid</th><th>Total</th><th>Balance</th><th>Action</th></tr>' +
-    cats.map((c, i) => catRow(c, i, 'Co-Exhibitor / Aggregator')).join('') +
-    '</table></div></div>' + inviteeApprovalCard('ceremony') + footerTools();
-}
-
-function viewInvitee() {
-  const cats = S.categories.filter((c) => c.kind === 'invitee');
-  return '<h1 class="page-title">Exhibitor Invitee Details</h1>' +
-    '<p class="page-sub">Invitee passes for your guests. Registration is date-wise for each event day and every invitee pass is a <b>single-day pass — each selected date consumes 1 quota</b>. Every invitee entry — yours or a co-exhibitor’s — is confirmed only after the nodal officer approves it.</p>' +
-    '<div class="note green"><b class="title">Auto-allocated on space booking</b>' +
-    'On confirmation of your space booking, Exhibitor Invitee category passes were automatically allocated to you. ' +
-    'Badge registrations are <b>date-wise</b> — each invitee selects entry date(s): 11th, 12th &amp; 13th Feb 2027. Invitee passes are single-day passes: selecting 2 dates consumes 2 quota.</div>' +
-    '<div class="card"><div class="card-head-row"><h2 class="card-title">Listing View</h2></div>' +
-    '<div class="tablewrap"><table class="grid">' +
-    '<tr><th>No.</th><th>Category Name</th><th>Area Wise (Total)</th><th>Paid</th><th>Total Badges</th><th>Balance</th><th>Action</th></tr>' +
-    cats.map((c, i) => catRow(c, i)).join('') +
-    '</table></div></div>' + inviteeApprovalCard() + footerTools();
 }
 
 /* ============================================================
