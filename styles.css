@@ -1201,3 +1201,17 @@ table.grid.bd-qtable th, table.grid.bd-qtable td { padding: 10px 10px; }
 .bd-buy-sum .tot b { color: var(--blue); }
 @media (max-width: 900px) { .bd-stats { grid-template-columns: repeat(2, 1fr); } .bd-qrow { grid-template-columns: repeat(3, 1fr); } }
 .bd-tabs { overflow-y: hidden; scrollbar-width: thin; }
+.bd-qrow.three { grid-template-columns: repeat(3, 1fr); }
+.bd-paidnote { display: flex; align-items: center; gap: 8px; margin: 12px 0; padding: 10px 12px; border-radius: 10px; background: #FDF3E1; color: #8A5A00; font-size: 0.84rem; font-weight: 600; }
+.bd-paidnote .material-symbols-outlined { font-size: 20px; }
+.bd-dash { color: var(--muted); }
+.bd-nolimit { display: inline-block; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; color: #8A5A00; background: #FDF3E1; border-radius: 6px; padding: 2px 8px; white-space: nowrap; }
+.bd-icos { display: flex; gap: 6px; }
+.bd-ico { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: #fff; display: grid; place-items: center; cursor: pointer; color: #4A5568; padding: 0; }
+.bd-ico:hover { border-color: var(--blue); color: var(--blue); background: #F5F8FE; }
+.bd-ico .material-symbols-outlined { font-size: 18px; }
+.bd-ico.pri { background: var(--blue); border-color: var(--blue); color: #fff; }
+.bd-ico.pri:hover { background: #2450B4; color: #fff; }
+.bd-ico.buy { color: #A86A06; border-color: #F1D7A6; background: #FFF9EE; }
+.bd-ico.off { opacity: 0.35; cursor: not-allowed; }
+.bd-fixed { padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px; background: #F8FAFD; font-weight: 700; font-size: 0.88rem; }
