@@ -42,8 +42,10 @@ const SEED = {
     { id: 'cat_addl',     kind: 'badge',   name: 'Additional Exhibitor Badges',   free: 0,   paid: 5 },
     { id: 'cat_contr',    kind: 'badge',   name: 'Exhibitor - Contractor Badges', free: 100, paid: 0 },
     { id: 'cat_invitee',  kind: 'invitee', name: 'Exhibitor Invitee',             free: 30,  paid: 0 },
-    { id: 'cat_veh',      kind: 'vehicle', name: 'Vehicle Pass',                  free: 2,   paid: 0 },
-    { id: 'cat_veh12',    kind: 'vehicle', name: 'Vehicle Pass (Above 12 Seater)',free: 0,   paid: 2 },
+    // T&C 9(r): complimentary P-6 car pass per 50 sq.m; VIP car & bus passes are paid per vehicle, per day
+    { id: 'cat_veh',      kind: 'vehicle', name: 'Car Pass · P-6 Parking',        free: 2,   paid: 0 },
+    { id: 'cat_vip',      kind: 'vehicle', name: 'VIP Car Pass · Exhibition Area',free: 0,   paid: 0 },
+    { id: 'cat_veh12',    kind: 'vehicle', name: 'Bus Pass · 9–18 Seater',        free: 0,   paid: 0 },
     // T&C 9(y) — counts come from sbCeremonySync (space booked + co-exhibitors + sponsorship)
     { id: 'cat_inaug',    kind: 'ceremony', name: 'Inaugural Function Invite',   free: 0,   paid: 0 },
     { id: 'cat_dinner',   kind: 'ceremony', name: 'Dinner Invite',               free: 0,   paid: 0 },
@@ -93,6 +95,8 @@ function load() {
       parsed.spaceRequirements.forEach((r) => { if (r.setupType === 'Chalet') r.sqm = null; });
       // Migration: inaugural & dinner invite categories (T&C 9(y))
       sbCeremonySync(parsed);
+      // Migration: vehicle passes per T&C 9(r)
+      vehMigrate(parsed);
       return parsed;
     }
   } catch (e) { /* storage unavailable — run in-memory */ }
@@ -1575,9 +1579,9 @@ function passContextCheck(catId, coexId) {
     if (bal <= 0) { toast('No quota balance left for this co-exhibitor in this category.', 'error'); return -1; }
     return bal;
   }
+  if (vehPaidTicket(cat) && !coexId) return Infinity; // VIP car / bus: paid per vehicle — no quota
   const bal = exhibitorBalance(catId);
-  // Vehicle passes: additional PAID passes can always be purchased beyond quota.
-  if (bal <= 0 && cat.kind === 'vehicle') return 0;
+  if (bal <= 0 && cat.kind === 'vehicle') { toast('Complimentary car passes are used up — add a VIP Car Pass (paid) instead.', 'error'); return -1; }
   if (bal <= 0) { toast('No balance left in this category. Reduce co-exhibitor quota or contact the organiser.', 'error'); return -1; }
   return bal;
 }
@@ -1752,7 +1756,7 @@ function openViewPasses(catId, coexId) {
   const list = S.passes.filter((p) => p.catId === catId && (coexId ? p.coexId === coexId : true));
   const isVeh = cat.kind === 'vehicle';
   const head = isVeh
-    ? '<tr><th>Sr.</th><th>Driver</th><th>Vehicle No.</th><th>Seater</th><th>Filled By</th><th>Status</th><th>Created</th></tr>'
+    ? '<tr><th>Sr.</th><th>Driver</th><th>Vehicle No.</th><th>Vehicle / Fee</th><th>Filled By</th><th>Status</th><th>Created</th></tr>'
     : '<tr><th>Sr.</th><th>Name</th><th>Email / Mobile</th>' + (cat.kind === 'invitee' ? '<th>Event Dates</th>' : cat.kind === 'ceremony' ? '<th>Designation / Invite No.</th>' : '') + '<th>Filled By</th><th>Status</th><th>Created</th></tr>';
   const rows = list.map((p, i) => {
     const by = p.coexId ? esc(coexById(p.coexId).company) : 'Exhibitor';
@@ -1761,7 +1765,9 @@ function openViewPasses(catId, coexId) {
       return '<tr><td class="num">' + (i + 1) + '</td>' +
         '<td><span class="td-strong">' + esc(p.data.driverName) + '</span><span class="td-sub">' + esc(p.data.driverMobile) + '</span></td>' +
         '<td>' + esc(p.data.vehicleNo) + '</td>' +
-        '<td>' + esc(p.data.seater) + ' Seater' + (p.amount ? ' · ' + money(p.amount) : ' · Complimentary') + '</td>' +
+        '<td>' + (p.data.seats ? esc(p.data.seats) + ' Seater' : p.data.seater ? esc(p.data.seater) + ' Seater' : 'Car') +
+          (p.amount ? ' · ' + bbFmt(p.amount, p.currency || 'INR') : ' · Complimentary') +
+          (p.data.dates && p.data.dates.length ? '<span class="td-sub">' + esc(p.data.dates.join(', ')) + '</span>' : '') + '</td>' +
         '<td>' + by + '</td><td>' + st + '</td><td class="num">' + esc(p.createdAt) + '</td></tr>';
     }
     return '<tr><td class="num">' + (i + 1) + '</td>' +
@@ -2017,35 +2023,193 @@ function viewInvitee() {
 }
 
 /* ============================================================
-   VIEW · Passes › Vehicle Pass Details
+   VIEW · Passes › Vehicle Pass Details — T&C clause 9(r)
+   · Car Pass (P-6 parking)  — complimentary: 1 per 50 sq.m booked (pro-rata),
+                               parking at P-6 + complimentary shuttle to the Business Zone
+   · VIP Car Pass            — paid, one-day validity, access to the Exhibition Area,
+                               limited (first come, first served): INR 5,000 / USD 80 + GST
+   · Bus Pass (9–18 seater)  — paid, one-day validity: INR 7,000 / USD 150 + GST
+   Paid passes have no quota — the fee is paid per vehicle while adding it (no cart).
    ============================================================ */
+const VEH_RATE = { cat_vip: { INR: 5000, USD: 80 }, cat_veh12: { INR: 7000, USD: 150 } };
+const vehPaidTicket = (c) => c && c.kind === 'vehicle' && !!VEH_RATE[c.id];
+function vehQuote(catId, days) {
+  const cur = bbCur();
+  const rate = VEH_RATE[catId][cur];
+  const base = rate * days;
+  const gst = Math.round(base * BADGE_GST * 100) / 100;
+  return { cur: cur, rate: rate, days: days, base: base, gst: gst, total: Math.round((base + gst) * 100) / 100 };
+}
+/* keep saved portals in step with clause 9(r): names, the VIP car pass, paid tickets carry no quota */
+function vehMigrate(state) {
+  const cats = state.categories || [];
+  const car = cats.find((c) => c.id === 'cat_veh');
+  if (car) car.name = 'Car Pass · P-6 Parking';
+  if (!cats.some((c) => c.id === 'cat_vip')) {
+    const at = cats.findIndex((c) => c.id === 'cat_veh');
+    cats.splice(at >= 0 ? at + 1 : cats.length, 0, { id: 'cat_vip', kind: 'vehicle', name: 'VIP Car Pass · Exhibition Area', free: 0, paid: 0 });
+  }
+  const bus = cats.find((c) => c.id === 'cat_veh12');
+  if (bus) { bus.name = 'Bus Pass · 9–18 Seater'; bus.free = 0; bus.paid = 0; }
+}
+
 function viewVehicle() {
   const cats = S.categories.filter((c) => c.kind === 'vehicle');
+  const freeCats = cats.filter((c) => !vehPaidTicket(c));
+  const paidCats = cats.filter(vehPaidTicket);
+  const catUsed = (c) => usedByExhibitor(c.id) + sumUnits(S.passes.filter((p) => p.catId === c.id && p.coexId && passLive(p)));
+  const sum = (list, f) => list.reduce((a, c) => a + f(c), 0);
+  const F = { quota: sum(freeCats, (c) => c.free), used: sum(freeCats, catUsed) };
+  F.bal = F.quota - F.used;
+  const P = paidPassStats(paidCats.map((c) => c.id));
+  const bookedSqm = (S.stalls || []).reduce((a, s) => a + Number(s.area || s.sqm || 0), 0);
+  const sel = cats.some((c) => c.id === window.__vhCat) ? window.__vhCat : '';
+  const selCat = sel ? catById(sel) : null;
+  const cur = bbCur();
+  const fee = (c) => bbFmt(VEH_RATE[c.id][cur], cur) + ' + 18% GST per day';
+  const setCat = (id) => 'window.__vhCat=\'' + id + '\';render()';
+
+  const stat = (cls, icon, label, val, sub) => '<div class="bd-stat ' + cls + '"><span class="material-symbols-outlined">' + icon + '</span>' +
+    '<div><small>' + label + '</small><b>' + val + '</b>' + (sub ? '<em>' + sub + '</em>' : '') + '</div></div>';
+  const summary = '<div class="bd-stats">' +
+    stat('free', 'local_parking', 'Complimentary Car Passes', F.quota, bookedSqm ? '1 per 50 sq.m · ' + bookedSqm.toLocaleString('en-IN') + ' sq.m booked' : 'Released on stall allotment') +
+    stat('used', 'directions_car', 'Issued', F.used, 'against complimentary quota') +
+    stat('bal', 'confirmation_number', 'Balance', F.bal, 'complimentary car passes left') +
+    stat('paid', 'payments', 'Paid Passes', P.n, P.n ? bbFmt(P.amount, cur) + ' paid · incl. GST' : 'VIP car & bus — paid per vehicle') +
+  '</div>';
+
+  const tab = (id, label, count, tag) => '<button class="bd-tab' + (sel === id ? ' on' : '') + '" onclick="' + setCat(id) + '">' +
+    '<span class="bd-tab-l">' + esc(label) + (tag || '') + '</span><span class="bd-tab-n">' + count + '</span></button>';
+  const tabs = '<div class="bd-tabs" role="tablist">' +
+    tab('', 'All Vehicle Passes', (F.used + P.n) + ' issued') +
+    cats.map((c) => vehPaidTicket(c)
+      ? tab(c.id, c.name, paidPassStats([c.id]).n + ' paid', '<span class="bd-tag paid">Paid</span>')
+      : tab(c.id, c.name, catUsed(c) + ' / ' + c.free)).join('') +
+  '</div>';
+
+  const btn = (icon, label, fn, cls) => '<button class="btn ' + (cls || 'btn-outline') + ' btn-sm" onclick="' + fn + '"><span class="material-symbols-outlined" style="font-size:16px">' + icon + '</span>' + label + '</button>';
+  const ico = (icon, title, fn, cls) => '<button class="bd-ico' + (cls ? ' ' + cls : '') + '" title="' + title + '" aria-label="' + title + '" onclick="' + fn + '"><span class="material-symbols-outlined">' + icon + '</span></button>';
+  const box = (k, v, cls) => '<div class="bd-q' + (cls ? ' ' + cls : '') + '"><small>' + k + '</small><b>' + v + '</b></div>';
+  const vipCat = paidCats.find((c) => c.id === 'cat_vip');
+  let panel;
+  if (selCat && vehPaidTicket(selCat)) {
+    const c = selCat;
+    const s = paidPassStats([c.id]);
+    const isVip = c.id === 'cat_vip';
+    panel = '<div class="bd-panel">' +
+      '<div class="bd-qrow three">' + box('Paid passes', s.n) + box('Amount paid (incl. GST)', bbFmt(s.amount, cur)) + box('Fee', fee(c)) + '</div>' +
+      '<div class="bd-paidnote"><span class="material-symbols-outlined">' + (isVip ? 'stars' : 'airport_shuttle') + '</span>' +
+        (isVip ? 'VIP car passes give access to the Exhibition Area. One-day validity, limited — first come, first served. Pay per vehicle while adding it.'
+          : 'Passes for 09–18 seater buses. One-day validity. Pay per vehicle while adding it.') + ' (T&amp;C 9(r))</div>' +
+      '<div class="bd-panel-f"><span class="result-count">' + s.n + ' paid pass' + (s.n === 1 ? '' : 'es') + ' issued</span>' +
+        '<div class="bd-actbar">' + btn('add', 'Add Vehicle · Pay ' + bbFmt(vehQuote(c.id, 1).total, cur) + '/day', 'openVehicleForm(\'' + c.id + '\', null)', 'btn-primary') +
+          btn('list', 'View Passes', 'openViewPasses(\'' + c.id + '\', null)') + '</div></div></div>';
+  } else if (selCat) {
+    const c = selCat;
+    const used = catUsed(c);
+    const bal = c.free - used;
+    const pct = c.free ? Math.min(100, Math.round((used / c.free) * 100)) : 0;
+    panel = '<div class="bd-panel">' +
+      '<div class="bd-qrow three">' + box('Complimentary quota', c.free) + box('Issued', used) + box('Balance', bal, 'bal' + (bal <= 0 && c.free ? ' zero' : '')) + '</div>' +
+      '<div class="bd-prog big" title="' + used + ' of ' + c.free + ' issued"><i style="width:' + pct + '%"></i></div>' +
+      '<div class="bd-panel-f"><span class="result-count">Parking at P-6, Air Force Station Yelahanka (domestic area) with complimentary shuttle to the Business Zone' +
+          (bal <= 0 && c.free && vipCat ? ' · quota used up — add a <a href="javascript:void 0" onclick="' + setCat(vipCat.id) + '">' + esc(vipCat.name) + '</a> (paid)' : '') + '</span>' +
+        '<div class="bd-actbar">' +
+          (bal > 0 ? btn('add', 'Add Vehicle', 'openVehicleForm(\'' + c.id + '\', null)', 'btn-primary') : '') +
+          btn('list', 'View Passes', 'openViewPasses(\'' + c.id + '\', null)') +
+          btn('group_add', 'Co-Exhibitor / Aggregator', 'location.hash=\'#/passes/vehicle/coex/' + c.id + '\'') +
+        '</div></div></div>';
+  } else {
+    const dash = '<span class="bd-dash">—</span>';
+    const row = (c) => {
+      if (vehPaidTicket(c)) {
+        const s = paidPassStats([c.id]);
+        return '<tr class="bd-row" onclick="' + setCat(c.id) + '" title="Open ' + esc(c.name) + '">' +
+          '<td><b>' + esc(c.name) + '</b><span class="bd-tag paid">Paid · 1 day</span><span class="td-sub">' + fee(c) + '</span></td>' +
+          '<td class="num">' + dash + '</td><td class="num">' + s.n + '</td><td>' + (s.n ? '<span class="td-sub" style="margin:0">' + bbFmt(s.amount, cur) + ' paid</span>' : '') + '</td>' +
+          '<td class="num"><span class="bd-nolimit">' + (c.id === 'cat_vip' ? 'Limited · FCFS' : 'No limit') + '</span></td>' +
+          '<td onclick="event.stopPropagation()"><div class="bd-icos">' +
+            ico('add', 'Add vehicle — pay ' + bbFmt(vehQuote(c.id, 1).total, cur) + ' per day', 'openVehicleForm(\'' + c.id + '\', null)', 'pri') +
+            ico('list', 'View passes', 'openViewPasses(\'' + c.id + '\', null)') +
+          '</div></td></tr>';
+      }
+      const used = catUsed(c);
+      const bal = c.free - used;
+      const pct = c.free ? Math.min(100, Math.round((used / c.free) * 100)) : 0;
+      return '<tr class="bd-row" onclick="' + setCat(c.id) + '" title="Open ' + esc(c.name) + '">' +
+        '<td><b>' + esc(c.name) + '</b><span class="bd-tag free">Complimentary</span><span class="td-sub">1 per 50 sq.m booked · shuttle to Business Zone</span></td>' +
+        '<td class="num">' + c.free + '</td><td class="num">' + used + '</td>' +
+        '<td style="width:18%"><div class="bd-prog" title="' + pct + '% issued"><i style="width:' + pct + '%"></i></div></td>' +
+        '<td class="num"><span class="bd-bal' + (bal <= 0 && c.free ? ' zero' : '') + '">' + bal + '</span></td>' +
+        '<td onclick="event.stopPropagation()"><div class="bd-icos">' +
+          (bal > 0 ? ico('add', 'Add vehicle', 'openVehicleForm(\'' + c.id + '\', null)', 'pri') : ico('add', 'Quota used up', 'void 0', 'off')) +
+          ico('list', 'View passes', 'openViewPasses(\'' + c.id + '\', null)') +
+          ico('group_add', 'Co-exhibitor / aggregator quota', 'location.hash=\'#/passes/vehicle/coex/' + c.id + '\'') +
+        '</div></td></tr>';
+    };
+    panel = '<div class="bd-panel"><div class="tablewrap"><table class="grid bd-qtable">' +
+      '<tr><th>Pass</th><th class="num">Quota</th><th class="num">Issued</th><th>Usage</th><th class="num">Balance</th><th>Actions</th></tr>' +
+      freeCats.map(row).join('') + paidCats.map(row).join('') +
+    '</table></div>' +
+    '<p class="bd-note"><span class="material-symbols-outlined">gavel</span>T&amp;C clause 9(r): exhibitors booking up to 50 sq.m get 1 car pass for P-6 parking, pro-rata for every additional 50 sq.m. ' +
+      'Only VIP car passes (paid, one-day, limited) can enter the Exhibition Area; 09–18 seater buses need a paid bus pass. Prices exclude GST.</p></div>';
+  }
+
+  /* ---- vehicles listing ---- */
+  let list = S.passes.filter((p) => cats.some((c) => c.id === p.catId));
+  if (sel) list = list.filter((p) => p.catId === sel);
+  const rows = list.map((p) => {
+    const c = catById(p.catId) || {};
+    const paid = p.amount > 0 || vehPaidTicket(c);
+    const days = (p.data.dates && p.data.dates.length) ? p.data.dates.join(', ') : 'All event days';
+    return '<tr>' +
+      '<td><span class="td-strong">' + esc(p.data.driverName || '') + '</span><span class="td-sub">' + esc(p.data.driverMobile || '') + '</span></td>' +
+      '<td><b>' + esc(p.data.vehicleNo || '') + '</b>' + (p.data.seats ? '<span class="td-sub">' + esc(p.data.seats) + ' seater</span>' : '') + '</td>' +
+      '<td>' + esc(c.name || '') + '<span class="td-sub" style="font-style:italic">' + esc(p.coexId && coexById(p.coexId) ? coexById(p.coexId).company : EVENT.exhibitor) + '</span></td>' +
+      '<td><span class="bd-tag ' + (paid ? 'paid' : 'free') + '" style="margin:0">' + (paid ? 'Paid' : 'Complimentary') + '</span>' +
+        (p.amount ? '<span class="td-sub">' + bbFmt(p.amount, p.currency || cur) + (p.orderNo ? ' · ' + esc(p.orderNo) : '') + '</span>' : '') + '</td>' +
+      '<td>' + esc(days) + '</td>' +
+      '<td>' + passStatusPill(p) + '</td>' +
+      '<td style="white-space:nowrap">' + esc(p.createdAt || '') + '</td></tr>';
+  }).join('') || '<tr><td colspan="7"><div class="empty" style="padding:26px 10px"><span class="material-symbols-outlined">directions_car</span>' +
+    '<h3>No vehicle passes yet</h3><p>Add a vehicle against your complimentary car passes, or as a paid VIP car / bus pass.</p></div></td></tr>';
+  const listing = '<div class="card section-gap"><div class="card-head-row" style="margin-bottom:10px"><div><h2 class="card-title" style="margin:0">Vehicle Passes</h2>' +
+      '<span class="result-count">' + (selCat ? esc(selCat.name) : 'All vehicle passes') + ' · ' + list.length + ' vehicle' + (list.length === 1 ? '' : 's') + '</span></div></div>' +
+    '<div class="tablewrap"><table class="grid"><tr><th>Driver</th><th>Vehicle No.</th><th>Pass</th><th>Pass Type</th><th>Valid On</th><th>Status</th><th>Created</th></tr>' + rows + '</table></div></div>';
+
   return '<h1 class="page-title">Vehicle Pass Details</h1>' +
-    '<p class="page-sub">Vehicle parking passes. 6-seater ' + money(3500) + ' · 12-seater ' + money(5000) + ' when purchased beyond complimentary quota.</p>' +
-    '<div class="card"><div class="card-head-row"><h2 class="card-title">Vehicle Pass List</h2></div>' +
-    '<div class="tablewrap"><table class="grid">' +
-    '<tr><th>No.</th><th>Category Name</th><th>Area Wise (Free)</th><th>Paid</th><th>Total Passes</th><th>Balance</th><th>Action</th></tr>' +
-    cats.map((c, i) => catRow(c, i, 'Co-Exhibitor / Aggregator')).join('') +
-    '</table></div></div>' + footerTools();
+    '<p class="page-sub">Complimentary car passes come with your booked space (T&amp;C 9(r)). VIP car and bus passes are paid per vehicle, per day.</p>' +
+    summary + '<div class="card bd-quota">' + tabs + panel + '</div>' + listing + footerTools();
 }
 
 /* ----- Vehicle pass application form ----- */
 function openVehicleForm(catId, coexId) {
   const cat = catById(catId);
   if (passContextCheck(catId, coexId) === -1) return;
-  // Complimentary if free balance remains in this context; else paid via cart.
-  const ctxFreeLeft = coexId
-    ? Math.max(0, quotaFor(coexId, catId) - quotaUsed(coexId, catId)) // co-ex quota comes from free pool
-    : Math.max(0, cat.free - S.passes.filter((p) => p.catId === catId && p.amount === 0).length);
-  const payNote = ctxFreeLeft > 0
-    ? '<div class="note green" style="margin-top:0"><b class="title">Complimentary pass available</b>This application will use a complimentary pass from the quota. No payment needed.</div>'
-    : '<div class="note amber" style="margin-top:0"><b class="title">Paid pass</b>Complimentary quota exhausted — this pass will be added to the cart for payment (6-seater ' + money(3500) + ' / 12-seater ' + money(5000) + ').</div>';
-  const onBehalf = coexId ? '<div class="note" style="margin-top:0"><b class="title">On behalf of ' + esc(coexById(coexId).company) + '</b>Payment (if any) is added to the Main Exhibitor’s cart.</div>' : '';
+  const paid = vehPaidTicket(cat) && !coexId;
+  const isBus = catId === 'cat_veh12';
+  const cur = bbCur();
+  const head = paid
+    ? '<div class="note amber" style="margin-top:0"><b class="title">Paid pass · one-day validity</b>' +
+        bbFmt(VEH_RATE[catId][cur], cur) + ' + 18% GST per day (T&amp;C 9(r)). Select the day(s) below — the pass is issued as soon as the payment goes through.' +
+        (catId === 'cat_vip' ? ' VIP car passes are limited and given on a first come, first served basis.' : '') + '</div>'
+    : '<div class="note green" style="margin-top:0"><b class="title">Complimentary car pass</b>Uses one pass from your complimentary quota — parking at P-6 with shuttle to the Business Zone. No payment needed.</div>';
+  const onBehalf = coexId ? '<div class="note" style="margin-top:0"><b class="title">On behalf of ' + esc(coexById(coexId).company) + '</b>This pass uses the quota assigned to this company.</div>' : '';
+  const dayPick = paid
+    ? '<div class="field full"><label>Valid on <span class="req">*</span></label><div class="checks">' +
+        EVENT.eventDays.map((d, i) => '<label class="check-item" id="vdChk' + i + '" onclick="vehDayToggle(' + i + ')"><input type="checkbox" id="vd' + i + '" value="' + d + '">' + d + '</label>').join('') +
+      '</div><div class="error" id="vdErr" style="display:none;color:var(--red);font-size:0.75rem;font-weight:600;margin-top:4px">Select at least one day</div></div>' +
+      '<div class="field full"><label>Payment</label><div class="bd-buy-sum" id="vehSum" style="margin-top:0"></div></div>' +
+      '<div class="field"><label>Payment method</label><select id="vPayMethod"><option>Card</option><option>UPI</option><option>Net Banking</option></select></div>'
+    : '';
+  const seats = isBus
+    ? '<div class="field"><label>Seating capacity <span class="req">*</span></label><select id="vSeats">' +
+        Array.from({ length: 10 }, (_, k) => 9 + k).map((n) => '<option value="' + n + '">' + n + ' seater</option>').join('') + '</select></div>'
+    : '';
 
-  openModal('Vehicle Pass Application · ' + esc(cat.name),
-    onBehalf + payNote +
-    '<form id="vehForm" onsubmit="return submitVehicle(event, \'' + catId + '\', \'' + (coexId || '') + '\', ' + (ctxFreeLeft > 0) + ')" novalidate>' +
+  openModal('Add Vehicle · ' + esc(cat.name),
+    onBehalf + head +
+    '<form id="vehForm" onsubmit="return submitVehicle(event, \'' + catId + '\', \'' + (coexId || '') + '\')" novalidate>' +
     '<div class="form-grid">' +
       '<div class="field"><label>Driver Name <span class="req">*</span></label><input type="text" id="vName"><div class="error"></div></div>' +
       '<div class="field"><label>Driver Mobile <span class="req">*</span></label><input type="tel" id="vMobile" placeholder="10-digit mobile"><div class="error"></div></div>' +
@@ -2053,28 +2217,43 @@ function openVehicleForm(catId, coexId) {
       '<div class="field"><label>Email <span class="req">*</span></label><input type="email" id="vEmail"><div class="error"></div></div>' +
       '<div class="field"><label>Driver Licence Number <span class="req">*</span></label><input type="text" id="vDlNo"><div class="error"></div></div>' +
       '<div class="field"><label>Company Name</label><input type="text" id="vCompany" value="' + esc(coexId ? coexById(coexId).company : EVENT.exhibitor) + '" readonly></div>' +
+      seats +
       '<div class="field"><label>Upload Driving Licence <span class="req">*</span></label><input type="file" id="vDlFile" accept="image/*,.pdf"><div class="error"></div></div>' +
       '<div class="field"><label>Upload Delivery Challan Photo <span class="req">*</span></label><input type="file" id="vChallan" accept="image/*,.pdf"><div class="error"></div></div>' +
-      '<div class="field full"><label>Seater Type <span class="req">*</span></label>' +
-        '<div class="radio-cards">' +
-          '<label class="radio-card selected" id="seat6" onclick="setSeater(6)"><input type="radio" name="seater" value="6" checked><b>6 Seater</b><small>' + money(3500) + (ctxFreeLeft > 0 ? ' · complimentary for this pass' : '') + '</small></label>' +
-          '<label class="radio-card" id="seat12" onclick="setSeater(12)"><input type="radio" name="seater" value="12"><b>12 Seater</b><small>' + money(5000) + (ctxFreeLeft > 0 ? ' · complimentary for this pass' : '') + '</small></label>' +
-        '</div></div>' +
+      dayPick +
     '</div></form>',
     '<button class="btn btn-outline" onclick="closeModal()">Cancel</button>' +
-    '<button class="btn btn-primary" onclick="$(\'vehForm\').requestSubmit()"><span class="material-symbols-outlined">' + (ctxFreeLeft > 0 ? 'check' : 'shopping_cart') + '</span>' + (ctxFreeLeft > 0 ? 'Submit' : 'Submit & Add to Cart') + '</button>');
+    '<button class="btn btn-primary" id="vehSubmit" onclick="$(\'vehForm\').requestSubmit()"><span class="material-symbols-outlined">' + (paid ? 'payments' : 'check') + '</span>' +
+      (paid ? 'Pay &amp; Issue Pass' : 'Issue Complimentary Pass') + '</button>');
+  if (paid) vehCalc(catId);
+}
+function vehDays() { return EVENT.eventDays.filter((d, i) => $('vd' + i) && $('vd' + i).checked); }
+function vehDayToggle(i) {
+  setTimeout(() => {
+    $('vdChk' + i).classList.toggle('selected', $('vd' + i).checked);
+    const form = $('vehForm');
+    const m = form && form.getAttribute('onsubmit').match(/'(cat_[a-z0-9]+)'/);
+    if (m) vehCalc(m[1]);
+  }, 0);
+}
+function vehCalc(catId) {
+  const n = vehDays().length;
+  const q = vehQuote(catId, Math.max(1, n));
+  const el = $('vehSum');
+  if (el) el.innerHTML =
+    '<div><span>' + bbFmt(q.rate, q.cur) + ' × ' + n + ' day' + (n === 1 ? '' : 's') + '</span><b>' + (n ? bbFmt(q.base, q.cur) : '—') + '</b></div>' +
+    '<div><span>GST (18%)</span><b>' + (n ? bbFmt(q.gst, q.cur) : '—') + '</b></div>' +
+    '<div class="tot"><span>Pay now</span><b>' + (n ? bbFmt(q.total, q.cur) : 'Select day(s)') + '</b></div>';
+  const b = $('vehSubmit');
+  if (b) b.innerHTML = '<span class="material-symbols-outlined">payments</span>' + (n ? 'Pay ' + bbFmt(q.total, q.cur) + ' &amp; Issue Pass' : 'Pay &amp; Issue Pass');
 }
 
-function setSeater(n) {
-  $('seat6').classList.toggle('selected', n === 6);
-  $('seat12').classList.toggle('selected', n === 12);
-  document.querySelector('input[name="seater"][value="' + n + '"]').checked = true;
-}
-
-function submitVehicle(e, catId, coexId, isFree) {
+function submitVehicle(e, catId, coexId) {
   e.preventDefault();
   clearErrs();
   coexId = coexId || null;
+  const cat = catById(catId);
+  const paid = vehPaidTicket(cat) && !coexId;
   const name = $('vName').value.trim();
   const mobile = $('vMobile').value.trim();
   const vehNo = $('vVehNo').value.trim();
@@ -2082,7 +2261,7 @@ function submitVehicle(e, catId, coexId, isFree) {
   const dlNo = $('vDlNo').value.trim();
   const dlFile = $('vDlFile').files[0];
   const challan = $('vChallan').files[0];
-  const seater = document.querySelector('input[name="seater"]:checked').value;
+  const days = paid ? vehDays() : [];
   let ok = true;
   if (!name) { setErr('vName', 'Required'); ok = false; }
   if (!MOBILE_RE.test(mobile)) { setErr('vMobile', 'Enter a valid 10-digit mobile number'); ok = false; }
@@ -2092,32 +2271,39 @@ function submitVehicle(e, catId, coexId, isFree) {
   if (!dlNo) { setErr('vDlNo', 'Required'); ok = false; }
   if (!dlFile) { setErr('vDlFile', 'Upload the driving licence'); ok = false; }
   if (!challan) { setErr('vChallan', 'Upload the delivery challan photo'); ok = false; }
+  if (paid && !days.length) { $('vdErr').style.display = 'block'; ok = false; }
   if (!ok) return false;
   if (passContextCheck(catId, coexId) === -1) return false;
 
-  const amount = isFree ? 0 : (seater === '6' ? 3500 : 5000);
   const passId = uid('pass');
-  S.passes.push({
+  const pass = {
     id: passId, catId: catId, coexId: coexId,
     data: {
       driverName: name, driverMobile: mobile, vehicleNo: vehNo.toUpperCase(), email: email,
-      dlNumber: dlNo, dlFile: dlFile.name, challanFile: challan.name, seater: seater,
-      company: $('vCompany').value,
+      dlNumber: dlNo, dlFile: dlFile.name, challanFile: challan.name, company: $('vCompany').value,
+      seats: $('vSeats') ? $('vSeats').value : '', dates: days,
     },
-    status: isFree ? 'issued' : 'payment_pending',
-    amount: amount, createdAt: nowStr(),
-  });
-  if (!isFree) {
-    S.cart.push({
-      id: uid('cart'), type: 'vehicle', refId: passId,
-      label: 'Vehicle Pass — ' + seater + ' Seater (' + vehNo.toUpperCase() + ')',
-      sub: 'Driver: ' + name, amount: amount,
-    });
+    status: 'issued', amount: 0, createdAt: nowStr(),
+  };
+  let msg = 'Complimentary car pass issued for ' + vehNo.toUpperCase();
+  if (paid) {
+    // paid per vehicle — collected right here, no cart
+    const q = vehQuote(catId, days.length);
+    if (!S.orders) S.orders = [];
+    if (!S.seq.order) S.seq.order = 0;
+    const order = {
+      id: uid('order'), orderNo: sbNextOrderNo(S), type: 'vehicle',
+      label: cat.name + ' — ' + vehNo.toUpperCase(), sub: days.join(', ') + ' · ' + bbFmt(q.rate, q.cur) + '/day + 18% GST', refId: passId,
+      amount: q.total, currency: q.cur, status: 'success', method: $('vPayMethod') ? $('vPayMethod').value : 'Card', mode: 'online',
+      paidAt: nowStr(), paidAtIso: new Date().toISOString(), payer: EVENT.exhibitor,
+    };
+    S.orders.push(order);
+    Object.assign(pass, { amount: q.total, currency: q.cur, orderNo: order.orderNo });
+    msg = 'Payment of ' + bbFmt(q.total, q.cur) + ' received (' + order.orderNo + ') — ' + cat.name + ' issued for ' + vehNo.toUpperCase();
   }
+  S.passes.push(pass);
   save(); closeModal(); render();
-  toast(isFree
-    ? 'Complimentary vehicle pass issued for ' + vehNo.toUpperCase()
-    : 'Vehicle pass added to cart — complete payment to issue it.', 'success');
+  toast(msg, 'success');
   return false;
 }
 
